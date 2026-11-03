@@ -1,0 +1,67 @@
+# ESKIMO SMART GESTÃO — produção em VPS (servidor único).
+# Uso (via deploy/eskimo.sh): docker compose -p eskimo -f deploy/docker-compose.prod.yml --env-file /opt/eskimo/config.env up -d --build
+# Somente o Caddy (HTTPS) fica exposto à internet; banco e aplicação ficam na rede interna.
+name: eskimo
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eskimo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
+      POSTGRES_DB: eskimo
+      TZ: America/Sao_Paulo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eskimo -d eskimo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [internal]
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3333"
+      HOST: 0.0.0.0
+      DATABASE_URL: postgres://eskimo:${POSTGRES_PASSWORD}@db:5432/eskimo
+      APP_ORIGIN: https://${DOMAIN:?defina DOMAIN}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?defina APP_ENCRYPTION_KEY}
+      TRUST_PROXY: "true"
+      WEB_DIST_DIR: /app/web
+      LOG_LEVEL: info
+      LOGIN_RATE_LIMIT: "10"
+      TZ: America/Sao_Paulo
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [internal]
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
