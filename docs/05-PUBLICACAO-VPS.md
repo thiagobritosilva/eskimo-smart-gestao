@@ -6,6 +6,11 @@ Tudo é executado no **terminal do navegador** do painel da Hostinger (VPS → *
 Nenhuma senha precisa ser enviada a ninguém: o instalador gera as senhas internas sozinho.
 
 ## Antes de começar
+0. **Domínio `eskimovicentepires.tech`** — no painel onde o domínio está registrado (Hostinger → Domínios → DNS / Zona DNS):
+   - crie (ou altere) o registro **A** com nome **`@`** apontando para **`187.41.116.28`** (TTL 300 ou o menor disponível);
+   - **apague** registros **A** ou **AAAA** antigos do `@` que apontem para outro lugar (ex.: página de estacionamento);
+   - aguarde a propagação (normalmente minutos; pode levar algumas horas).
+   Na instalação, quando perguntado o endereço, digite `eskimovicentepires.tech`.
 1. **Troque a senha de root** se ela já foi compartilhada em algum lugar (painel → VPS → Configurações).
 2. No painel da Hostinger, se houver **firewall** ativo para a VPS, libere as portas **80** e **443** (além da 22).
 3. O código precisa estar no seu repositório **privado** do GitHub (`USUARIO/REPOSITORIO` abaixo).
