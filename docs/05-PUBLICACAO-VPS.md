@@ -17,7 +17,7 @@ Nenhuma senha precisa ser enviada a ninguém: o instalador gera as senhas intern
    Na instalação, quando perguntado o endereço, digite `eskimovicentepires.tech`.
 1. **Troque a senha de root** se ela já foi compartilhada em algum lugar (painel → VPS → Configurações).
 2. No painel da Hostinger, se houver **firewall** ativo para a VPS, libere as portas **80** e **443** (além da 22).
-3. O código precisa estar no seu repositório **privado** do GitHub (`USUARIO/REPOSITORIO` abaixo).
+3. O código precisa estar no seu repositório **privado** do GitHub (`thiagobritosilva/eskimo-smart-gestao` abaixo).
 
 ## Passo 1 — gerar a chave de implantação na VPS
 Cole no terminal:
@@ -33,10 +33,10 @@ No GitHub: repositório → **Settings → Deploy keys → Add deploy key**.
 Título: `VPS Hostinger`. Cole a chave. **Não** marque *Allow write access*. Salve.
 
 ## Passo 3 — baixar o código e instalar
-Troque `USUARIO/REPOSITORIO` e cole:
+Troque `thiagobritosilva/eskimo-smart-gestao` e cole:
 
 ```bash
-GIT_SSH_COMMAND="ssh -i ~/.ssh/eskimo_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git clone git@github.com:USUARIO/REPOSITORIO.git /opt/eskimo/app && bash /opt/eskimo/app/deploy/install.sh git@github.com:USUARIO/REPOSITORIO.git
+GIT_SSH_COMMAND="ssh -i ~/.ssh/eskimo_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git clone git@github.com:thiagobritosilva/eskimo-smart-gestao.git /opt/eskimo/app && bash /opt/eskimo/app/deploy/install.sh git@github.com:thiagobritosilva/eskimo-smart-gestao.git
 ```
 
 O instalador vai perguntar:
