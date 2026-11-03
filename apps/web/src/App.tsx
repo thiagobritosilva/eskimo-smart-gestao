@@ -1,0 +1,62 @@
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { useAuth } from './lib/auth';
+import { AppLayout } from './layout/AppLayout';
+import { Spinner } from './components/ui';
+import { LoginPage } from './pages/LoginPage';
+import { ForcePasswordChangePage } from './pages/ForcePasswordChangePage';
+import { DashboardPage } from './pages/DashboardPage';
+import { UsersPage } from './pages/UsersPage';
+import { AuditPage } from './pages/AuditPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { ProfilePage } from './pages/ProfilePage';
+import { ComingSoonPage } from './pages/ComingSoonPage';
+
+function Protected({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  if (loading) return <div className="flex min-h-screen items-center justify-center"><Spinner className="h-8 w-8" /></div>;
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (user.mustChangePassword) return <ForcePasswordChangePage />;
+  return <>{children}</>;
+}
+
+function RequirePermission({ permission, children }: { permission: string; children: ReactNode }) {
+  const { can } = useAuth();
+  if (!can(permission)) {
+    return <div className="card p-8 text-center text-sm text-slate-500">Você não tem permissão para acessar este módulo.</div>;
+  }
+  return <>{children}</>;
+}
+
+const FUTURE = [
+  { path: 'freezers', title: 'Freezers', phase: 2, perm: 'stock.view', desc: 'Painel visual dos 30 freezers (20 Eskimo e 10 próprios), com inventário individual, valor armazenado, transferências e contagem física.' },
+  { path: 'estoque', title: 'Estoque', phase: 2, perm: 'stock.view', desc: 'Saldos por localização, movimentações imutáveis com estorno, perdas, avarias, vencidos e inventário.' },
+  { path: 'produtos', title: 'Produtos', phase: 2, perm: 'products.view', desc: 'Cadastro completo de produtos e categorias, com importação de planilhas CSV/Excel.' },
+  { path: 'financeiro', title: 'Financeiro', phase: 3, perm: 'finance.view', desc: 'Contas a pagar e receber, caixa e bancos, sangrias, fechamento, fluxo de caixa e DRE gerencial.' },
+  { path: 'compras', title: 'Compras e fornecedores', phase: 4, perm: 'purchases.view', desc: 'Fornecedores, pedidos e recebimento de mercadorias integrado ao estoque e às contas a pagar.' },
+  { path: 'pdv', title: 'PDV Connector', phase: 5, perm: 'pdv.manage', desc: 'Integração com o PDV WebSempre. Depende da documentação técnica oficial e de testes reais com a instalação da loja.' },
+  { path: 'assistente', title: 'Assistente IA', phase: 6, perm: 'ai.chat', desc: 'Consultas em linguagem natural via Claude e ChatGPT, somente leitura, sobre os dados reais da loja.' },
+  { path: 'relatorios', title: 'Relatórios', phase: 7, perm: 'reports.view', desc: 'Relatórios gerenciais com exportação para Excel e PDF.' },
+  { path: 'indicadores', title: 'Rentabilidade', phase: 7, perm: 'reports.view', desc: 'Margens, giro, valor parado em estoque e ponto de equilíbrio.' },
+  { path: 'notificacoes', title: 'Notificações', phase: 7, perm: 'alerts.view', desc: 'Central de alertas: estoque baixo, vencimentos, contas, divergências e falhas de sincronização.' },
+];
+
+export function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<Protected><AppLayout /></Protected>}>
+        <Route index element={<RequirePermission permission="dashboard.view"><DashboardPage /></RequirePermission>} />
+        <Route path="usuarios" element={<RequirePermission permission="users.view"><UsersPage /></RequirePermission>} />
+        <Route path="auditoria" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
+        <Route path="configuracoes" element={<RequirePermission permission="settings.manage"><SettingsPage /></RequirePermission>} />
+        <Route path="perfil" element={<ProfilePage />} />
+        {FUTURE.map((f) => (
+          <Route key={f.path} path={f.path} element={<RequirePermission permission={f.perm}><ComingSoonPage title={f.title} phase={f.phase} description={f.desc} /></RequirePermission>} />
+        ))}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}

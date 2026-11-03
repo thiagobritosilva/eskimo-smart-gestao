@@ -1,0 +1,16 @@
+{
+  "name": "eskimo-smart-gestao",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/api", "apps/web"],
+  "scripts": {
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "build": "npm run build -w apps/api && npm run build -w apps/web",
+    "migrate": "npm run migrate -w apps/api",
+    "create-owner": "npm run create-owner -w apps/api --",
+    "test": "npm test -w apps/api",
+    "typecheck": "npm run typecheck -w apps/api && npm run typecheck -w apps/web"
+  },
+  "engines": { "node": ">=22" }
+}
