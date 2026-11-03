@@ -57,19 +57,22 @@ warn "Se o painel da Hostinger tiver firewall próprio, libere também as portas
 say "3/7 Código do sistema"
 mkdir -p "$BASE"
 chmod 700 "$BASE"
-if [[ -d "$APP_DIR/.git" ]]; then
-  echo "Código já presente em $APP_DIR (use 'eskimo update' para atualizar)."
-else
-  [[ -n "$REPO_URL" ]] || die "informe o endereço do repositório: bash install.sh git@github.com:USUARIO/REPOSITORIO.git"
-  if [[ "$REPO_URL" == git@* ]]; then
-    mkdir -p /root/.ssh && chmod 700 /root/.ssh
-    [[ -f "$KEY" ]] || ssh-keygen -t ed25519 -N '' -C "eskimo-vps-deploy" -f "$KEY" > /dev/null
-    grep -q 'eskimo_deploy' /root/.ssh/config 2>/dev/null || cat >> /root/.ssh/config <<CFG
+# Chave de implantação (somente leitura) para repositório privado — usada também por "eskimo update".
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+[[ -f "$KEY" ]] || ssh-keygen -t ed25519 -N '' -C "eskimo-vps-deploy" -f "$KEY" > /dev/null
+grep -q 'eskimo_deploy' /root/.ssh/config 2>/dev/null || cat >> /root/.ssh/config <<CFG
 Host github.com
   IdentityFile $KEY
   IdentitiesOnly yes
 CFG
-    ssh-keyscan -t ed25519 github.com >> /root/.ssh/known_hosts 2>/dev/null
+chmod 600 /root/.ssh/config
+grep -q '^github.com' /root/.ssh/known_hosts 2>/dev/null || ssh-keyscan -t ed25519 github.com >> /root/.ssh/known_hosts 2>/dev/null
+
+if [[ -d "$APP_DIR/.git" ]]; then
+  echo "Código já presente em $APP_DIR (use 'eskimo update' para atualizar)."
+else
+  [[ -n "$REPO_URL" ]] || die "informe o endereço do repositório: bash install.sh git@github.com:USUARIO/REPOSITORIO.git"
+  until git ls-remote "$REPO_URL" > /dev/null 2>&1; do
     echo
     echo "------------------------------------------------------------------"
     echo " Adicione esta CHAVE DE IMPLANTAÇÃO (somente leitura) no GitHub:"
@@ -78,10 +81,8 @@ CFG
     echo "------------------------------------------------------------------"
     cat "$KEY.pub"
     echo "------------------------------------------------------------------"
-    until git ls-remote "$REPO_URL" > /dev/null 2>&1; do
-      read -r -p "Depois de adicionar a chave no GitHub, tecle ENTER para continuar… " _
-    done
-  fi
+    read -r -p "Depois de adicionar a chave no GitHub, tecle ENTER para continuar… " _
+  done
   git clone "$REPO_URL" "$APP_DIR"
 fi
 

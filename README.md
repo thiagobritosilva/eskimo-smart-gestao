@@ -11,6 +11,7 @@ Sistema de gestão da loja franqueada Eskimo Sorvetes. Ele complementa o PDV Web
 | [docs/02-MODELO-DE-DADOS.md](docs/02-MODELO-DE-DADOS.md) | Modelo de dados de todas as fases |
 | [docs/03-FLUXOS-OPERACIONAIS.md](docs/03-FLUXOS-OPERACIONAIS.md) | Fluxos: login, usuários, estoque, inventário, compras, PDV, caixa, IA |
 | [docs/04-PLANEJAMENTO.md](docs/04-PLANEJAMENTO.md) | Fases, critérios de aceite, checklist para a WebSempre |
+| [docs/05-PUBLICACAO-VPS.md](docs/05-PUBLICACAO-VPS.md) | Publicação na VPS Hostinger: passo a passo e comandos de operação |
 | [docs/CHANGELOG-ESTRUTURAL.md](docs/CHANGELOG-ESTRUTURAL.md) | Registro de mudanças estruturais no banco |
 
 ## Requisitos
