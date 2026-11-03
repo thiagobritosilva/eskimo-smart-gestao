@@ -401,7 +401,7 @@ function CashFlow() {
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="entradas" name="Entradas (realizadas + previstas)" fill="#10b981" />
                   <Bar dataKey="saidas" name="Saídas (realizadas + previstas)" fill="#ef4444" />
-                  <Line dataKey="saldo" name="Saldo acumulado" stroke="#1468e0" strokeWidth={2} dot={false} />
+                  <Line dataKey="saldo" name="Saldo acumulado" stroke="#3a2020" strokeWidth={2} dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>

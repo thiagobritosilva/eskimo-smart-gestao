@@ -33,15 +33,15 @@ export function LoginPage() {
 
   return (
     <div className="flex min-h-screen">
-      <div className="relative hidden flex-1 flex-col justify-between overflow-hidden bg-ink-900 p-12 text-white lg:flex">
+      <div className="relative hidden flex-1 flex-col justify-between overflow-hidden bg-brand-600 p-12 text-white lg:flex">
         <Logo dark />
         <div className="max-w-md">
           <h2 className="text-3xl font-bold leading-tight">O centro de comando da sua loja, de onde você estiver.</h2>
-          <p className="mt-4 text-slate-300">Estoque por freezer, vendas, financeiro e indicadores reunidos com segurança e rastreabilidade.</p>
+          <p className="mt-4 text-red-50/90">Estoque por freezer, vendas, financeiro e indicadores reunidos com segurança e rastreabilidade.</p>
         </div>
-        <p className="text-xs text-slate-500">Acesso restrito a usuários autorizados. Todas as operações são registradas.</p>
-        <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-brand-600/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-32 right-10 h-80 w-80 rounded-full bg-brand-400/10 blur-3xl" />
+        <p className="text-xs text-red-100/80">Acesso restrito a usuários autorizados. Todas as operações são registradas.</p>
+        <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-accent-400/25 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-32 right-10 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
       </div>
       <div className="flex flex-1 items-center justify-center px-4 py-12">
         <form onSubmit={submit} className="w-full max-w-sm space-y-5">

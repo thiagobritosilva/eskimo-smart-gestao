@@ -6,16 +6,16 @@ export function Logo({ compact = false, dark = false }: { compact?: boolean; dar
   return (
     <div className="flex items-center gap-2.5">
       <svg viewBox="0 0 32 32" className="h-9 w-9 shrink-0" aria-hidden>
-        <rect width="32" height="32" rx="8" fill={dark ? '#1468e0' : '#0f2448'} />
-        <g stroke="#b9ddff" strokeWidth="2.4" strokeLinecap="round">
+        <rect width="32" height="32" rx="8" fill={dark ? '#ffcb00' : '#b60000'} />
+        <g stroke={dark ? '#b60000' : '#ffcb00'} strokeWidth="2.4" strokeLinecap="round">
           <path d="M16 6v20M7.3 11l17.4 10M7.3 21l17.4-10" />
         </g>
-        <circle cx="16" cy="16" r="3" fill="#fff" />
+        <circle cx="16" cy="16" r="3" fill={dark ? '#b60000' : '#fff'} />
       </svg>
       {!compact && (
         <div className="leading-tight">
           <div className={clsx('text-base font-bold tracking-tight', dark ? 'text-white' : 'text-ink-900')}>Eskimo Smart</div>
-          <div className={clsx('text-[11px] font-medium uppercase tracking-[0.18em]', dark ? 'text-brand-300' : 'text-brand-600')}>
+          <div className={clsx('text-[11px] font-medium uppercase tracking-[0.18em]', dark ? 'text-accent-300' : 'text-brand-600')}>
             Gestão
           </div>
         </div>
@@ -76,7 +76,7 @@ export function Modal({
 export function Alert({ kind = 'error', children }: { kind?: 'error' | 'info' | 'success' | 'warning'; children: ReactNode }) {
   const styles = {
     error: 'border-red-200 bg-red-50 text-red-800',
-    info: 'border-brand-200 bg-brand-50 text-brand-900',
+    info: 'border-slate-200 bg-slate-50 text-slate-800',
     success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     warning: 'border-amber-200 bg-amber-50 text-amber-900',
   }[kind];

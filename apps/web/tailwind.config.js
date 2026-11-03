@@ -4,12 +4,17 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Identidade própria do Eskimo Smart Gestão: azul-gelo sobre marinho.
+        // Paleta da marca Eskimo: vermelho #B60000 (principal) e amarelo #FFCB00 (destaque sobre o vermelho).
         brand: {
-          50: '#eef7ff', 100: '#d8ecff', 200: '#b9ddff', 300: '#89c8ff', 400: '#52a9ff',
-          500: '#2a86f5', 600: '#1468e0', 700: '#1253b5', 800: '#15478f', 900: '#173e75', 950: '#0f2448',
+          50: '#fff2f2', 100: '#ffe0e0', 200: '#ffc5c5', 300: '#ff9a9a', 400: '#f25757',
+          500: '#d91c1c', 600: '#b60000', 700: '#960000', 800: '#7a0404', 900: '#630909', 950: '#3a0101',
         },
-        ink: { 900: '#0b1526', 800: '#13213a', 700: '#1d2e4d' },
+        accent: {
+          50: '#fffbe6', 100: '#fff4bf', 200: '#ffe980', 300: '#ffdb40', 400: '#ffcb00',
+          500: '#e6b600', 600: '#b38d00', 700: '#806500',
+        },
+        // Neutro escuro e quente para textos (combina com o vermelho sem competir com ele)
+        ink: { 900: '#241414', 800: '#3a2020', 700: '#553333' },
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'],

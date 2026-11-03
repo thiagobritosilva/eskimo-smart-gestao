@@ -1,7 +1,7 @@
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { formatMoney, formatQty } from '../lib/format';
 
-const COLORS = { cost: '#1468e0', sale: '#89c8ff', eskimo: '#0ea5e9', proprio: '#8b5cf6', central: '#13213a' };
+const COLORS = { cost: '#b60000', sale: '#ffcb00', eskimo: '#b60000', proprio: '#8b5cf6', central: '#3a2020' };
 
 const money = (v: number) => formatMoney(v);
 const compactMoney = (v: number) =>
@@ -54,7 +54,7 @@ export function StockChart({ chartKey, series, withCost }: { chartKey: string; s
 
   if (chartKey === 'expenses_trend') {
     const groups = [...new Set(series.map((s) => s.group_label as string))];
-    const palette = ['#1468e0', '#0ea5e9', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#64748b'];
+    const palette = ['#b60000', '#ffcb00', '#8b5cf6', '#f97316', '#10b981', '#0ea5e9', '#64748b'];
     const byMonth = new Map<string, Record<string, number | string>>();
     for (const s of series) {
       const m = s.month as string;

@@ -18,7 +18,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4" aria-label="Menu principal">
       {sections.map((section) => (
         <div key={section}>
-          <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-brand-300/70">{section}</div>
+          <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-accent-300/90">{section}</div>
           <ul className="space-y-0.5">
             {items
               .filter((i) => i.section === section)
@@ -31,14 +31,14 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     className={({ isActive }) =>
                       clsx(
                         'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition',
-                        isActive ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                        isActive ? 'bg-accent-400 font-semibold text-brand-900 shadow-sm' : 'text-red-50/90 hover:bg-white/10 hover:text-white',
                       )
                     }
                   >
                     <item.icon className="h-[18px] w-[18px] shrink-0" />
                     <span className="flex-1 truncate">{item.label}</span>
                     {item.phase && (
-                      <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">F{item.phase}</span>
+                      <span className="rounded bg-black/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-100">F{item.phase}</span>
                     )}
                   </NavLink>
                 </li>
@@ -109,20 +109,20 @@ export function AppLayout() {
   return (
     <div className="min-h-screen lg:pl-64">
       {/* Sidebar desktop */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-ink-900 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-brand-600 lg:flex">
         <div className="flex h-16 items-center px-5"><Logo dark /></div>
         <Sidebar />
-        <div className="border-t border-white/10 px-5 py-3 text-[11px] text-slate-500">v0.5 · Fase 5 — PDV Connector</div>
+        <div className="border-t border-white/15 px-5 py-3 text-[11px] text-red-100/80">v0.5 · Fase 5 — PDV Connector</div>
       </aside>
 
       {/* Sidebar mobile */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-ink-900/60" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-ink-900">
+          <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-brand-600">
             <div className="flex h-16 items-center justify-between px-5">
               <Logo dark />
-              <button className="rounded-lg p-1.5 text-slate-300 hover:bg-white/10" onClick={() => setMobileOpen(false)} aria-label="Fechar menu">
+              <button className="rounded-lg p-1.5 text-red-50 hover:bg-white/10" onClick={() => setMobileOpen(false)} aria-label="Fechar menu">
                 <X className="h-5 w-5" />
               </button>
             </div>

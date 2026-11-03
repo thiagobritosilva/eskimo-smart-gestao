@@ -117,6 +117,16 @@ export async function grossProfit(db: Queryable, f: DashboardFilters): Promise<I
 }
 
 export async function netProfitEstimate(db: Queryable, f: DashboardFilters): Promise<IndicatorValue> {
+  // Sem nenhuma venda, título financeiro ou movimento de estoque no período, o resultado é "sem dados" — nunca zero.
+  const { rows } = await db.query<{ has: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM financial_titles WHERE status <> 'cancelado' AND competence_date BETWEEN $1::date AND $2::date)
+         OR EXISTS (SELECT 1 FROM sales WHERE ${day('sold_at')} BETWEEN $1::date AND $2::date)
+         OR EXISTS (SELECT 1 FROM stock_movements WHERE ${day('occurred_at')} BETWEEN $1::date AND $2::date) AS has`,
+    [f.from, f.to],
+  );
+  if (!rows[0]!.has) {
+    return { value: null, status: 'no_data', reason: 'Sem vendas, despesas ou movimentações de estoque lançadas no período.' };
+  }
   const d = await dre(db, f.from, f.to);
   const res = d.lines.find((l) => l.key === 'resultado')!;
   return { value: res.value, status: 'ok', caveats: ['Estimativa do DRE gerencial (Financeiro): receita só de dias consolidados.', ...d.caveats.slice(1, 4)] };

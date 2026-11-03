@@ -26,14 +26,14 @@ function LocationCard({ l, canCost }: { l: LocationSummary; canCost: boolean }) 
       to={`/freezers/${l.id}`}
       className={clsx(
         'group relative flex flex-col rounded-xl border bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md',
-        l.kind === 'central' ? 'border-ink-700' : eskimo ? 'border-sky-200' : 'border-violet-200',
+        l.kind === 'central' ? 'border-ink-700' : eskimo ? 'border-brand-200' : 'border-violet-200',
         l.status === 'inativo' && 'opacity-60',
       )}
     >
-      <div className={clsx('absolute inset-x-0 top-0 h-1 rounded-t-xl', l.kind === 'central' ? 'bg-ink-800' : eskimo ? 'bg-sky-500' : 'bg-violet-500')} />
+      <div className={clsx('absolute inset-x-0 top-0 h-1 rounded-t-xl', l.kind === 'central' ? 'bg-ink-800' : eskimo ? 'bg-brand-600' : 'bg-violet-500')} />
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
-          {l.kind === 'central' ? <Warehouse className="h-4 w-4 text-ink-800" /> : <Snowflake className={clsx('h-4 w-4', eskimo ? 'text-sky-500' : 'text-violet-500')} />}
+          {l.kind === 'central' ? <Warehouse className="h-4 w-4 text-ink-800" /> : <Snowflake className={clsx('h-4 w-4', eskimo ? 'text-brand-600' : 'text-violet-500')} />}
           <span className="font-mono text-sm font-bold text-ink-900">{l.kind === 'central' ? 'CENTRAL' : l.code}</span>
         </div>
         {l.status && <span className={clsx('mt-1 h-2.5 w-2.5 rounded-full', STATUS_STYLE[l.status])} title={STATUS_LABEL[l.status]} />}
@@ -131,12 +131,12 @@ export function FreezersPage() {
       />
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <div className="card p-4"><div className="text-xs uppercase text-slate-500">Total da loja ({valueLabel.toLowerCase()})</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(data))}</div></div>
-        <div className="card border-sky-200 p-4"><div className="text-xs uppercase text-sky-700">Freezers Eskimo · franquia</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(eskimo))}</div></div>
+        <div className="card border-brand-200 p-4"><div className="text-xs uppercase text-brand-700">Freezers Eskimo · franquia</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(eskimo))}</div></div>
         <div className="card border-violet-200 p-4"><div className="text-xs uppercase text-violet-700">Freezers próprios · loja</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(own))}</div></div>
       </div>
       <div className="space-y-8">
         {filter === 'todos' && <Section title="Estoque central" items={central} accent="bg-ink-800" />}
-        {filter !== 'proprio' && <Section title="Freezers Eskimo (propriedade da franquia)" items={eskimo} accent="bg-sky-500" />}
+        {filter !== 'proprio' && <Section title="Freezers Eskimo (propriedade da franquia)" items={eskimo} accent="bg-brand-600" />}
         {filter !== 'eskimo' && <Section title="Freezers próprios (propriedade da loja)" items={own} accent="bg-violet-500" />}
       </div>
       <div className="mt-6 flex flex-wrap gap-4 text-xs text-slate-500">

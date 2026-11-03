@@ -267,6 +267,10 @@ describe('dashboard', () => {
         expect(i.reason).toBeTruthy();
       }
     }
+    // Período sem nenhum lançamento: lucro líquido estimado é "sem dados", nunca zero
+    const empty = await app.inject({ method: 'GET', url: '/api/dashboard/summary?from=2001-01-01&to=2001-01-31', headers: { cookie: owner.cookie } });
+    const net = empty.json().indicators.find((i: { key: string }) => i.key === 'net_profit_estimate');
+    expect(net).toMatchObject({ value: null, status: 'no_data' });
     // Gráficos de fases ainda não implantadas continuam indisponíveis, com a fase indicada
     const pending = body.charts.find((c: { key: string }) => c.key === 'most_profitable');
     expect(pending).toMatchObject({ status: 'unavailable' });
