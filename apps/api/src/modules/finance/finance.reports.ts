@@ -335,7 +335,8 @@ export async function dre(db: Queryable, from: string, to: string) {
        FROM stock_movement_lines x
        JOIN stock_movements m ON m.id = x.movement_id
        LEFT JOIN stock_movements o ON o.id = m.reverses_movement_id
-       WHERE ${localDate('m.occurred_at')} BETWEEN $1::date AND $2::date
+       -- estorno é atribuído ao período do movimento original (venda cancelada sai do mesmo mês da venda)
+       WHERE ${localDate('coalesce(o.occurred_at, m.occurred_at)')} BETWEEN $1::date AND $2::date
      )
      SELECT round(coalesce(sum(sgn * quantity * unit_cost) FILTER (WHERE mtype = 'saida_venda'), 0), 2)::text AS cmv,
             round(coalesce(sum(sgn * quantity * unit_cost) FILTER (WHERE mtype = 'devolucao_cliente'), 0), 2)::text AS dev,

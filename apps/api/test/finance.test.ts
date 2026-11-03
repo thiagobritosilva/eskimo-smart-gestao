@@ -229,9 +229,21 @@ describe('permissões financeiras', () => {
   it('dashboard passa a mostrar saldos e contas reais', async () => {
     const r = await call(owner.cookie, { method: 'GET', url: '/api/dashboard/summary' });
     const ind = Object.fromEntries((r.json().indicators as { key: string; value: unknown; status: string }[]).map((i) => [i.key, i]));
-    expect(ind['cash_balance']).toMatchObject({ value: '95.00', status: 'ok' });
-    expect(ind['bank_balance']).toMatchObject({ value: '1985.00', status: 'ok' });
-    expect(ind['receivables_open']).toMatchObject({ value: '1000.00', status: 'ok' });
-    expect(ind['revenue_today']).toMatchObject({ status: 'unavailable' });
+    // Compara com a soma real no banco (independe de outros arquivos de teste criarem contas)
+    const sums = (await getPool().query(
+      `SELECT sum(b.balance) FILTER (WHERE a.kind = 'caixa')::text AS caixa,
+              sum(b.balance) FILTER (WHERE a.kind <> 'caixa')::text AS banco
+       FROM financial_account_balances b JOIN financial_accounts a ON a.id = b.account_id WHERE a.is_active`,
+    )).rows[0];
+    const open = (await getPool().query(
+      `SELECT coalesce(sum(i.amount - i.settled), 0)::text AS v FROM financial_installments i JOIN financial_titles t ON t.id = i.title_id
+       WHERE t.direction = 'receber' AND t.status <> 'cancelado'`,
+    )).rows[0].v;
+    expect(ind['cash_balance']).toMatchObject({ value: sums.caixa, status: 'ok' });
+    expect(ind['bank_balance']).toMatchObject({ value: sums.banco, status: 'ok' });
+    expect(ind['receivables_open']).toMatchObject({ value: open, status: 'ok' });
+    expect(await balance(caixa)).toBe('95.00');
+    expect(await balance(banco)).toBe('1985.00');
+    expect(['no_data', 'ok']).toContain(ind['revenue_today']!.status);
   });
 });

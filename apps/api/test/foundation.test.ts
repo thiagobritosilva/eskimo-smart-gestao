@@ -267,10 +267,10 @@ describe('dashboard', () => {
         expect(i.reason).toBeTruthy();
       }
     }
-    // Fontes de fases futuras continuam indisponíveis
-    const revenue = body.indicators.find((i: { key: string }) => i.key === 'revenue_today');
-    expect(revenue).toMatchObject({ value: null, status: 'unavailable' });
-    expect(revenue.reason).toMatch(/Fase 5/);
+    // Gráficos de fases ainda não implantadas continuam indisponíveis, com a fase indicada
+    const pending = body.charts.find((c: { key: string }) => c.key === 'most_profitable');
+    expect(pending).toMatchObject({ status: 'unavailable' });
+    expect(pending.reason).toMatch(/Fase 7/);
     expect(body.system.pdvConnector.status).toBe('not_configured');
   });
 

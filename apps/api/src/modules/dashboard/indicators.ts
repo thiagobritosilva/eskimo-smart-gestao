@@ -1,6 +1,7 @@
 import type { Queryable } from '../../db/pool.js';
 import * as stock from './stock-indicators.js';
 import * as fin from './finance-indicators.js';
+import * as sales from './sales-indicators.js';
 
 /**
  * Registro central de indicadores do dashboard.
@@ -44,6 +45,7 @@ const PHASE_NAMES: Record<number, string> = {
   3: 'Fase 3 — Financeiro',
   4: 'Fase 4 — Compras',
   5: 'Fase 5 — Integração PDV',
+  7: 'Fase 7 — Relatórios e indicadores',
 };
 
 export function unavailable(phase: number): IndicatorValue {
@@ -55,15 +57,15 @@ export function unavailable(phase: number): IndicatorValue {
 }
 
 export const INDICATORS: IndicatorDef[] = [
-  { key: 'revenue_today', label: 'Faturamento de hoje', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
-  { key: 'revenue_period', label: 'Faturamento no período', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
-  { key: 'sales_count', label: 'Total de vendas', group: 'vendas', unit: 'count', phase: 5 },
-  { key: 'avg_ticket', label: 'Ticket médio', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
+  { key: 'revenue_today', label: 'Faturamento de hoje', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial', compute: sales.revenueToday },
+  { key: 'revenue_period', label: 'Faturamento no período', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial', compute: sales.revenuePeriod },
+  { key: 'sales_count', label: 'Total de vendas', group: 'vendas', unit: 'count', phase: 5, compute: sales.salesCount },
+  { key: 'avg_ticket', label: 'Ticket médio', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial', compute: sales.avgTicket },
   { key: 'expenses_today', label: 'Despesas do dia', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.expensesToday },
   { key: 'expenses_period', label: 'Despesas no período', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.expensesPeriod },
-  { key: 'cogs', label: 'Custo das mercadorias vendidas', group: 'financeiro', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
-  { key: 'gross_profit', label: 'Lucro bruto', group: 'financeiro', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
-  { key: 'net_profit_estimate', label: 'Lucro líquido estimado', group: 'financeiro', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
+  { key: 'cogs', label: 'Custo das mercadorias vendidas', group: 'financeiro', unit: 'BRL', phase: 5, permission: 'dashboard.financial', compute: sales.cogs },
+  { key: 'gross_profit', label: 'Lucro bruto', group: 'financeiro', unit: 'BRL', phase: 5, permission: 'dashboard.financial', compute: sales.grossProfit },
+  { key: 'net_profit_estimate', label: 'Lucro líquido estimado', group: 'financeiro', unit: 'BRL', phase: 5, permission: 'dashboard.financial', compute: sales.netProfitEstimate },
   { key: 'payables_open', label: 'Contas a pagar', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.payablesOpen },
   { key: 'receivables_open', label: 'Contas a receber', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.receivablesOpen },
   { key: 'cash_balance', label: 'Saldo de caixa', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.cashBalance },
@@ -87,10 +89,10 @@ export const CHARTS: ChartDef[] = [
   { key: 'sales_by_month', label: 'Vendas por mês', phase: 5 },
   { key: 'revenue_trend', label: 'Evolução do faturamento', phase: 5, permission: 'dashboard.financial' },
   { key: 'expenses_trend', label: 'Evolução das despesas', phase: 3, permission: 'dashboard.financial' },
-  { key: 'profit_by_period', label: 'Lucro por período', phase: 5, permission: 'dashboard.financial' },
+  { key: 'profit_by_period', label: 'Lucro por período', phase: 7, permission: 'dashboard.financial' },
   { key: 'top_products', label: 'Produtos mais vendidos', phase: 5 },
   { key: 'bottom_products', label: 'Produtos menos vendidos', phase: 5 },
-  { key: 'most_profitable', label: 'Produtos mais rentáveis', phase: 5, permission: 'products.view_cost' },
+  { key: 'most_profitable', label: 'Produtos mais rentáveis', phase: 7, permission: 'products.view_cost' },
   { key: 'stock_distribution', label: 'Distribuição do estoque', phase: 2 },
   { key: 'stock_value_by_freezer', label: 'Valor das mercadorias por freezer', phase: 2, permission: 'products.view_cost' },
   { key: 'category_performance', label: 'Desempenho por categoria', phase: 5 },

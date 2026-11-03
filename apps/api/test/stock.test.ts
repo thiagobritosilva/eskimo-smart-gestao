@@ -307,7 +307,7 @@ describe('dashboard e integridade', () => {
     expect(ind.freezers_count).toMatchObject({ value: 30, status: 'ok' });
     expect(ind.stock_cost_value!.status).toBe('ok');
     expect(Number(ind.stock_cost_value!.value)).toBeGreaterThan(0);
-    expect(ind.revenue_today!.status).toBe('unavailable');
+    expect(['no_data', 'ok']).toContain(ind.revenue_today!.status);
   });
 
   it('saldos materializados conferem com a soma das movimentações', async () => {
