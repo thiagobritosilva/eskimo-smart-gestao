@@ -1,5 +1,6 @@
 import type { Queryable } from '../../db/pool.js';
 import * as stock from './stock-indicators.js';
+import * as fin from './finance-indicators.js';
 
 /**
  * Registro central de indicadores do dashboard.
@@ -58,15 +59,15 @@ export const INDICATORS: IndicatorDef[] = [
   { key: 'revenue_period', label: 'Faturamento no período', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
   { key: 'sales_count', label: 'Total de vendas', group: 'vendas', unit: 'count', phase: 5 },
   { key: 'avg_ticket', label: 'Ticket médio', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
-  { key: 'expenses_today', label: 'Despesas do dia', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial' },
-  { key: 'expenses_period', label: 'Despesas no período', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial' },
+  { key: 'expenses_today', label: 'Despesas do dia', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.expensesToday },
+  { key: 'expenses_period', label: 'Despesas no período', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.expensesPeriod },
   { key: 'cogs', label: 'Custo das mercadorias vendidas', group: 'financeiro', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
   { key: 'gross_profit', label: 'Lucro bruto', group: 'financeiro', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
   { key: 'net_profit_estimate', label: 'Lucro líquido estimado', group: 'financeiro', unit: 'BRL', phase: 5, permission: 'dashboard.financial' },
-  { key: 'payables_open', label: 'Contas a pagar', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial' },
-  { key: 'receivables_open', label: 'Contas a receber', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial' },
-  { key: 'cash_balance', label: 'Saldo de caixa', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial' },
-  { key: 'bank_balance', label: 'Saldo bancário', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial' },
+  { key: 'payables_open', label: 'Contas a pagar', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.payablesOpen },
+  { key: 'receivables_open', label: 'Contas a receber', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.receivablesOpen },
+  { key: 'cash_balance', label: 'Saldo de caixa', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.cashBalance },
+  { key: 'bank_balance', label: 'Saldo bancário', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.bankBalance },
   { key: 'stock_cost_value', label: 'Estoque pelo custo', group: 'estoque', unit: 'BRL', phase: 2, permission: 'products.view_cost', compute: stock.stockCostValue },
   { key: 'stock_sale_value', label: 'Potencial de venda do estoque', group: 'estoque', unit: 'BRL', phase: 2, compute: stock.stockSaleValue },
   { key: 'low_stock_count', label: 'Produtos com estoque baixo', group: 'estoque', unit: 'count', phase: 2, compute: stock.lowStockCount },

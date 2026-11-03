@@ -5,6 +5,7 @@ import { requirePermission } from '../../lib/http.js';
 import { parse } from '../../lib/validation.js';
 import { CHARTS, INDICATORS, unavailable, type DashboardFilters } from './indicators.js';
 import { stockByFreezerChart, stockDistributionChart, type ChartData } from './stock-indicators.js';
+import { expensesTrendChart } from './finance-indicators.js';
 
 function todaySaoPaulo(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
@@ -49,6 +50,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         let data: ChartData;
         if (c.key === 'stock_distribution') data = await stockDistributionChart(db, filters, canCost);
         else if (c.key === 'stock_value_by_freezer') data = await stockByFreezerChart(db, filters);
+        else if (c.key === 'expenses_trend') data = await expensesTrendChart(db);
         else data = { ...unavailable(c.phase), value: null, series: [] };
         return { key: c.key, label: c.label, ...data };
       }),
