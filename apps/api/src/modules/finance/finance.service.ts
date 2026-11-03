@@ -271,6 +271,19 @@ async function refreshTitleStatus(db: Db, titleId: string) {
 
 export async function createTitle(actor: Actor, input: TitleInput) {
   require(actor, 'finance.manage');
+  return withTransaction((db) => createTitleInDb(db, actor, input));
+}
+
+/**
+ * Cria o título dentro de uma transação existente. Usado também pelo recebimento de compras,
+ * que gera a conta a pagar na MESMA transação da entrada de estoque (tudo ou nada).
+ */
+export async function createTitleInDb(
+  db: Db,
+  actor: Actor,
+  input: TitleInput & { sourceType?: 'manual' | 'compra' | 'pdv' | 'importacao'; sourceId?: string | null },
+) {
+  if (input.settleNow) require(actor, 'finance.manage', 'Quitar no ato exige permissão financeira.');
   const totalCents = toCents(input.totalAmount, 'valor total');
   if (totalCents <= 0) throw Errors.badRequest('O valor deve ser maior que zero.');
 
@@ -291,7 +304,7 @@ export async function createTitle(actor: Actor, input: TitleInput) {
   }
   if (input.settleNow && parts.length > 1) throw Errors.badRequest('Quitação no ato só é possível para pagamento em parcela única.');
 
-  return withTransaction(async (db) => {
+  {
     const cat = (await db.query<{ kind: string; is_active: boolean }>('SELECT kind, is_active FROM financial_categories WHERE id = $1', [input.categoryId])).rows[0];
     if (!cat) throw Errors.badRequest('Categoria inexistente.');
     if ((input.direction === 'pagar') !== (cat.kind === 'despesa')) {
@@ -305,12 +318,13 @@ export async function createTitle(actor: Actor, input: TitleInput) {
 
     const { rows } = await db.query<{ id: string; number: string }>(
       `INSERT INTO financial_titles (direction, description, category_id, counterparty, document, payment_method_code,
-                                     competence_date, issue_date, total_amount, notes, idempotency_key, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, coalesce($8::date, current_date), $9, $10, $11, $12)
+                                     competence_date, issue_date, total_amount, notes, idempotency_key, created_by,
+                                     source_type, source_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, coalesce($8::date, current_date), $9, $10, $11, $12, $13, $14)
        ON CONFLICT (idempotency_key) DO NOTHING RETURNING id, number::text`,
       [input.direction, input.description.trim(), input.categoryId, input.counterparty || null, input.document || null,
         input.paymentMethodCode || null, input.competenceDate, input.issueDate || null, fromCents(totalCents),
-        input.notes || null, input.idempotencyKey, actor.userId],
+        input.notes || null, input.idempotencyKey, actor.userId, input.sourceType ?? 'manual', input.sourceId ?? null],
     );
     if (!rows[0]) {
       const ex = await db.query<{ id: string; number: string }>('SELECT id, number::text FROM financial_titles WHERE idempotency_key = $1', [input.idempotencyKey]);
@@ -339,7 +353,7 @@ export async function createTitle(actor: Actor, input: TitleInput) {
       });
     }
     return { ...title, duplicate: false };
-  });
+  }
 }
 
 export async function updateTitle(
@@ -378,7 +392,11 @@ export async function updateTitle(
 
 export async function cancelTitle(actor: Actor, id: string, reason: string) {
   require(actor, 'finance.manage');
-  return withTransaction(async (db) => {
+  return withTransaction((db) => cancelTitleInDb(db, actor, id, reason));
+}
+
+export async function cancelTitleInDb(db: Db, actor: Actor, id: string, reason: string) {
+  {
     const t = (await db.query('SELECT status FROM financial_titles WHERE id = $1 FOR UPDATE', [id])).rows[0];
     if (!t) throw Errors.notFound('Título não encontrado.');
     if (t.status === 'cancelado') throw Errors.conflict('Título já cancelado.');
@@ -387,7 +405,7 @@ export async function cancelTitle(actor: Actor, id: string, reason: string) {
     await db.query(`UPDATE financial_titles SET status = 'cancelado', cancelled_by = $2, cancelled_at = now(), cancel_reason = $3 WHERE id = $1`, [id, actor.userId, reason]);
     await writeAudit(db, actor.audit, { action: 'finance.title_cancelled', entity: 'financial_title', entityId: id, metadata: { reason } });
     return { cancelled: true };
-  });
+  }
 }
 
 // =====================================================================

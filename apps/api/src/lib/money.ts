@@ -45,3 +45,34 @@ export function addDays(ymd: string, days: number): string {
 export function todaySP(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 }
+
+/**
+ * quantidade (até 3 casas) × preço unitário (até 4 casas) => centavos, arredondamento "meio para cima".
+ * Usa BigInt: sem erro de ponto flutuante.
+ */
+export function mulToCents(qty: string, price: string): number {
+  const scaled = (v: string, decimals: number) => {
+    const [i, d = ''] = v.split('.');
+    return BigInt(i!) * 10n ** BigInt(decimals) + BigInt((d + '0'.repeat(decimals)).slice(0, decimals) || '0');
+  };
+  const product = scaled(qty, 3) * scaled(price, 4); // escala 10^7
+  return Number((product + 50_000n) / 100_000n); // para centavos (10^2)
+}
+
+/** Distribui `total` centavos proporcionalmente aos pesos (maiores restos). Soma exata. */
+export function allocateCents(total: number, weights: number[]): number[] {
+  const sumW = weights.reduce((s, w) => s + w, 0);
+  if (total === 0 || weights.length === 0) return weights.map(() => 0);
+  const w = sumW > 0 ? weights : weights.map(() => 1);
+  const sw = w.reduce((s, x) => s + x, 0);
+  const raw = w.map((x) => (total * x) / sw);
+  const base = raw.map(Math.floor);
+  let rest = total - base.reduce((s, x) => s + x, 0);
+  const order = raw.map((r, i) => ({ i, frac: r - Math.floor(r) })).sort((a, b) => b.frac - a.frac);
+  for (const o of order) {
+    if (rest <= 0) break;
+    base[o.i]! += 1;
+    rest--;
+  }
+  return base;
+}

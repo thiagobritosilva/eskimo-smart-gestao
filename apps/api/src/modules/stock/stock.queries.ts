@@ -4,6 +4,9 @@ import { Errors } from '../../lib/errors.js';
 export const COST_FIELDS = new Set([
   'avg_cost', 'cost_price', 'unit_cost', 'cost_value', 'total_cost', 'avg_cost_before', 'avg_cost_after',
   'margin_percent', 'line_cost',
+  // compras
+  'goods_estimate', 'total_estimate', 'total_purchased', 'received_amount', 'last_unit_price', 'reference_cost',
+  'line_total', 'unit_price', 'line_amount', 'unit_cost_final', 'est_freight', 'est_discount',
 ]);
 
 /** Remove campos de custo para quem não tem `products.view_cost`. */
