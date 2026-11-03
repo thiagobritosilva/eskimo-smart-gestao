@@ -36,6 +36,7 @@ export function LoginPage() {
       <div className="relative hidden flex-1 flex-col justify-between overflow-hidden bg-brand-600 p-12 text-white lg:flex">
         <Logo dark />
         <div className="max-w-md">
+          <img src="/logo-eskimo.png" alt="Eskimó Sorvetes" width={176} height={176} className="mb-8 h-44 w-44 rounded-3xl shadow-2xl ring-4 ring-white/20" />
           <h2 className="text-3xl font-bold leading-tight">O centro de comando da sua loja, de onde você estiver.</h2>
           <p className="mt-4 text-red-50/90">Estoque por freezer, vendas, financeiro e indicadores reunidos com segurança e rastreabilidade.</p>
         </div>
@@ -45,7 +46,13 @@ export function LoginPage() {
       </div>
       <div className="flex flex-1 items-center justify-center px-4 py-12">
         <form onSubmit={submit} className="w-full max-w-sm space-y-5">
-          <div className="lg:hidden"><Logo /></div>
+          <div className="flex flex-col items-center gap-3 lg:hidden">
+            <img src="/logo-eskimo.png" alt="Eskimó Sorvetes" width={112} height={112} className="h-28 w-28 rounded-2xl shadow-lg" />
+            <div className="text-center leading-tight">
+              <div className="text-lg font-bold text-ink-900">Eskimo Smart</div>
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-brand-600">Gestão</div>
+            </div>
+          </div>
           <div>
             <h1 className="text-2xl font-bold text-ink-900">Entrar</h1>
             <p className="mt-1 text-sm text-slate-500">Use seu login individual.</p>

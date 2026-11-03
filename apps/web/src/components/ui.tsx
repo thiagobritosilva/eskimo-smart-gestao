@@ -5,13 +5,13 @@ import clsx from 'clsx';
 export function Logo({ compact = false, dark = false }: { compact?: boolean; dark?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <svg viewBox="0 0 32 32" className="h-9 w-9 shrink-0" aria-hidden>
-        <rect width="32" height="32" rx="8" fill={dark ? '#ffcb00' : '#b60000'} />
-        <g stroke={dark ? '#b60000' : '#ffcb00'} strokeWidth="2.4" strokeLinecap="round">
-          <path d="M16 6v20M7.3 11l17.4 10M7.3 21l17.4-10" />
-        </g>
-        <circle cx="16" cy="16" r="3" fill={dark ? '#b60000' : '#fff'} />
-      </svg>
+      <img
+        src="/logo-eskimo.png"
+        alt="Eskimó Sorvetes"
+        width={48}
+        height={48}
+        className={clsx(compact ? 'h-9 w-9' : 'h-12 w-12', 'shrink-0 rounded-xl object-cover', dark ? 'ring-2 ring-white/30' : 'ring-1 ring-black/5')}
+      />
       {!compact && (
         <div className="leading-tight">
           <div className={clsx('text-base font-bold tracking-tight', dark ? 'text-white' : 'text-ink-900')}>Eskimo Smart</div>
