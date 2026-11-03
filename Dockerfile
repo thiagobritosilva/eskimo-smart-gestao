@@ -21,7 +21,6 @@ RUN rm -rf node_modules apps/*/node_modules \
 # ---------- runtime ----------
 FROM node:22-alpine
 ENV NODE_ENV=production TZ=America/Sao_Paulo
-RUN apk add --no-cache tzdata
 WORKDIR /app
 COPY package.json ./
 COPY apps/api/package.json apps/api/
