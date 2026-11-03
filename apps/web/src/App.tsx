@@ -11,6 +11,11 @@ import { AuditPage } from './pages/AuditPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { ComingSoonPage } from './pages/ComingSoonPage';
+import { ProductsPage } from './pages/ProductsPage';
+import { FreezersPage } from './pages/FreezersPage';
+import { LocationDetailPage } from './pages/LocationDetailPage';
+import { StockPage } from './pages/StockPage';
+import { InventoryCountPage, InventoryListPage } from './pages/InventoryPages';
 
 function Protected({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -30,9 +35,6 @@ function RequirePermission({ permission, children }: { permission: string; child
 }
 
 const FUTURE = [
-  { path: 'freezers', title: 'Freezers', phase: 2, perm: 'stock.view', desc: 'Painel visual dos 30 freezers (20 Eskimo e 10 próprios), com inventário individual, valor armazenado, transferências e contagem física.' },
-  { path: 'estoque', title: 'Estoque', phase: 2, perm: 'stock.view', desc: 'Saldos por localização, movimentações imutáveis com estorno, perdas, avarias, vencidos e inventário.' },
-  { path: 'produtos', title: 'Produtos', phase: 2, perm: 'products.view', desc: 'Cadastro completo de produtos e categorias, com importação de planilhas CSV/Excel.' },
   { path: 'financeiro', title: 'Financeiro', phase: 3, perm: 'finance.view', desc: 'Contas a pagar e receber, caixa e bancos, sangrias, fechamento, fluxo de caixa e DRE gerencial.' },
   { path: 'compras', title: 'Compras e fornecedores', phase: 4, perm: 'purchases.view', desc: 'Fornecedores, pedidos e recebimento de mercadorias integrado ao estoque e às contas a pagar.' },
   { path: 'pdv', title: 'PDV Connector', phase: 5, perm: 'pdv.manage', desc: 'Integração com o PDV WebSempre. Depende da documentação técnica oficial e de testes reais com a instalação da loja.' },
@@ -52,6 +54,12 @@ export function App() {
         <Route path="auditoria" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
         <Route path="configuracoes" element={<RequirePermission permission="settings.manage"><SettingsPage /></RequirePermission>} />
         <Route path="perfil" element={<ProfilePage />} />
+        <Route path="produtos" element={<RequirePermission permission="products.view"><ProductsPage /></RequirePermission>} />
+        <Route path="freezers" element={<RequirePermission permission="stock.view"><FreezersPage /></RequirePermission>} />
+        <Route path="freezers/:id" element={<RequirePermission permission="stock.view"><LocationDetailPage /></RequirePermission>} />
+        <Route path="estoque" element={<RequirePermission permission="stock.view"><StockPage /></RequirePermission>} />
+        <Route path="inventario" element={<RequirePermission permission="stock.view"><InventoryListPage /></RequirePermission>} />
+        <Route path="inventario/:id" element={<RequirePermission permission="stock.view"><InventoryCountPage /></RequirePermission>} />
         {FUTURE.map((f) => (
           <Route key={f.path} path={f.path} element={<RequirePermission permission={f.perm}><ComingSoonPage title={f.title} phase={f.phase} description={f.desc} /></RequirePermission>} />
         ))}

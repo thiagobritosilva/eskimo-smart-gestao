@@ -46,3 +46,56 @@ export const ACTION_LABELS: Record<string, string> = {
   'user.owner_bootstrap': 'Proprietário inicial criado',
   'settings.updated': 'Configuração alterada',
 };
+
+export function formatQty(v: string | number | null | undefined, unit?: string): string {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = typeof v === 'string' ? Number(v) : v;
+  const s = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 }).format(n);
+  return unit ? `${s} ${unit}` : s;
+}
+
+export function formatMoneyOrDash(v: string | number | null | undefined): string {
+  return v === null || v === undefined || v === '' ? '—' : formatMoney(v);
+}
+
+/** Aceita "12,50" ou "12.50" e devolve "12.50" (string decimal para a API). */
+export function toDecimal(input: string): string {
+  const s = input.trim().replace(/\s/g, '');
+  if (!s) return '';
+  return s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s;
+}
+
+export function fromDecimal(v: string | null | undefined): string {
+  if (v === null || v === undefined) return '';
+  return String(Number(v)).replace('.', ',');
+}
+
+export const MOVEMENT_LABELS: Record<string, string> = {
+  entrada_inicial: 'Estoque inicial',
+  entrada_compra: 'Entrada por compra',
+  saida_venda: 'Saída por venda',
+  transferencia: 'Transferência',
+  perda: 'Perda',
+  avaria: 'Produto danificado',
+  vencido: 'Produto vencido',
+  devolucao_cliente: 'Devolução de cliente',
+  devolucao_fornecedor: 'Devolução ao fornecedor',
+  ajuste_inventario: 'Ajuste de inventário',
+  estorno: 'Estorno',
+};
+
+Object.assign(ACTION_LABELS, {
+  'product.created': 'Produto criado',
+  'product.updated': 'Produto alterado',
+  'product.imported': 'Importação de produtos',
+  'category.created': 'Categoria criada',
+  'category.updated': 'Categoria alterada',
+  'stock.movement_created': 'Movimentação de estoque',
+  'stock.movement_reversed': 'Estorno de movimentação',
+  'stock.location_min_set': 'Mínimo por localização',
+  'freezer.updated': 'Freezer alterado',
+  'freezer.created': 'Freezer cadastrado',
+  'inventory.opened': 'Contagem aberta',
+  'inventory.finalized': 'Contagem finalizada',
+  'inventory.cancelled': 'Contagem cancelada',
+});

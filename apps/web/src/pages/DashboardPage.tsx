@@ -6,6 +6,8 @@ import { api, qs } from '../lib/api';
 import { firstDayOfMonthYMD, formatDate, formatDateTime, formatMoney, formatNumber, todayYMD } from '../lib/format';
 import type { DashboardSummary, Indicator } from '../lib/types';
 import { Alert, PageHeader, Spinner } from '../components/ui';
+import { StockChart } from './DashboardCharts';
+import { useAuth } from '../lib/auth';
 
 const GROUPS: { key: Indicator['group']; label: string }[] = [
   { key: 'vendas', label: 'Vendas' },
@@ -30,16 +32,17 @@ function KpiCard({ i }: { i: Indicator }) {
       {noData ? (
         <div className="mt-2 flex items-start gap-1.5 text-xs text-slate-500">
           <CircleSlash className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{i.status === 'unavailable' ? 'Sem dados — ' : 'Sem lançamentos no período — '}{i.reason}</span>
+          <span>Sem dados — {i.reason}</span>
         </div>
       ) : (
-        i.caveats?.map((c) => <div key={c} className="mt-2 text-xs text-amber-700">⚠ {c}</div>)
+        i.caveats?.map((c) => <div key={c} className={clsx('mt-2 text-xs', /subestimado/.test(c) ? 'text-amber-700' : 'text-slate-500')}>{/subestimado/.test(c) ? '⚠ ' : ''}{c}</div>)
       )}
     </div>
   );
 }
 
 export function DashboardPage() {
+  const { can } = useAuth();
   const [from, setFrom] = useState(firstDayOfMonthYMD());
   const [to, setTo] = useState(todayYMD());
   const { data, isLoading, isFetching, error, refetch } = useQuery({
@@ -103,7 +106,13 @@ export function DashboardPage() {
           <section>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Gráficos</h2>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {data.charts.map((c) => (
+              {data.charts.filter((c) => c.status === 'ok').map((c) => (
+                <div key={c.key} className="card p-4 md:col-span-2 xl:col-span-3">
+                  <div className="mb-2 text-sm font-semibold text-ink-900">{c.label}</div>
+                  <StockChart chartKey={c.key} series={c.series} withCost={can('products.view_cost')} />
+                </div>
+              ))}
+              {data.charts.filter((c) => c.status !== 'ok').map((c) => (
                 <div key={c.key} className="card flex h-40 flex-col p-4">
                   <div className="text-sm font-semibold text-ink-900">{c.label}</div>
                   <div className="flex flex-1 flex-col items-center justify-center text-center text-xs text-slate-400">

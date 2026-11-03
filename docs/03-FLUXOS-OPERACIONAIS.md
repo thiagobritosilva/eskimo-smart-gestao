@@ -23,7 +23,7 @@ Toda requisição: cookie ─► hash ─► sessão válida? (não revogada, n�
 - Desativar usuário ⇒ todas as sessões revogadas imediatamente.
 - Nenhum usuário é excluído (preserva auditoria); apenas desativado.
 
-## F3. Movimentação de estoque (Fase 2)
+## F3. Movimentação de estoque (Fase 2 ✅)
 
 ```
 Operador escolhe tipo ─► valida permissão do tipo (stock.move / stock.adjust / stock.loss)
@@ -36,7 +36,7 @@ Operador escolhe tipo ─► valida permissão do tipo (stock.move / stock.adjus
 Correção ─► "Estornar" cria movimento 'estorno' com linhas invertidas apontando o original.
 ```
 
-## F4. Inventário físico de freezer (Fase 2)
+## F4. Inventário físico de freezer (Fase 2 ✅)
 
 1. Abrir contagem para uma localização (congela snapshot do saldo do sistema).
 2. Digitar quantidades contadas (celular/tablet).

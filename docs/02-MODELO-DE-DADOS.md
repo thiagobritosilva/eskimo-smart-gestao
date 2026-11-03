@@ -27,7 +27,11 @@ Proprietário sempre tem todas as permissões (não pode ser revogado — evita 
 
 ---
 
-## Fase 2 — Produtos, Freezers e Estoque 🔜
+## Fase 2 — Produtos, Freezers e Estoque ✅
+
+> Implementado em `migrations/0002_estoque.sql` (versão final difere levemente do esboço abaixo:
+> custo de cadastro `cost_price` + custo médio `avg_cost`, tipo `entrada_inicial` para implantação,
+> `product_location_params` para mínimo por freezer e a view `stock_integrity_check`).
 
 ```
 categories (id, name UNIQUE, parent_id?, is_active)

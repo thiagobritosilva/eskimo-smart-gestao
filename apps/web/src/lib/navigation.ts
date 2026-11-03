@@ -1,5 +1,5 @@
 import {
-  BarChart3, Bell, Bot, Boxes, FileText, LayoutDashboard, Package, Plug, Settings, ShieldCheck,
+  BarChart3, Bell, Bot, Boxes, ClipboardCheck, FileText, LayoutDashboard, Package, Plug, Settings, ShieldCheck,
   ShoppingCart, Snowflake, Users, Wallet, type LucideIcon,
 } from 'lucide-react';
 
@@ -16,9 +16,10 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard.view', section: 'Visão geral' },
   { to: '/notificacoes', label: 'Notificações', icon: Bell, permission: 'alerts.view', phase: 7, section: 'Visão geral' },
-  { to: '/freezers', label: 'Freezers', icon: Snowflake, permission: 'stock.view', phase: 2, section: 'Operação' },
-  { to: '/estoque', label: 'Estoque', icon: Boxes, permission: 'stock.view', phase: 2, section: 'Operação' },
-  { to: '/produtos', label: 'Produtos', icon: Package, permission: 'products.view', phase: 2, section: 'Operação' },
+  { to: '/freezers', label: 'Freezers', icon: Snowflake, permission: 'stock.view', section: 'Operação' },
+  { to: '/estoque', label: 'Estoque', icon: Boxes, permission: 'stock.view', section: 'Operação' },
+  { to: '/inventario', label: 'Inventário', icon: ClipboardCheck, permission: 'stock.view', section: 'Operação' },
+  { to: '/produtos', label: 'Produtos', icon: Package, permission: 'products.view', section: 'Operação' },
   { to: '/compras', label: 'Compras e fornecedores', icon: ShoppingCart, permission: 'purchases.view', phase: 4, section: 'Operação' },
   { to: '/financeiro', label: 'Financeiro', icon: Wallet, permission: 'finance.view', phase: 3, section: 'Gestão' },
   { to: '/relatorios', label: 'Relatórios', icon: FileText, permission: 'reports.view', phase: 7, section: 'Gestão' },
