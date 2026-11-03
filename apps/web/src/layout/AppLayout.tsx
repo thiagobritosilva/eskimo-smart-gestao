@@ -112,7 +112,7 @@ export function AppLayout() {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-ink-900 lg:flex">
         <div className="flex h-16 items-center px-5"><Logo dark /></div>
         <Sidebar />
-        <div className="border-t border-white/10 px-5 py-3 text-[11px] text-slate-500">v0.3 · Fase 3 — Financeiro</div>
+        <div className="border-t border-white/10 px-5 py-3 text-[11px] text-slate-500">v0.4 · Fase 4 — Compras</div>
       </aside>
 
       {/* Sidebar mobile */}

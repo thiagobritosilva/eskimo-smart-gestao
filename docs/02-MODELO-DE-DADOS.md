@@ -136,7 +136,11 @@ categorias sem lançamento no período.
 
 ---
 
-## Fase 4 — Compras e Fornecedores 🔜
+## Fase 4 — Compras e Fornecedores ✅
+
+> Implementado em `migrations/0004_compras.sql`. Diferenças: fornecedor com endereço em campos (cidade, UF, CEP);
+> recebimento guarda frete, outros custos (ST/IPI) e desconto da NOTA, com rateio por linha em `purchase_receipt_lines`;
+> pedido guarda apenas frete/desconto estimados.
 
 ```
 suppliers (id, name, document (CPF/CNPJ) UNIQUE, phone, email, address jsonb,

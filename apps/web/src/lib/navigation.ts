@@ -20,7 +20,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/estoque', label: 'Estoque', icon: Boxes, permission: 'stock.view', section: 'Operação' },
   { to: '/inventario', label: 'Inventário', icon: ClipboardCheck, permission: 'stock.view', section: 'Operação' },
   { to: '/produtos', label: 'Produtos', icon: Package, permission: 'products.view', section: 'Operação' },
-  { to: '/compras', label: 'Compras e fornecedores', icon: ShoppingCart, permission: 'purchases.view', phase: 4, section: 'Operação' },
+  { to: '/compras', label: 'Compras e fornecedores', icon: ShoppingCart, permission: 'purchases.view', section: 'Operação' },
   { to: '/financeiro', label: 'Financeiro', icon: Wallet, permission: 'finance.view', section: 'Gestão' },
   { to: '/relatorios', label: 'Relatórios', icon: FileText, permission: 'reports.view', phase: 7, section: 'Gestão' },
   { to: '/indicadores', label: 'Rentabilidade', icon: BarChart3, permission: 'reports.view', phase: 7, section: 'Gestão' },

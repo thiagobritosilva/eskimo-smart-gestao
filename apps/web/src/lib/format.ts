@@ -115,4 +115,12 @@ Object.assign(ACTION_LABELS, {
   'finance.cash_closed': 'Fechamento de caixa',
   'finance.reconciled': 'Conciliação',
   'finance.unreconciled': 'Conciliação desfeita',
+  'supplier.created': 'Fornecedor cadastrado',
+  'supplier.updated': 'Fornecedor alterado',
+  'purchase.order_created': 'Pedido de compra criado',
+  'purchase.order_updated': 'Pedido de compra alterado',
+  'purchase.order_sent': 'Pedido enviado',
+  'purchase.order_cancelled': 'Pedido cancelado',
+  'purchase.received': 'Nota fiscal recebida',
+  'purchase.receipt_reversed': 'Recebimento estornado',
 });

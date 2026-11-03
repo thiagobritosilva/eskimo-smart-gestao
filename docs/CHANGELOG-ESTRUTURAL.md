@@ -37,3 +37,14 @@ com impacto e estratégia de preservação de dados.
   uma sessão aberta por caixa (índice parcial); caixa físico nunca negativo.
 - **Pendências conscientes:** importação de extrato OFX/CSV para conciliação automática fica para a Fase 7;
   nesta fase a conciliação é a marcação manual de cada movimentação conferida.
+
+## 0004_compras — Fase 4 (2026-11-03)
+- **O quê:** `suppliers`, `purchase_orders`, `purchase_order_lines`, `purchase_receipts`, `purchase_receipt_lines`;
+  configuração `purchases.params` (categoria "Compras" para a conta a pagar e destino padrão "CENTRAL").
+- **Dados estruturais:** nenhum fornecedor, pedido ou valor.
+- **Alteração de código existente (sem mudança de dados):** `finance.service` passou a expor `createTitleInDb` e
+  `cancelTitleInDb` para que o recebimento gere/cancele a conta a pagar na mesma transação do estoque.
+  Títulos ganharam o preenchimento de `source_type`/`source_id` (colunas já existentes desde a 0003).
+- **Garantias:** recebimento atômico (estoque + custo médio + conta a pagar); UNIQUE de nota por fornecedor/número/série
+  e por chave NF-e (exceto recebimentos estornados); `CHECK` total da nota = itens + frete + outros − desconto;
+  linhas de recebimento imutáveis; recebimento sem conta a pagar exige motivo; pedidos, recebimentos e fornecedores sem DELETE.

@@ -43,7 +43,7 @@ Correção ─► "Estornar" cria movimento 'estorno' com linhas invertidas apon
 3. Finalizar ⇒ diferenças geram **um** movimento `ajuste_inventario` (entrada ou saída) e alerta de
    divergência acima do limiar configurado.
 
-## F5. Compra → Estoque → Financeiro (Fase 4)
+## F5. Compra → Estoque → Financeiro (Fase 4 ✅)
 
 ```
 Pedido (rascunho) ─► enviado ─► Recebimento (total/parcial) escolhendo localização de destino

@@ -17,6 +17,8 @@ import { LocationDetailPage } from './pages/LocationDetailPage';
 import { StockPage } from './pages/StockPage';
 import { InventoryCountPage, InventoryListPage } from './pages/InventoryPages';
 import { FinancePage } from './pages/FinancePage';
+import { PurchasesPage } from './pages/PurchasesPage';
+import { PurchaseOrderPage } from './pages/PurchaseOrderPage';
 
 function Protected({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -36,7 +38,6 @@ function RequirePermission({ permission, children }: { permission: string; child
 }
 
 const FUTURE = [
-  { path: 'compras', title: 'Compras e fornecedores', phase: 4, perm: 'purchases.view', desc: 'Fornecedores, pedidos e recebimento de mercadorias integrado ao estoque e às contas a pagar.' },
   { path: 'pdv', title: 'PDV Connector', phase: 5, perm: 'pdv.manage', desc: 'Integração com o PDV WebSempre. Depende da documentação técnica oficial e de testes reais com a instalação da loja.' },
   { path: 'assistente', title: 'Assistente IA', phase: 6, perm: 'ai.chat', desc: 'Consultas em linguagem natural via Claude e ChatGPT, somente leitura, sobre os dados reais da loja.' },
   { path: 'relatorios', title: 'Relatórios', phase: 7, perm: 'reports.view', desc: 'Relatórios gerenciais com exportação para Excel e PDF.' },
@@ -57,6 +58,8 @@ export function App() {
         <Route path="produtos" element={<RequirePermission permission="products.view"><ProductsPage /></RequirePermission>} />
         <Route path="freezers" element={<RequirePermission permission="stock.view"><FreezersPage /></RequirePermission>} />
         <Route path="freezers/:id" element={<RequirePermission permission="stock.view"><LocationDetailPage /></RequirePermission>} />
+        <Route path="compras" element={<RequirePermission permission="purchases.view"><PurchasesPage /></RequirePermission>} />
+        <Route path="compras/pedidos/:id" element={<RequirePermission permission="purchases.view"><PurchaseOrderPage /></RequirePermission>} />
         <Route path="financeiro" element={<RequirePermission permission="finance.view"><FinancePage /></RequirePermission>} />
         <Route path="estoque" element={<RequirePermission permission="stock.view"><StockPage /></RequirePermission>} />
         <Route path="inventario" element={<RequirePermission permission="stock.view"><InventoryListPage /></RequirePermission>} />
