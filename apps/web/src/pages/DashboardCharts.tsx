@@ -18,6 +18,40 @@ export function StockChart({ chartKey, series, withCost }: { chartKey: string; s
     sale: s.sale_value != null ? Number(s.sale_value) : undefined,
   }));
 
+  if (['sales_by_day', 'sales_by_month', 'revenue_trend'].includes(chartKey)) {
+    const rows = series.map((s) => ({ label: s.label, value: Number(s.value), count: Number(s.count ?? 0) }));
+    return (
+      <div className="h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} margin={{ left: 8, right: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+            <YAxis tickFormatter={compactMoney} tick={{ fontSize: 11 }} width={70} />
+            <Tooltip formatter={(v: number) => money(v)} labelFormatter={(l, p) => `${l} · ${(p?.[0]?.payload as { count: number })?.count ?? 0} venda(s)`} />
+            <Bar dataKey="value" name="Faturamento" fill={COLORS.cost} radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  if (['top_products', 'bottom_products', 'category_performance'].includes(chartKey)) {
+    const rows = series.map((s) => ({ label: s.label, value: Number(s.value), quantity: Number(s.quantity ?? 0) }));
+    return (
+      <div style={{ height: Math.max(160, rows.length * 32 + 40) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 16 }}>
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+            <XAxis type="number" tick={{ fontSize: 11 }} />
+            <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} width={150} />
+            <Tooltip formatter={(v: number, n: string) => (n === 'Quantidade' ? formatQty(v) : money(v))} />
+            <Bar dataKey={chartKey === 'category_performance' ? 'value' : 'quantity'} name={chartKey === 'category_performance' ? 'Faturamento' : 'Quantidade'} fill={COLORS.eskimo} radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
   if (chartKey === 'expenses_trend') {
     const groups = [...new Set(series.map((s) => s.group_label as string))];
     const palette = ['#1468e0', '#0ea5e9', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#64748b'];

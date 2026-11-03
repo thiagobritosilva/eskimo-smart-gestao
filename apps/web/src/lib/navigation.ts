@@ -25,7 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/relatorios', label: 'Relatórios', icon: FileText, permission: 'reports.view', phase: 7, section: 'Gestão' },
   { to: '/indicadores', label: 'Rentabilidade', icon: BarChart3, permission: 'reports.view', phase: 7, section: 'Gestão' },
   { to: '/assistente', label: 'Assistente IA', icon: Bot, permission: 'ai.chat', phase: 6, section: 'Gestão' },
-  { to: '/pdv', label: 'PDV Connector', icon: Plug, permission: 'pdv.manage', phase: 5, section: 'Sistema' },
+  { to: '/pdv', label: 'PDV Connector', icon: Plug, permission: 'sales.view', section: 'Sistema' },
   { to: '/usuarios', label: 'Usuários', icon: Users, permission: 'users.view', section: 'Sistema' },
   { to: '/auditoria', label: 'Auditoria', icon: ShieldCheck, permission: 'audit.view', section: 'Sistema' },
   { to: '/configuracoes', label: 'Configurações', icon: Settings, permission: 'settings.manage', section: 'Sistema' },

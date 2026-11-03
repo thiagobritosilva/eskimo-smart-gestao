@@ -123,4 +123,12 @@ Object.assign(ACTION_LABELS, {
   'purchase.order_cancelled': 'Pedido cancelado',
   'purchase.received': 'Nota fiscal recebida',
   'purchase.receipt_reversed': 'Recebimento estornado',
+  'pdv.connector_updated': 'Conector PDV alterado',
+  'pdv.import': 'Importação de NFC-e',
+  'pdv.product_linked': 'Código do PDV vinculado',
+  'pdv.rule_saved': 'Regra de baixa salva',
+  'pdv.rule_deleted': 'Regra de baixa excluída',
+  'pdv.manual_allocation': 'Baixa manual de venda',
+  'pdv.consolidated': 'Consolidação de vendas',
+  'pdv.issue_resolved': 'Pendência do PDV resolvida',
 });

@@ -19,6 +19,7 @@ import { InventoryCountPage, InventoryListPage } from './pages/InventoryPages';
 import { FinancePage } from './pages/FinancePage';
 import { PurchasesPage } from './pages/PurchasesPage';
 import { PurchaseOrderPage } from './pages/PurchaseOrderPage';
+import { PdvPage } from './pages/PdvPage';
 
 function Protected({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -38,7 +39,6 @@ function RequirePermission({ permission, children }: { permission: string; child
 }
 
 const FUTURE = [
-  { path: 'pdv', title: 'PDV Connector', phase: 5, perm: 'pdv.manage', desc: 'Integração com o PDV WebSempre. Depende da documentação técnica oficial e de testes reais com a instalação da loja.' },
   { path: 'assistente', title: 'Assistente IA', phase: 6, perm: 'ai.chat', desc: 'Consultas em linguagem natural via Claude e ChatGPT, somente leitura, sobre os dados reais da loja.' },
   { path: 'relatorios', title: 'Relatórios', phase: 7, perm: 'reports.view', desc: 'Relatórios gerenciais com exportação para Excel e PDF.' },
   { path: 'indicadores', title: 'Rentabilidade', phase: 7, perm: 'reports.view', desc: 'Margens, giro, valor parado em estoque e ponto de equilíbrio.' },
@@ -58,6 +58,7 @@ export function App() {
         <Route path="produtos" element={<RequirePermission permission="products.view"><ProductsPage /></RequirePermission>} />
         <Route path="freezers" element={<RequirePermission permission="stock.view"><FreezersPage /></RequirePermission>} />
         <Route path="freezers/:id" element={<RequirePermission permission="stock.view"><LocationDetailPage /></RequirePermission>} />
+        <Route path="pdv" element={<RequirePermission permission="sales.view"><PdvPage /></RequirePermission>} />
         <Route path="compras" element={<RequirePermission permission="purchases.view"><PurchasesPage /></RequirePermission>} />
         <Route path="compras/pedidos/:id" element={<RequirePermission permission="purchases.view"><PurchaseOrderPage /></RequirePermission>} />
         <Route path="financeiro" element={<RequirePermission permission="finance.view"><FinancePage /></RequirePermission>} />

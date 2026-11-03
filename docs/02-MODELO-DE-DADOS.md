@@ -159,7 +159,11 @@ Anti-duplicidade: um recebimento gera **exatamente um** movimento de estoque e *
 
 ---
 
-## Fase 5 — PDV Connector 🔜
+## Fase 5 — PDV Connector ✅ (etapa 1: NFC-e) · 🔜 (etapa 2: API WebSempre)
+
+> Implementado em `migrations/0005_pdv.sql`. Diferenças: alocação por regras com lista ordenada de localizações
+> (`stock_allocation_rules.location_ids`), pendências em `pdv_issues`, consolidação diária em `pdv_daily_consolidations`
+> (uma conta a receber por dia × forma de pagamento).
 
 ```
 pdv_connectors (id, provider ('websempre'), mode ('api','webhook','arquivo'),

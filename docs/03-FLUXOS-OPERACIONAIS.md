@@ -54,7 +54,7 @@ Pedido (rascunho) ─► enviado ─► Recebimento (total/parcial) escolhendo l
   ⇒ impossível duplicar estoque ou conta a pagar ao repetir a operação.
 ```
 
-## F6. Venda do PDV (Fase 5 — depende da documentação oficial WebSempre)
+## F6. Venda do PDV (Fase 5 — NFC-e ✅; API depende da documentação oficial WebSempre)
 
 ```
 Adaptador (API | webhook | arquivo) ─► pdv_raw_events (bruto, imutável)

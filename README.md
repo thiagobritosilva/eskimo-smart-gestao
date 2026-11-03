@@ -2,7 +2,7 @@
 
 Sistema de gestão da loja franqueada Eskimo Sorvetes. Ele complementa o PDV WebSempre, sem substituí-lo, e reúne estoque por freezer, compras, financeiro, indicadores, relatórios e IA somente-leitura.
 
-**Status: Fases 1 (Fundação), 2 (Estoque), 3 (Financeiro) e 4 (Compras) concluídas. Publicação (VPS) pendente, por decisão do proprietário.**
+**Status: Fases 1 (Fundação), 2 (Estoque), 3 (Financeiro), 4 (Compras) concluídas; Fase 5 (PDV) com importação de NFC-e concluída e API WebSempre aguardando documentação. Publicação (VPS) pendente, por decisão do proprietário.**
 
 ## Documentação
 | Documento | Conteúdo |
@@ -29,7 +29,7 @@ O `create-owner` só funciona enquanto não houver um proprietário ativo. Depoi
 
 ## Testes
 ```bash
-npm test        # 79 testes de API contra PostgreSQL real (banco eskimo_test, recriado a cada execução)
+npm test        # 95 testes de API contra PostgreSQL real (banco eskimo_test, recriado a cada execução)
 npm run typecheck
 ```
 

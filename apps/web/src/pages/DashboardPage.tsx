@@ -107,7 +107,7 @@ export function DashboardPage() {
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Gráficos</h2>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {data.charts.filter((c) => c.status === 'ok').map((c) => (
-                <div key={c.key} className="card p-4 md:col-span-2 xl:col-span-3">
+                <div key={c.key} className={clsx('card p-4', ['stock_value_by_freezer', 'sales_by_day', 'expenses_trend'].includes(c.key) ? 'md:col-span-2 xl:col-span-3' : 'xl:col-span-1')}>
                   <div className="mb-2 text-sm font-semibold text-ink-900">{c.label}</div>
                   <StockChart chartKey={c.key} series={c.series} withCost={can('products.view_cost')} />
                 </div>
