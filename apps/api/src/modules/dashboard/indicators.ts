@@ -1,4 +1,5 @@
 import type { Queryable } from '../../db/pool.js';
+import * as stock from './stock-indicators.js';
 
 /**
  * Registro central de indicadores do dashboard.
@@ -66,11 +67,11 @@ export const INDICATORS: IndicatorDef[] = [
   { key: 'receivables_open', label: 'Contas a receber', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial' },
   { key: 'cash_balance', label: 'Saldo de caixa', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial' },
   { key: 'bank_balance', label: 'Saldo bancário', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial' },
-  { key: 'stock_cost_value', label: 'Estoque pelo custo', group: 'estoque', unit: 'BRL', phase: 2, permission: 'products.view_cost' },
-  { key: 'stock_sale_value', label: 'Potencial de venda do estoque', group: 'estoque', unit: 'BRL', phase: 2 },
-  { key: 'low_stock_count', label: 'Produtos com estoque baixo', group: 'estoque', unit: 'count', phase: 2 },
-  { key: 'expiring_count', label: 'Produtos próximos do vencimento', group: 'estoque', unit: 'count', phase: 2 },
-  { key: 'freezers_count', label: 'Freezers cadastrados', group: 'freezers', unit: 'count', phase: 2 },
+  { key: 'stock_cost_value', label: 'Estoque pelo custo', group: 'estoque', unit: 'BRL', phase: 2, permission: 'products.view_cost', compute: stock.stockCostValue },
+  { key: 'stock_sale_value', label: 'Potencial de venda do estoque', group: 'estoque', unit: 'BRL', phase: 2, compute: stock.stockSaleValue },
+  { key: 'low_stock_count', label: 'Produtos com estoque baixo', group: 'estoque', unit: 'count', phase: 2, compute: stock.lowStockCount },
+  { key: 'expiring_count', label: 'Produtos próximos do vencimento', group: 'estoque', unit: 'count', phase: 2, compute: stock.expiringCount },
+  { key: 'freezers_count', label: 'Freezers cadastrados', group: 'freezers', unit: 'count', phase: 2, compute: (db) => stock.freezersCount(db) },
 ];
 
 export interface ChartDef {

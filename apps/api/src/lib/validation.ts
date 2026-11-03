@@ -26,3 +26,13 @@ export const emailSchema = z
   .max(254);
 
 export const uuidSchema = z.string().uuid('Identificador inválido.');
+
+/** Decimal não negativo como string (aceita número ou texto com ponto). */
+export const decimalSchema = (maxDecimals: number, message = 'Valor numérico inválido.') =>
+  z
+    .union([z.string(), z.number()])
+    .transform((v) => String(v).trim())
+    .refine((v) => new RegExp(`^\\d{1,11}(\\.\\d{1,${maxDecimals}})?$`).test(v), message);
+
+export const optionalDecimal = (maxDecimals: number) =>
+  z.union([decimalSchema(maxDecimals), z.null(), z.literal('').transform(() => null)]).optional();

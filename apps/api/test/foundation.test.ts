@@ -24,11 +24,15 @@ describe('migrations', () => {
   });
 
   it('não semeiam nenhum dado comercial', async () => {
-    const { rows } = await getPool().query(
-      `SELECT count(*)::int AS n FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name IN ('products','sales','stock_movements')`,
-    );
-    expect(rows[0].n).toBe(0); // tabelas comerciais só nascem nas fases seguintes
+    // Verificação determinística nos próprios arquivos de migration (independe da ordem dos testes).
+    const { readdir, readFile } = await import('node:fs/promises');
+    const dir = new URL('../src/db/migrations/', import.meta.url);
+    for (const f of await readdir(dir)) {
+      const sql = await readFile(new URL(f, dir), 'utf8');
+      expect(sql, f).not.toMatch(/INSERT\s+INTO\s+(products|categories|lots|stock_movements|stock_movement_lines|stock_balances|sales|suppliers)\b/i);
+    }
+    const { rows } = await getPool().query('SELECT (SELECT count(*) FROM units)::int AS units, (SELECT count(*) FROM freezers)::int AS freezers');
+    expect(rows[0]).toEqual({ units: 5, freezers: 30 });
   });
 });
 
@@ -258,10 +262,15 @@ describe('dashboard', () => {
     const body = res.json();
     expect(body.indicators.length).toBeGreaterThan(10);
     for (const i of body.indicators) {
-      expect(i.value).toBeNull();
-      expect(i.status).toBe('unavailable');
-      expect(i.reason).toMatch(/Fase/);
+      if (i.status !== 'ok') {
+        expect(i.value).toBeNull();
+        expect(i.reason).toBeTruthy();
+      }
     }
+    // Fontes de fases futuras continuam indisponíveis
+    const revenue = body.indicators.find((i: { key: string }) => i.key === 'revenue_today');
+    expect(revenue).toMatchObject({ value: null, status: 'unavailable' });
+    expect(revenue.reason).toMatch(/Fase 5/);
     expect(body.system.pdvConnector.status).toBe('not_configured');
   });
 

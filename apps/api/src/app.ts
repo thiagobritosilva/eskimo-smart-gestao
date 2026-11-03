@@ -15,6 +15,8 @@ import { authenticate } from './modules/auth/auth.service.js';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
 import { settingsRoutes } from './modules/settings/settings.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
+import { productsRoutes } from './modules/products/products.routes.js';
+import { stockRoutes } from './modules/stock/stock.routes.js';
 import './types.js';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -98,6 +100,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(auditRoutes);
       await api.register(settingsRoutes);
       await api.register(dashboardRoutes);
+      await api.register(productsRoutes);
+      await api.register(stockRoutes);
     },
     { prefix: '/api' },
   );

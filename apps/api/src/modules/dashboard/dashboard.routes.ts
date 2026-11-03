@@ -4,6 +4,7 @@ import { getPool } from '../../db/pool.js';
 import { requirePermission } from '../../lib/http.js';
 import { parse } from '../../lib/validation.js';
 import { CHARTS, INDICATORS, unavailable, type DashboardFilters } from './indicators.js';
+import { stockByFreezerChart, stockDistributionChart, type ChartData } from './stock-indicators.js';
 
 function todaySaoPaulo(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
@@ -42,12 +43,16 @@ export async function dashboardRoutes(app: FastifyInstance) {
       })),
     );
 
-    const charts = CHARTS.filter((c) => !c.permission || perms.has(c.permission)).map((c) => ({
-      key: c.key,
-      label: c.label,
-      ...unavailable(c.phase),
-      series: [] as unknown[],
-    }));
+    const canCost = perms.has('products.view_cost');
+    const charts = await Promise.all(
+      CHARTS.filter((c) => !c.permission || perms.has(c.permission)).map(async (c) => {
+        let data: ChartData;
+        if (c.key === 'stock_distribution') data = await stockDistributionChart(db, filters, canCost);
+        else if (c.key === 'stock_value_by_freezer') data = await stockByFreezerChart(db, filters);
+        else data = { ...unavailable(c.phase), value: null, series: [] };
+        return { key: c.key, label: c.label, ...data };
+      }),
+    );
 
     const system = await db.query<{ active_users: number; sessions_today: number }>(
       `SELECT (SELECT count(*)::int FROM users WHERE is_active) AS active_users,
