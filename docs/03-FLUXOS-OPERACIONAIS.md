@@ -78,6 +78,14 @@ Abertura com fundo de troco ⇒ sangrias/suprimentos ⇒ fechamento com valor co
 calcula esperado (abertura + recebimentos em dinheiro + suprimentos − sangrias) ⇒ diferença registrada
 e auditada; quando o PDV estiver integrado, confronta com o fechamento do PDV.
 
+## F7a. Benefícios mensais — vale-refeição e vale-alimentação (Financeiro ✅)
+
+Cadastro único em Financeiro → Despesas fixas (valor pode ficar "a definir") ⇒ no início de cada mês (e a
+partir do dia 25 para o mês seguinte) o sistema lança a conta a pagar com competência no dia 1º e vencimento no
+dia escolhido ⇒ o pagamento é baixado normalmente em Contas a pagar (sai do caixa/banco) ⇒ no DRE aparece como
+despesa de Pessoal do mês do benefício. Sem valor informado, nada é lançado. Valor alterado vale do próximo mês
+gerado em diante; conta já gerada se corrige/cancela em Contas a pagar (histórico preservado).
+
 ## F8. Consulta via IA (Fase 6)
 
 ```

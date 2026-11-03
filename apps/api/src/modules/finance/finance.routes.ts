@@ -7,6 +7,7 @@ import { addDays, todaySP } from '../../lib/money.js';
 import { parse, uuidSchema } from '../../lib/validation.js';
 import * as reports from './finance.reports.js';
 import * as svc from './finance.service.js';
+import * as recurring from './recurring.service.js';
 
 const money = z
   .union([z.string(), z.number()])
@@ -239,5 +240,38 @@ export async function financeRoutes(app: FastifyInstance) {
       req.query,
     );
     return q.byMonth === 'true' ? reports.dreByMonth(q.from, q.to) : reports.dre(getPool(), q.from, q.to);
+  });
+
+  // ----- Despesas fixas mensais (vale-refeição, vale-alimentação, etc.) -----
+  const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mês inválido (use AAAA-MM).');
+  const recurringBase = {
+    description: z.string().trim().min(2).max(120),
+    categoryId: uuidSchema,
+    counterparty: text(120),
+    paymentMethodCode: z.string().regex(/^[a-z_]+$/).nullable().optional(),
+    amount: optMoney,
+    dueDay: z.number().int().min(1).max(28),
+    startMonth: month,
+    endMonth: month.nullable().optional(),
+    notes: text(500),
+  };
+  app.get('/finance/recurring', { preHandler: view }, async () => recurring.listRecurring());
+  app.post('/finance/recurring', { preHandler: manage }, async (req, reply) => {
+    const body = parse(z.object(recurringBase), req.body);
+    reply.code(201);
+    return recurring.createRecurring(actorOf(req), body);
+  });
+  app.patch('/finance/recurring/:id', { preHandler: manage }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const body = parse(z.object(recurringBase).partial().extend({ isActive: z.boolean().optional() }), req.body);
+    return recurring.updateRecurring(actorOf(req), id, body);
+  });
+  app.post('/finance/recurring/generate', { preHandler: manage }, async (req) => {
+    const body = parse(z.object({ month: month.optional() }), req.body ?? {});
+    const months = body.month ? [body.month] : recurring.monthsDue();
+    const actor = actorOf(req);
+    const results = [];
+    for (const m of months) results.push(await recurring.generateMonth(actor, m));
+    return { results };
   });
 }

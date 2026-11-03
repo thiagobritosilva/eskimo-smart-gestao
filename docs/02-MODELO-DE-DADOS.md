@@ -134,6 +134,15 @@ Regras-chave: venda no crédito parcelado gera **recebíveis futuros** (não sal
 (competência) ≠ recebimento (caixa); DRE gerencial por `dre_group` com nota explícita das
 categorias sem lançamento no período.
 
+### Despesas fixas mensais (migration 0006)
+```
+recurring_expenses (id, description, category_id, counterparty, payment_method_code,
+                    amount NULL (= a definir), due_day 1..28, start_month, end_month NULL, is_active)
+recurring_expense_runs [imutável] (recurring_id, month, title_id UNIQUE, amount)  PK (recurring_id, month)
+```
+Cada mês gera um `financial_titles` (direction 'pagar', source_type 'recorrente', competência no dia 1º).
+Uso principal: vale-refeição e vale-alimentação pagos adiantados no início do mês.
+
 ---
 
 ## Fase 4 — Compras e Fornecedores ✅

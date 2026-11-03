@@ -61,3 +61,17 @@ com impacto e estratégia de preservação de dados.
   baixa de estoque só por regra (ou distribuição manual), uma única vez por venda (idempotência + UNIQUE);
   consolidação única por dia × forma de pagamento; vendas, itens e pagamentos sem DELETE.
 - **Pendente (etapa 2):** adaptador de API/webhook da WebSempre — depende da documentação oficial e de testes reais.
+
+## 0006_despesas_recorrentes — Financeiro: despesas fixas mensais (2026-11-03)
+- **Motivo:** vale-refeição e vale-alimentação são pagos antecipadamente no início de cada mês a todos os funcionários.
+- **O quê:** `recurring_expenses` (modelo: descrição, categoria, favorecido, forma de pagamento, valor mensal
+  OPCIONAL, dia do vencimento 1–28, mês inicial/final, ativo) e `recurring_expense_runs` (registro imutável de cada
+  mês gerado, chave modelo × mês). `financial_titles.source_type` passa a aceitar `'recorrente'`.
+- **Dados estruturais:** categorias de despesa "Vale-refeição" e "Vale-alimentação" (grupo Pessoal do DRE).
+  Nenhum modelo e nenhum valor são criados — a loja cadastra com os valores reais.
+- **Regras:** uma conta a pagar por modelo e mês (UNIQUE + chave de idempotência); competência no dia 1º do mês do
+  benefício; sem valor informado não gera conta (aparece como "a definir"); mudança de valor vale só para meses
+  ainda não gerados; modelos não podem ser apagados (somente desativados). Geração automática na inicialização do
+  servidor e a cada hora (mês atual; a partir do dia 25 também o seguinte), além do botão "Gerar contas agora".
+- **Sem alteração** em dados existentes.
+
