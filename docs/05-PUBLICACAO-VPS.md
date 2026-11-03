@@ -9,6 +9,10 @@ Nenhuma senha precisa ser enviada a ninguém: o instalador gera as senhas intern
 0. **Domínio `eskimovicentepires.tech`** — no painel onde o domínio está registrado (Hostinger → Domínios → DNS / Zona DNS):
    - crie (ou altere) o registro **A** com nome **`@`** apontando para **`187.41.116.28`** (TTL 300 ou o menor disponível);
    - **apague** registros **A** ou **AAAA** antigos do `@` que apontem para outro lugar (ex.: página de estacionamento);
+   - **AAAA (IPv6):** confira no painel da VPS (Visão geral) qual é o IPv6 dela. O AAAA de `@` deve ser
+     exatamente esse endereço; se for diferente, corrija; se a VPS não tiver IPv6, apague o AAAA.
+     O instalador confere isso e interrompe com a instrução se estiver errado (senão o HTTPS falharia).
+   - **www:** o CNAME `www → eskimovicentepires.tech` pode ficar; o sistema redireciona `www` para o endereço principal.
    - aguarde a propagação (normalmente minutos; pode levar algumas horas).
    Na instalação, quando perguntado o endereço, digite `eskimovicentepires.tech`.
 1. **Troque a senha de root** se ela já foi compartilhada em algum lugar (painel → VPS → Configurações).

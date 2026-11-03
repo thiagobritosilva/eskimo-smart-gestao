@@ -91,7 +91,7 @@ say "4/7 Configuração e segredos"
 if [[ -f "$CONFIG" ]]; then
   echo "Configuração existente mantida ($CONFIG)."
 else
-  PUBLIC_IP="$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')"
+  PUBLIC_IP="$(curl -4 -fsS https://api.ipify.org || hostname -I | awk '{print $1}')"
   DEFAULT_DOMAIN="$(hostname -f 2>/dev/null || hostname)"
   read -r -p "Endereço (domínio) do sistema [${DEFAULT_DOMAIN}]: " DOMAIN
   DOMAIN="${DOMAIN:-$DEFAULT_DOMAIN}"
@@ -103,6 +103,26 @@ else
     read -r -p "Usar o endereço provisório https://$FALLBACK ? [S/n] " ans
     [[ "${ans,,}" == "n" ]] && die "aponte o DNS do domínio para $PUBLIC_IP e execute o instalador de novo."
     DOMAIN="$FALLBACK"
+  fi
+  if [[ "$DOMAIN" != *.sslip.io ]]; then
+    # IPv6: um registro AAAA apontando para OUTRO servidor faz o certificado falhar (a Let's Encrypt prefere IPv6).
+    V6_DNS="$(getent ahostsv6 "$DOMAIN" | awk '$1 ~ /:/ && $1 !~ /^::ffff:/ {print $1; exit}')"
+    if [[ -n "$V6_DNS" ]]; then
+      mapfile -t V6_LOCAL < <(ip -6 addr show scope global 2>/dev/null | awk '/inet6/{split($2, a, "/"); print a[1]}')
+      MATCH=no
+      for addr in "${V6_LOCAL[@]}"; do [[ "$addr" == "$V6_DNS" ]] && MATCH=yes; done
+      if [[ "$MATCH" == no ]]; then
+        warn "O registro AAAA (IPv6) de '$DOMAIN' aponta para $V6_DNS, que NÃO é este servidor."
+        warn "IPv6 deste servidor: ${V6_LOCAL[*]:-nenhum}"
+        die "no DNS do domínio, altere o AAAA de '@' para o IPv6 da VPS (ou apague-o) e execute o instalador de novo."
+      fi
+      echo "IPv6 do domínio confere com este servidor ($V6_DNS)."
+    fi
+    WWW_IP="$(getent ahostsv4 "www.$DOMAIN" | awk 'NR==1{print $1}')"
+    if [[ "$WWW_IP" != "$PUBLIC_IP" ]]; then
+      warn "www.$DOMAIN não aponta para este servidor: o endereço com 'www' só funcionará depois de corrigir o DNS."
+      warn "(o endereço principal https://$DOMAIN funciona normalmente)"
+    fi
   fi
   umask 077
   cat > "$CONFIG" <<CFG

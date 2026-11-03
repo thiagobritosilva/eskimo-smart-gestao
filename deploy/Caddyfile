@@ -7,3 +7,8 @@
 	}
 	reverse_proxy app:3333
 }
+
+# "www" redireciona permanentemente para o endereço principal (certificado emitido também para o www).
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
