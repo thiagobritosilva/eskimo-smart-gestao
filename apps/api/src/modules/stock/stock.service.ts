@@ -132,7 +132,8 @@ async function lockProducts(db: Db, ids: string[]): Promise<Map<string, ProductR
 async function loadLocations(db: Db, ids: string[]) {
   const unique = [...new Set(ids)];
   const { rows } = await db.query<{ id: string; name: string; status: string | null }>(
-    `SELECT l.id, l.name, f.status FROM locations l LEFT JOIN freezers f ON f.location_id = l.id
+    `SELECT l.id, l.name, coalesce(f.status, ct.status) AS status FROM locations l
+     LEFT JOIN freezers f ON f.location_id = l.id LEFT JOIN carts ct ON ct.location_id = l.id
      WHERE l.id = ANY($1::uuid[])`,
     [unique],
   );

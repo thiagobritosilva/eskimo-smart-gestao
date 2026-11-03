@@ -143,6 +143,16 @@ recurring_expense_runs [imutável] (recurring_id, month, title_id UNIQUE, amount
 Cada mês gera um `financial_titles` (direction 'pagar', source_type 'recorrente', competência no dia 1º).
 Uso principal: vale-refeição e vale-alimentação pagos adiantados no início do mês.
 
+### Carrinhos de picolé (migration 0007)
+```
+locations.kind: 'central' | 'freezer' | 'carrinho'
+carts (location_id PK, number UNIQUE, ownership, physical_location, status 'operando'|'manutencao'|'inativo', notes)
+cart_rentals [imutável, exceto devolução] (id, number, cart_id, renter_name, renter_document, renter_phone,
+             started_on, expected_return, amount NULL, billing_period NULL, title_id NULL UNIQUE,
+             idempotency_key UNIQUE, returned_on, return_notes, returned_by)
+   UNIQUE (cart_id) WHERE returned_on IS NULL   -- um aluguel em aberto por carrinho
+```
+
 ---
 
 ## Fase 4 — Compras e Fornecedores ✅

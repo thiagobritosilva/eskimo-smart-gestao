@@ -33,7 +33,7 @@ export async function getStockParams(db: Queryable): Promise<{ expiryWarningDays
 
 const TODAY_SP = `(now() AT TIME ZONE 'America/Sao_Paulo')::date`;
 
-/** Resumo por localização (estoque central + freezers). */
+/** Resumo por localização (estoque central, freezers e carrinhos). */
 export async function listLocationsSummary(db: Queryable) {
   const { expiryWarningDays } = await getStockParams(db);
   const { rows } = await db.query(
@@ -43,7 +43,13 @@ export async function listLocationsSummary(db: Queryable) {
        WHERE b.quantity > 0 GROUP BY 1, 2
      )
      SELECT loc.id, loc.code, loc.kind, loc.name,
-            f.ownership, f.number, f.physical_location, f.capacity_liters::text, f.status, f.notes, f.registered_at,
+            coalesce(f.ownership, ct.ownership) AS ownership, coalesce(f.number, ct.number) AS number,
+            coalesce(f.physical_location, ct.physical_location) AS physical_location, f.capacity_liters::text,
+            coalesce(f.status, ct.status) AS status, coalesce(f.notes, ct.notes) AS notes,
+            coalesce(f.registered_at, ct.registered_at) AS registered_at,
+            (SELECT jsonb_build_object('id', r.id, 'renter_name', r.renter_name, 'started_on', r.started_on,
+                                       'expected_return', r.expected_return)
+               FROM cart_rentals r WHERE r.cart_id = loc.id AND r.returned_on IS NULL) AS open_rental,
             count(bal.product_id)::int AS products_count,
             coalesce(sum(bal.qty), 0)::text AS total_qty,
             round(coalesce(sum(bal.qty * p.avg_cost), 0), 2)::text AS cost_value,
@@ -56,9 +62,10 @@ export async function listLocationsSummary(db: Queryable) {
             count(*) FILTER (WHERE bal.next_expiry <= ${TODAY_SP} + $1::int)::int AS expiring_count
      FROM locations loc
      LEFT JOIN freezers f ON f.location_id = loc.id
+     LEFT JOIN carts ct ON ct.location_id = loc.id
      LEFT JOIN bal ON bal.location_id = loc.id
      LEFT JOIN products p ON p.id = bal.product_id
-     GROUP BY loc.id, f.location_id
+     GROUP BY loc.id, f.location_id, ct.location_id
      ORDER BY loc.sort_order`,
     [expiryWarningDays],
   );

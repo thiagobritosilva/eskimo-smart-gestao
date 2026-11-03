@@ -92,8 +92,9 @@ export function FreezersPage() {
   if (isLoading || !data) return <Spinner />;
 
   const central = data.filter((l) => l.kind === 'central');
-  const eskimo = data.filter((l) => l.ownership === 'eskimo');
-  const own = data.filter((l) => l.ownership === 'proprio');
+  const freezers = data.filter((l) => l.kind === 'freezer');
+  const eskimo = freezers.filter((l) => l.ownership === 'eskimo');
+  const own = freezers.filter((l) => l.ownership === 'proprio');
   const sum = (ls: LocationSummary[]) => ls.reduce((s, l) => s + Number((canCost ? l.cost_value : l.sale_value) ?? 0), 0);
   const valueLabel = canCost ? 'Valor pelo custo' : 'Valor potencial de venda';
 
@@ -130,7 +131,7 @@ export function FreezersPage() {
         }
       />
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
-        <div className="card p-4"><div className="text-xs uppercase text-slate-500">Total da loja ({valueLabel.toLowerCase()})</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(data))}</div></div>
+        <div className="card p-4"><div className="text-xs uppercase text-slate-500">Central + freezers ({valueLabel.toLowerCase()})</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(data.filter((l) => l.kind !== 'carrinho')))}</div></div>
         <div className="card border-brand-200 p-4"><div className="text-xs uppercase text-brand-700">Freezers Eskimo · franquia</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(eskimo))}</div></div>
         <div className="card border-violet-200 p-4"><div className="text-xs uppercase text-violet-700">Freezers próprios · loja</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(own))}</div></div>
       </div>

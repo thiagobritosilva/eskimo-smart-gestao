@@ -60,12 +60,14 @@ afterAll(async () => {
 });
 
 describe('estrutura inicial', () => {
-  it('cria estoque central + 20 freezers Eskimo + 10 próprios, sem dados inventados', async () => {
+  it('cria estoque central + 20 freezers Eskimo + 10 próprios + 8 carrinhos, sem dados inventados', async () => {
     const res = await call(owner.cookie, { method: 'GET', url: '/api/locations' });
     const list = res.json() as { kind: string; ownership: string | null; capacity_liters: string | null }[];
     expect(list.filter((l) => l.kind === 'central')).toHaveLength(1);
-    expect(list.filter((l) => l.ownership === 'eskimo')).toHaveLength(20);
-    expect(list.filter((l) => l.ownership === 'proprio')).toHaveLength(10);
+    const fz = list.filter((l) => l.kind === 'freezer');
+    expect(fz.filter((l) => l.ownership === 'eskimo')).toHaveLength(20);
+    expect(fz.filter((l) => l.ownership === 'proprio')).toHaveLength(10);
+    expect(list.filter((l) => l.kind === 'carrinho').length).toBeGreaterThanOrEqual(8); // o teste de carrinhos cadastra o 9º
     expect(list.every((l) => l.capacity_liters === null)).toBe(true);
   });
 });

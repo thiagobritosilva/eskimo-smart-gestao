@@ -281,7 +281,7 @@ export async function createTitle(actor: Actor, input: TitleInput) {
 export async function createTitleInDb(
   db: Db,
   actor: Actor,
-  input: TitleInput & { sourceType?: 'manual' | 'compra' | 'pdv' | 'importacao' | 'recorrente'; sourceId?: string | null },
+  input: TitleInput & { sourceType?: 'manual' | 'compra' | 'pdv' | 'importacao' | 'recorrente' | 'aluguel_carrinho'; sourceId?: string | null },
 ) {
   if (input.settleNow) require(actor, 'finance.manage', 'Quitar no ato exige permissão financeira.');
   const totalCents = toCents(input.totalAmount, 'valor total');

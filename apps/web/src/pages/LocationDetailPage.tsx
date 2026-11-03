@@ -82,14 +82,15 @@ export function LocationDetailPage() {
   const close = () => setDialog(null);
   const open = counts.data?.[0];
   const isFreezer = loc.kind === 'freezer';
+  const isCart = loc.kind === 'carrinho';
 
   return (
     <>
-      <Link to="/freezers" className="mb-3 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-ink-900"><ArrowLeft className="h-4 w-4" /> Freezers</Link>
+      <Link to={isCart ? '/carrinhos' : '/freezers'} className="mb-3 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-ink-900"><ArrowLeft className="h-4 w-4" /> {isCart ? 'Carrinhos' : 'Freezers'}</Link>
       <PageHeader
         title={loc.name}
         subtitle={[
-          isFreezer ? (loc.ownership === 'eskimo' ? 'Propriedade da Eskimo (franquia)' : 'Propriedade da loja') : 'Estoque central',
+          isCart ? `Carrinho de picolé${loc.open_rental ? ` · alugado para ${loc.open_rental.renter_name}` : ' · disponível'}` : isFreezer ? (loc.ownership === 'eskimo' ? 'Propriedade da Eskimo (franquia)' : 'Propriedade da loja') : 'Estoque central',
           loc.physical_location,
           loc.capacity_liters ? `${formatQty(loc.capacity_liters)} L` : null,
         ].filter(Boolean).join(' · ')}

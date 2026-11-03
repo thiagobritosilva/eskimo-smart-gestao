@@ -14,6 +14,7 @@ import { ComingSoonPage } from './pages/ComingSoonPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { FreezersPage } from './pages/FreezersPage';
 import { LocationDetailPage } from './pages/LocationDetailPage';
+import { CartsPage } from './pages/CartsPage';
 import { StockPage } from './pages/StockPage';
 import { InventoryCountPage, InventoryListPage } from './pages/InventoryPages';
 import { FinancePage } from './pages/FinancePage';
@@ -57,6 +58,8 @@ export function App() {
         <Route path="perfil" element={<ProfilePage />} />
         <Route path="produtos" element={<RequirePermission permission="products.view"><ProductsPage /></RequirePermission>} />
         <Route path="freezers" element={<RequirePermission permission="stock.view"><FreezersPage /></RequirePermission>} />
+        <Route path="carrinhos" element={<RequirePermission permission="stock.view"><CartsPage /></RequirePermission>} />
+        <Route path="carrinhos/:id" element={<RequirePermission permission="stock.view"><LocationDetailPage /></RequirePermission>} />
         <Route path="freezers/:id" element={<RequirePermission permission="stock.view"><LocationDetailPage /></RequirePermission>} />
         <Route path="pdv" element={<RequirePermission permission="sales.view"><PdvPage /></RequirePermission>} />
         <Route path="compras" element={<RequirePermission permission="purchases.view"><PurchasesPage /></RequirePermission>} />

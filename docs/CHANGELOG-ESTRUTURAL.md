@@ -75,3 +75,15 @@ com impacto e estratégia de preservação de dados.
   servidor e a cada hora (mês atual; a partir do dia 25 também o seguinte), além do botão "Gerar contas agora".
 - **Sem alteração** em dados existentes.
 
+## 0007_carrinhos — Carrinhos de picolé para aluguel (2026-11-03)
+- **Motivo:** além dos freezers, a loja tem carrinhos de picolé que são alugados.
+- **O quê:** `locations.kind` passa a aceitar `'carrinho'` (cada carrinho é um local de estoque); tabela `carts`
+  (número, propriedade, situação, localização) e `cart_rentals` (locatário, retirada, devolução prevista, valor e
+  periodicidade opcionais, vínculo com a conta a receber, devolução). `financial_titles.source_type` aceita
+  `'aluguel_carrinho'`. Permissão `freezers.manage` passa a cobrir carrinhos e aluguéis.
+- **Dados estruturais:** 8 carrinhos (CARR-01 a CARR-08, propriedade Eskimo — editável); categoria de receita
+  "Aluguel de carrinhos" (Outras receitas no DRE). Nenhum locatário, valor ou estoque criado.
+- **Garantias:** no máximo um aluguel em aberto por carrinho (índice único parcial); aluguel imutável e sem DELETE —
+  só a devolução é registrada, uma vez (gatilho); aluguel idempotente; conta a receber gerada uma única vez e só com
+  valor informado e permissão do financeiro; carrinho alugado não vai para manutenção/inativo; inativo exige carrinho vazio.
+

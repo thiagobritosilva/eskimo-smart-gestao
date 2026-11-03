@@ -4,6 +4,7 @@ import { getPool, withTransaction } from '../../db/pool.js';
 import { actorOf } from '../../lib/actor.js';
 import { auditCtx, hasPermission, requirePermission } from '../../lib/http.js';
 import { decimalSchema, optionalDecimal, parse, uuidSchema } from '../../lib/validation.js';
+import * as carts from './carts.service.js';
 import * as freezers from './freezers.service.js';
 import * as inventory from './inventory.service.js';
 import * as q from './stock.queries.js';
@@ -61,6 +62,53 @@ export async function stockRoutes(app: FastifyInstance) {
     );
     reply.code(201);
     return freezers.createFreezer(body.ownership, body, auditCtx(req));
+  });
+
+  // ----- Carrinhos de picolé (aluguel) -----
+  const cartBody = {
+    ownership: z.enum(['eskimo', 'proprio']).optional(),
+    physicalLocation: z.string().trim().max(120).nullable().optional(),
+    notes: z.string().trim().max(500).nullable().optional(),
+  };
+  app.get('/carts', { preHandler: requirePermission('stock.view') }, async () => carts.listCarts());
+  app.post('/carts', { preHandler: requirePermission('freezers.manage') }, async (req, reply) => {
+    const body = parse(z.object(cartBody), req.body ?? {});
+    reply.code(201);
+    return carts.createCart(actorOf(req), body);
+  });
+  app.patch('/carts/:id', { preHandler: requirePermission('freezers.manage') }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const body = parse(z.object({ ...cartBody, status: z.enum(['operando', 'manutencao', 'inativo']).optional() }).strict(), req.body);
+    return carts.updateCart(actorOf(req), id, body);
+  });
+  app.get('/carts/:id/rentals', { preHandler: requirePermission('stock.view') }, async (req) =>
+    carts.listRentals(parse(idParams, req.params).id),
+  );
+  app.post('/carts/:id/rentals', { preHandler: requirePermission('freezers.manage') }, async (req, reply) => {
+    const { id } = parse(idParams, req.params);
+    const body = parse(
+      z.object({
+        renterName: z.string().trim().min(2).max(120),
+        renterDocument: z.string().trim().max(30).nullable().optional(),
+        renterPhone: z.string().trim().max(30).nullable().optional(),
+        startedOn: dateStr,
+        expectedReturn: dateStr.nullable().optional(),
+        amount: optionalDecimal(2),
+        billingPeriod: z.enum(['diaria', 'semanal', 'quinzenal', 'mensal', 'avulso']).nullable().optional(),
+        createReceivable: z.boolean().optional(),
+        notes: z.string().trim().max(500).nullable().optional(),
+        idempotencyKey: z.string().min(8).max(100),
+      }),
+      req.body,
+    );
+    const r = await carts.startRental(actorOf(req), id, body);
+    reply.code(r.duplicate ? 200 : 201);
+    return r;
+  });
+  app.post('/cart-rentals/:id/return', { preHandler: requirePermission('freezers.manage') }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const body = parse(z.object({ returnedOn: dateStr, returnNotes: z.string().trim().max(500).nullable().optional() }), req.body);
+    return carts.returnRental(actorOf(req), id, body);
   });
 
   app.put('/stock/location-min', { preHandler: requirePermission('freezers.manage') }, async (req) => {

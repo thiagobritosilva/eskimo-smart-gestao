@@ -86,6 +86,13 @@ dia escolhido ⇒ o pagamento é baixado normalmente em Contas a pagar (sai do c
 despesa de Pessoal do mês do benefício. Sem valor informado, nada é lançado. Valor alterado vale do próximo mês
 gerado em diante; conta já gerada se corrige/cancela em Contas a pagar (histórico preservado).
 
+## F7b. Aluguel de carrinho de picolé ✅
+
+Carrinhos → Alugar (locatário, retirada, devolução prevista; valor e cobrança opcionais) ⇒ com valor e permissão do
+financeiro, gera conta a receber "Aluguel de carrinhos" (vence na devolução prevista) ⇒ picolés carregados: transferência
+Central → CARR-NN ⇒ Devolução (data e observações; avisa se ainda há estoque no carrinho) ⇒ sobras voltam por transferência
+CARR-NN → Central (ou perda/venda registrada) ⇒ recebimento do aluguel baixado em Contas a receber. Histórico por carrinho.
+
 ## F8. Consulta via IA (Fase 6)
 
 ```

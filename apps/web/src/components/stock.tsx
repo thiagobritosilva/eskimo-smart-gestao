@@ -22,13 +22,14 @@ export function useMovementTypes() {
 }
 
 export function invalidateStock(qc: ReturnType<typeof useQueryClient>) {
-  for (const k of ['locations', 'balances', 'product-stock', 'movements', 'dashboard', 'expiring', 'products', 'inventory']) {
+  for (const k of ['locations', 'carts', 'balances', 'product-stock', 'movements', 'dashboard', 'expiring', 'products', 'inventory']) {
     void qc.invalidateQueries({ queryKey: [k] });
   }
 }
 
 export function locationLabel(l: LocationSummary): string {
   if (l.kind === 'central') return l.name;
+  if (l.kind === 'carrinho') return `${l.code} · Carrinho${l.status !== 'operando' ? ` (${l.status})` : ''}`;
   return `${l.code} · ${l.ownership === 'eskimo' ? 'Eskimo' : 'Próprio'}${l.status !== 'operando' ? ` (${l.status})` : ''}`;
 }
 

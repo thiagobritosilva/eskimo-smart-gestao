@@ -107,9 +107,10 @@ export interface Product {
 export interface LocationSummary {
   id: string;
   code: string;
-  kind: 'central' | 'freezer';
+  kind: 'central' | 'freezer' | 'carrinho';
   name: string;
   ownership: 'eskimo' | 'proprio' | null;
+  open_rental?: { id: string; renter_name: string; started_on: string; expected_return: string | null } | null;
   number: number | null;
   physical_location: string | null;
   capacity_liters: string | null;
