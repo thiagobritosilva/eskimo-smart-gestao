@@ -70,3 +70,24 @@ Ao final, mostra o endereço de acesso. A primeira instalação leva de 5 a 10 m
 ## Domínio próprio (opcional, depois)
 1. No provedor do domínio, crie um registro **A** `gestao.seudominio.com.br → 187.41.116.28`.
 2. Na VPS: edite `DOMAIN=` em `/opt/eskimo/config.env` e rode `eskimo update`.
+
+## Atualização automática
+O servidor verifica o branch **`producao`** do GitHub **a cada 5 minutos** e, quando há versão nova:
+1. faz backup do banco;
+2. baixa a versão e reconstrói o sistema (migrations aplicadas automaticamente);
+3. confere se o sistema voltou saudável;
+4. **se falhar, volta sozinho para a versão anterior** e não tenta de novo a mesma versão até uma nova publicação.
+
+Somente versões liberadas (testadas) são publicadas em `producao`; o desenvolvimento acontece em `main`.
+O servidor apenas **lê** o GitHub (chave de implantação somente leitura) — nenhuma porta de entrada é aberta.
+
+| Comando | O que faz |
+|---|---|
+| `eskimo status` | mostra versão instalada, se a atualização automática está ligada e o resultado da última |
+| `tail -n 50 /var/log/eskimo-autoupdate.log` | histórico das atualizações automáticas |
+| `eskimo autoupdate off` / `on` | desliga / liga |
+
+### Ativação em servidor já instalado (uma única vez)
+```bash
+cd /opt/eskimo/app && git fetch origin producao && git checkout -B producao origin/producao && install -m 755 deploy/eskimo.sh /usr/local/bin/eskimo && (grep -q '^DEPLOY_BRANCH=' /opt/eskimo/config.env || echo 'DEPLOY_BRANCH=producao' >> /opt/eskimo/config.env) && eskimo update && eskimo autoupdate on
+```

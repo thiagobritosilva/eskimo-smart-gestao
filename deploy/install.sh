@@ -85,6 +85,8 @@ else
   done
   git clone "$REPO_URL" "$APP_DIR"
 fi
+# Produção acompanha o branch "producao" (somente versões liberadas).
+git -C "$APP_DIR" fetch -q origin producao && git -C "$APP_DIR" checkout -q -B producao origin/producao
 
 # ---------------------------------------------------------------- 4. configuração
 say "4/7 Configuração e segredos"
@@ -128,6 +130,7 @@ else
   cat > "$CONFIG" <<CFG
 # Gerado pelo instalador em $(date -Is). NÃO compartilhe este arquivo.
 DOMAIN=$DOMAIN
+DEPLOY_BRANCH=producao
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 # Chave de cifragem das credenciais de integração. Sem ela, credenciais cifradas não podem ser recuperadas.
 APP_ENCRYPTION_KEY=$(openssl rand -base64 32)
@@ -160,8 +163,11 @@ say "7/7 Usuário Proprietário"
 echo "Se o proprietário já existir, esta etapa é recusada com segurança."
 /usr/local/bin/eskimo create-owner || true
 
+/usr/local/bin/eskimo autoupdate on
+
 DOMAIN="$(grep -E '^DOMAIN=' "$CONFIG" | cut -d= -f2-)"
 say "Instalação concluída"
 echo "Acesse: https://$DOMAIN"
 echo "Comandos úteis: eskimo status | eskimo logs | eskimo update | eskimo backup"
+echo "Atualização automática ligada: novas versões publicadas no GitHub são instaladas sozinhas."
 warn "Guarde uma cópia de $CONFIG fora do servidor (gerenciador de senhas): ela contém a chave de cifragem."
