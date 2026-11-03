@@ -18,6 +18,32 @@ export function StockChart({ chartKey, series, withCost }: { chartKey: string; s
     sale: s.sale_value != null ? Number(s.sale_value) : undefined,
   }));
 
+  if (chartKey === 'expenses_trend') {
+    const groups = [...new Set(series.map((s) => s.group_label as string))];
+    const palette = ['#1468e0', '#0ea5e9', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#64748b'];
+    const byMonth = new Map<string, Record<string, number | string>>();
+    for (const s of series) {
+      const m = s.month as string;
+      const row = byMonth.get(m) ?? { label: `${m.slice(5)}/${m.slice(2, 4)}` };
+      row[s.group_label as string] = Number(s.v);
+      byMonth.set(m, row);
+    }
+    return (
+      <div className="h-72">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={[...byMonth.values()]} margin={{ left: 8, right: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+            <YAxis tickFormatter={compactMoney} tick={{ fontSize: 11 }} width={70} />
+            <Tooltip formatter={(v: number) => money(v)} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            {groups.map((g, i) => <Bar key={g} dataKey={g} stackId="a" fill={palette[i % palette.length]} />)}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
   if (chartKey === 'stock_value_by_freezer') {
     const nonEmpty = data.filter((d) => d.quantity > 0);
     if (!nonEmpty.length) return <p className="py-8 text-center text-sm text-slate-400">Nenhum freezer com produtos.</p>;

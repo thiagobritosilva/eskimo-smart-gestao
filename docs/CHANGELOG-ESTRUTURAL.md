@@ -22,3 +22,18 @@ com impacto e estratégia de preservação de dados.
 - **Garantias:** movimentações, linhas, histórico de custo e de preço imutáveis (trigger);
   produtos e localizações sem DELETE; saldo nunca negativo (CHECK); idempotência por chave única;
   um estorno por movimentação (UNIQUE); uma contagem aberta por local (índice parcial).
+
+## 0003_financeiro — Fase 3 (2026-11-03)
+- **O quê:** `financial_accounts`, `financial_categories`, `payment_methods`, `financial_titles`,
+  `financial_installments`, `cash_sessions`, `financial_transactions`, `installment_settlements`,
+  `transaction_reconciliations`, view `financial_account_balances`.
+- **Dados estruturais:** categorias listadas no escopo do projeto (Vendas, Outras receitas, Aluguel, Energia
+  elétrica, Água, Funcionários, Fornecedores, Compras, Manutenção, Taxas de cartão, Impostos, Serviços,
+  Despesas diversas) + "Quebras de caixa" e "Sobras de caixa" (usadas no fechamento); 7 formas de pagamento
+  com taxa e prazo **nulos** (exceto dinheiro: 0%). Nenhuma conta, saldo ou lançamento.
+- **Impacto:** somente tabelas novas. Sem alteração das Fases 1–2. Sem perda de dados.
+- **Garantias:** movimentações e composição das liquidações imutáveis (trigger); títulos, parcelas, contas,
+  categorias e sessões sem DELETE; idempotência por chave única; um estorno por movimentação (UNIQUE);
+  uma sessão aberta por caixa (índice parcial); caixa físico nunca negativo.
+- **Pendências conscientes:** importação de extrato OFX/CSV para conciliação automática fica para a Fase 7;
+  nesta fase a conciliação é a marcação manual de cada movimentação conferida.

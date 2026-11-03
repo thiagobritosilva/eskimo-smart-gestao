@@ -93,7 +93,12 @@ Regras-chave:
 
 ---
 
-## Fase 3 — Financeiro 🔜
+## Fase 3 — Financeiro ✅
+
+> Implementado em `migrations/0003_financeiro.sql`. Diferenças em relação ao esboço: contas a pagar e
+> a receber unificadas em `financial_titles` (campo `direction`) + `financial_installments`; composição de
+> cada liquidação (principal, juros, desconto, taxa) em `installment_settlements`; conciliação em
+> `transaction_reconciliations`; extrato bancário/OFX adiado para a Fase 7.
 
 ```
 financial_accounts (id, kind ('caixa','banco','cartao_recebiveis'), name, bank, agency,

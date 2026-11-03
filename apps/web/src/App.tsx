@@ -16,6 +16,7 @@ import { FreezersPage } from './pages/FreezersPage';
 import { LocationDetailPage } from './pages/LocationDetailPage';
 import { StockPage } from './pages/StockPage';
 import { InventoryCountPage, InventoryListPage } from './pages/InventoryPages';
+import { FinancePage } from './pages/FinancePage';
 
 function Protected({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -35,7 +36,6 @@ function RequirePermission({ permission, children }: { permission: string; child
 }
 
 const FUTURE = [
-  { path: 'financeiro', title: 'Financeiro', phase: 3, perm: 'finance.view', desc: 'Contas a pagar e receber, caixa e bancos, sangrias, fechamento, fluxo de caixa e DRE gerencial.' },
   { path: 'compras', title: 'Compras e fornecedores', phase: 4, perm: 'purchases.view', desc: 'Fornecedores, pedidos e recebimento de mercadorias integrado ao estoque e às contas a pagar.' },
   { path: 'pdv', title: 'PDV Connector', phase: 5, perm: 'pdv.manage', desc: 'Integração com o PDV WebSempre. Depende da documentação técnica oficial e de testes reais com a instalação da loja.' },
   { path: 'assistente', title: 'Assistente IA', phase: 6, perm: 'ai.chat', desc: 'Consultas em linguagem natural via Claude e ChatGPT, somente leitura, sobre os dados reais da loja.' },
@@ -57,6 +57,7 @@ export function App() {
         <Route path="produtos" element={<RequirePermission permission="products.view"><ProductsPage /></RequirePermission>} />
         <Route path="freezers" element={<RequirePermission permission="stock.view"><FreezersPage /></RequirePermission>} />
         <Route path="freezers/:id" element={<RequirePermission permission="stock.view"><LocationDetailPage /></RequirePermission>} />
+        <Route path="financeiro" element={<RequirePermission permission="finance.view"><FinancePage /></RequirePermission>} />
         <Route path="estoque" element={<RequirePermission permission="stock.view"><StockPage /></RequirePermission>} />
         <Route path="inventario" element={<RequirePermission permission="stock.view"><InventoryListPage /></RequirePermission>} />
         <Route path="inventario/:id" element={<RequirePermission permission="stock.view"><InventoryCountPage /></RequirePermission>} />

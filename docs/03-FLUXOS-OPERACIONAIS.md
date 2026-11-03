@@ -72,7 +72,7 @@ Adaptador (API | webhook | arquivo) ─► pdv_raw_events (bruto, imutável)
  ─► Falhas ⇒ pdv_failed_items com reprocessamento (backoff) e alerta
 ```
 
-## F7. Fechamento de caixa (Fase 3)
+## F7. Fechamento de caixa (Fase 3 ✅)
 
 Abertura com fundo de troco ⇒ sangrias/suprimentos ⇒ fechamento com valor contado ⇒ sistema
 calcula esperado (abertura + recebimentos em dinheiro + suprimentos − sangrias) ⇒ diferença registrada

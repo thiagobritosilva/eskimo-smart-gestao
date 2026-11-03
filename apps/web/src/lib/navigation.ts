@@ -21,7 +21,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/inventario', label: 'Inventário', icon: ClipboardCheck, permission: 'stock.view', section: 'Operação' },
   { to: '/produtos', label: 'Produtos', icon: Package, permission: 'products.view', section: 'Operação' },
   { to: '/compras', label: 'Compras e fornecedores', icon: ShoppingCart, permission: 'purchases.view', phase: 4, section: 'Operação' },
-  { to: '/financeiro', label: 'Financeiro', icon: Wallet, permission: 'finance.view', phase: 3, section: 'Gestão' },
+  { to: '/financeiro', label: 'Financeiro', icon: Wallet, permission: 'finance.view', section: 'Gestão' },
   { to: '/relatorios', label: 'Relatórios', icon: FileText, permission: 'reports.view', phase: 7, section: 'Gestão' },
   { to: '/indicadores', label: 'Rentabilidade', icon: BarChart3, permission: 'reports.view', phase: 7, section: 'Gestão' },
   { to: '/assistente', label: 'Assistente IA', icon: Bot, permission: 'ai.chat', phase: 6, section: 'Gestão' },
