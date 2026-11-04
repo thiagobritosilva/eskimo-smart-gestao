@@ -5,7 +5,7 @@ import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CheckCircle2, Circle, Land
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import clsx from 'clsx';
 import { api, errorMessage, qs } from '../lib/api';
-import { useAuth } from '../lib/auth';
+import { useAuth, useIsOwner } from '../lib/auth';
 import { firstDayOfMonthYMD, formatDate, formatDateTime, formatMoney, fromDecimal, todayYMD, toDecimal } from '../lib/format';
 import {
   ACCOUNT_KIND, DRE_GROUPS, invalidateFinance, TX_KIND, useFinAccounts, useFinCategories, usePaymentMethods,
@@ -274,6 +274,7 @@ function CashTab() {
 // =====================================================================
 function Statement() {
   const { can } = useAuth();
+  const owner = useIsOwner();
   const qc = useQueryClient();
   const accounts = useFinAccounts();
   const [accountId, setAccountId] = useState('');
@@ -327,7 +328,7 @@ function Statement() {
                     </button>
                   </td>
                   <td className="td text-right">
-                    {can('finance.manage') && !t.reversed && t.kind !== 'estorno' && t.kind !== 'ajuste_caixa' && (
+                    {owner && !t.reversed && t.kind !== 'estorno' && t.kind !== 'ajuste_caixa' && (
                       <button className="btn-ghost p-2 text-red-700" title="Estornar" onClick={() => setReversing(t)}><RotateCcw className="h-4 w-4" /></button>
                     )}
                   </td>
@@ -568,6 +569,7 @@ function AccountForm({ account, onDone }: { account?: FinAccount; onDone: () => 
 
 function CategoryRow({ c }: { c: FinCategory }) {
   const qc = useQueryClient();
+  const owner = useIsOwner();
   const [edit, setEdit] = useState(false);
   const [f, setF] = useState({ name: c.name, dreGroup: c.dre_group, isActive: c.is_active });
   const m = useMutation({ mutationFn: () => api.patch(`/finance/categories/${c.id}`, { kind: c.kind, ...f }), onSuccess: () => { invalidateFinance(qc); setEdit(false); } });
@@ -585,7 +587,7 @@ function CategoryRow({ c }: { c: FinCategory }) {
   ) : (
     <tr className={clsx(!c.is_active && 'opacity-50')}>
       <td className="td">{c.name}</td><td className="td text-slate-600">{c.kind}</td><td className="td text-slate-600">{DRE_GROUPS[c.dre_group]}</td>
-      <td className="td text-right"><button className="btn-ghost py-1 text-xs" onClick={() => setEdit(true)}>Editar</button></td>
+      <td className="td text-right">{owner && <button className="btn-ghost py-1 text-xs" onClick={() => setEdit(true)}>Editar</button>}</td>
     </tr>
   );
 }
@@ -633,6 +635,7 @@ function Config() {
   const methods = usePaymentMethods();
   const [editing, setEditing] = useState<FinAccount | 'new' | null>(null);
   const manage = can('finance.manage');
+  const owner = useIsOwner();
   return (
     <div className="space-y-8">
       <section>
@@ -647,7 +650,7 @@ function Config() {
                   <td className="td">{ACCOUNT_KIND[a.kind]}</td>
                   <td className="td text-right tabular-nums">{formatMoney(a.opening_balance)}<div className="text-xs text-slate-500">em {formatDate(a.opening_date)}</div></td>
                   <td className="td text-right font-semibold tabular-nums">{formatMoney(a.balance)}</td>
-                  <td className="td text-right">{manage && <button className="btn-ghost py-1 text-xs" onClick={() => setEditing(a)}>Editar</button>}</td>
+                  <td className="td text-right">{owner && <button className="btn-ghost py-1 text-xs" onClick={() => setEditing(a)}>Editar</button>}</td>
                 </tr>
               ))}
               {!accounts.data?.length && <tr><td className="td text-center text-slate-500" colSpan={5}>Nenhuma conta cadastrada.</td></tr>}

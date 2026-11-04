@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool, withTransaction } from '../../db/pool.js';
 import { writeAudit } from '../../lib/audit.js';
-import { auditCtx, requirePermission } from '../../lib/http.js';
+import { auditCtx, requireOwner, requirePermission } from '../../lib/http.js';
 import { parse } from '../../lib/validation.js';
 import { getAlertParams, listAlerts } from './alerts.service.js';
 
@@ -16,7 +16,7 @@ export async function alertsRoutes(app: FastifyInstance) {
 
   app.get('/alerts/params', { preHandler: requirePermission('alerts.view') }, async () => getAlertParams(getPool()));
 
-  app.put('/alerts/params', { preHandler: requirePermission('settings.manage') }, async (req) => {
+  app.put('/alerts/params', { preHandler: [requirePermission('settings.manage'), requireOwner('Somente o Proprietário altera as regras de alertas.')] }, async (req) => {
     const value = parse(paramsSchema, req.body);
     await withTransaction(async (db) => {
       const before = await db.query(`SELECT value FROM app_settings WHERE key = 'alerts.params' FOR UPDATE`);

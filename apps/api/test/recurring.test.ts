@@ -93,7 +93,7 @@ describe('despesas fixas mensais (VR/VA)', () => {
     expect(await titlesOf(id)).toEqual([]);
 
     // valor informado depois: passa a gerar a partir dali, sem mexer em meses anteriores
-    const u = await call(owner.cookie, { method: 'PATCH', url: `/api/finance/recurring/${id}`, payload: { amount: '600.00' } });
+    const u = await call(owner.cookie, { method: 'PATCH', url: `/api/finance/recurring/${id}`, payload: { amount: '600.00', reason: 'valor informado pela loja' } });
     expect(u.statusCode, u.body).toBe(200);
     await generate('2031-02');
     const t = await titlesOf(id);
@@ -104,7 +104,7 @@ describe('despesas fixas mensais (VR/VA)', () => {
     const list = (await call(owner.cookie, { method: 'GET', url: '/api/finance/recurring' })).json();
     const vr = list.find((x: { description: string; is_active: boolean }) => x.description === 'Vale-refeição funcionários' && x.is_active);
     // fevereiro já foi gerado (no teste anterior) com o valor antigo
-    await call(owner.cookie, { method: 'PATCH', url: `/api/finance/recurring/${vr.id}`, payload: { amount: '900.00' } });
+    await call(owner.cookie, { method: 'PATCH', url: `/api/finance/recurring/${vr.id}`, payload: { amount: '900.00', reason: 'reajuste' } });
     await generate('2031-02');
     await generate('2031-03');
     const t = await titlesOf(vr.id);
@@ -123,7 +123,7 @@ describe('despesas fixas mensais (VR/VA)', () => {
     await generate('2031-05'); // depois do fim
     expect((await titlesOf(id)).map((x) => x.competence)).toEqual(['2031-03-01']);
 
-    await call(owner.cookie, { method: 'PATCH', url: `/api/finance/recurring/${id}`, payload: { isActive: false } });
+    await call(owner.cookie, { method: 'PATCH', url: `/api/finance/recurring/${id}`, payload: { isActive: false, reason: 'teste de inativação' } });
     await generate('2031-04');
     expect((await titlesOf(id)).map((x) => x.competence)).toEqual(['2031-03-01']);
   });

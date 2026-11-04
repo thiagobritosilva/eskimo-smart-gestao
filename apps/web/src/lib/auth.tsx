@@ -62,3 +62,8 @@ export function useAuth(): AuthState {
   if (!ctx) throw new Error('useAuth fora do AuthProvider');
   return ctx;
 }
+
+/** Proprietário: único perfil que altera ou exclui lançamentos já feitos (regra do servidor; aqui só esconde os botões). */
+export function useIsOwner(): boolean {
+  return useAuth().user?.roleCode === 'PROPRIETARIO';
+}

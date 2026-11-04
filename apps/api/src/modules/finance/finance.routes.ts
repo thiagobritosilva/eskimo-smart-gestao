@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../../db/pool.js';
 import { actorOf } from '../../lib/actor.js';
-import { requirePermission } from '../../lib/http.js';
+import { requireOwner, requirePermission } from '../../lib/http.js';
 import { addDays, todaySP } from '../../lib/money.js';
 import { parse, uuidSchema } from '../../lib/validation.js';
 import * as reports from './finance.reports.js';
@@ -38,6 +38,7 @@ const accountSchema = z.object({
 export async function financeRoutes(app: FastifyInstance) {
   const view = requirePermission('finance.view');
   const manage = requirePermission('finance.view', 'finance.manage');
+  const owner = requireOwner();
 
   // ----- Contas -----
   app.get('/finance/accounts', { preHandler: view }, async () => svc.listAccounts());
@@ -45,7 +46,7 @@ export async function financeRoutes(app: FastifyInstance) {
     reply.code(201);
     return svc.createAccount(actorOf(req), parse(accountSchema, req.body));
   });
-  app.patch('/finance/accounts/:id', { preHandler: manage }, async (req) => {
+  app.patch('/finance/accounts/:id', { preHandler: [manage, owner] }, async (req) => {
     const { id } = parse(idParams, req.params);
     const body = parse(accountSchema.partial().extend({ isActive: z.boolean().optional() }).strict(), req.body);
     return svc.updateAccount(actorOf(req), id, body);
@@ -58,7 +59,7 @@ export async function financeRoutes(app: FastifyInstance) {
     reply.code(201);
     return svc.saveCategory(actorOf(req), null, parse(catSchema, req.body));
   });
-  app.patch('/finance/categories/:id', { preHandler: manage }, async (req) => {
+  app.patch('/finance/categories/:id', { preHandler: [manage, owner] }, async (req) => {
     const { id } = parse(idParams, req.params);
     return svc.saveCategory(actorOf(req), id, parse(catSchema, req.body));
   });
@@ -117,7 +118,7 @@ export async function financeRoutes(app: FastifyInstance) {
     reply.code(r.duplicate ? 200 : 201);
     return r;
   });
-  app.patch('/finance/titles/:id', { preHandler: manage }, async (req) => {
+  app.patch('/finance/titles/:id', { preHandler: [manage, owner] }, async (req) => {
     const { id } = parse(idParams, req.params);
     const body = parse(
       z.object({
@@ -128,12 +129,13 @@ export async function financeRoutes(app: FastifyInstance) {
         competenceDate: date.optional(),
         notes: text(500),
         dueDates: z.array(z.object({ installmentId: uuidSchema, dueDate: date })).max(120).optional(),
+        reason: z.string().trim().min(3, 'Informe o motivo da alteração.').max(300),
       }).strict(),
       req.body,
     );
     return svc.updateTitle(actorOf(req), id, body);
   });
-  app.post('/finance/titles/:id/cancel', { preHandler: manage }, async (req) => {
+  app.post('/finance/titles/:id/cancel', { preHandler: [manage, owner] }, async (req) => {
     const { id } = parse(idParams, req.params);
     const { reason } = parse(z.object({ reason: z.string().trim().min(3).max(300) }), req.body);
     return svc.cancelTitle(actorOf(req), id, reason);
@@ -192,7 +194,7 @@ export async function financeRoutes(app: FastifyInstance) {
     reply.code(r.duplicate ? 200 : 201);
     return r;
   });
-  app.post('/finance/transactions/:id/reverse', { preHandler: manage }, async (req, reply) => {
+  app.post('/finance/transactions/:id/reverse', { preHandler: [manage, owner] }, async (req, reply) => {
     const { id } = parse(idParams, req.params);
     const { reason } = parse(z.object({ reason: z.string().trim().min(3).max(300) }), req.body);
     reply.code(201);
@@ -292,10 +294,15 @@ export async function financeRoutes(app: FastifyInstance) {
     );
     return recurringImport.commitImport(actorOf(req), body);
   });
-  app.patch('/finance/recurring/:id', { preHandler: manage }, async (req) => {
+  app.patch('/finance/recurring/:id', { preHandler: [manage, owner] }, async (req) => {
     const { id } = parse(idParams, req.params);
-    const body = parse(z.object(recurringBase).partial().extend({ isActive: z.boolean().optional(), variableAmount: z.boolean().optional() }), req.body);
-    return recurring.updateRecurring(actorOf(req), id, body);
+    const { reason, ...body } = parse(z.object(recurringBase).partial().extend({ isActive: z.boolean().optional(), variableAmount: z.boolean().optional(), reason: z.string().trim().min(3, 'Informe o motivo da alteração.').max(300) }), req.body);
+    return recurring.updateRecurring(actorOf(req), id, body, reason);
+  });
+  app.post('/finance/recurring/:id/delete', { preHandler: [manage, owner] }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const body = parse(z.object({ reason: z.string().trim().min(3, 'Informe o motivo da exclusão.').max(300), cancelOpenTitles: z.boolean().default(true) }), req.body);
+    return recurring.deleteRecurring(actorOf(req), id, body);
   });
   app.post('/finance/recurring/generate', { preHandler: manage }, async (req) => {
     const body = parse(z.object({ month: month.optional() }), req.body ?? {});

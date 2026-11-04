@@ -1,9 +1,10 @@
 import { getPool, withTransaction, type Queryable } from '../../db/pool.js';
 import { writeAudit } from '../../lib/audit.js';
 import { Errors } from '../../lib/errors.js';
+import { requireOwnerActor } from '../../lib/actor.js';
 import { addMonths, fromCents, toCents, todaySP } from '../../lib/money.js';
 import type { Actor } from '../stock/stock.service.js';
-import { createTitleInDb } from './finance.service.js';
+import { cancelTitleInDb, createTitleInDb } from './finance.service.js';
 
 /**
  * Despesas fixas mensais (ex.: vale-refeição e vale-alimentação pagos no início do mês).
@@ -47,6 +48,7 @@ export async function listRecurring() {
             (SELECT count(*)::int FROM recurring_expense_runs x WHERE x.recurring_id = r.id) AS generated_count
      FROM recurring_expenses r JOIN financial_categories c ON c.id = r.category_id
      LEFT JOIN payment_methods pm ON pm.code = r.payment_method_code
+     WHERE r.deleted_at IS NULL
      ORDER BY r.is_active DESC, c.name, r.description`,
   );
   return rows;
@@ -90,11 +92,13 @@ export async function createRecurringInDb(db: import('pg').PoolClient, actor: Ac
   }
 }
 
-export async function updateRecurring(actor: Actor, id: string, input: Partial<RecurringInput>) {
+export async function updateRecurring(actor: Actor, id: string, input: Partial<RecurringInput>, reason?: string) {
   need(actor, 'finance.manage');
+  requireOwnerActor(actor, 'Somente o Proprietário pode alterar despesas fixas.');
   return withTransaction(async (db) => {
     const before = (await db.query('SELECT * FROM recurring_expenses WHERE id = $1 FOR UPDATE', [id])).rows[0];
     if (!before) throw Errors.notFound('Despesa fixa não encontrada.');
+    if (before.deleted_at) throw Errors.businessRule('Despesa fixa excluída não pode ser alterada.');
     await validate(input, db);
     const sets: string[] = [];
     const values: unknown[] = [id];
@@ -118,8 +122,46 @@ export async function updateRecurring(actor: Actor, id: string, input: Partial<R
     }
     if (sets.length) await db.query(`UPDATE recurring_expenses SET ${sets.join(', ')} WHERE id = $1`, values);
     const after = (await db.query('SELECT * FROM recurring_expenses WHERE id = $1', [id])).rows[0];
-    await writeAudit(db, actor.audit, { action: 'finance.recurring_updated', entity: 'recurring_expense', entityId: id, before, after });
+    await writeAudit(db, actor.audit, { action: 'finance.recurring_updated', entity: 'recurring_expense', entityId: id, before, after, metadata: { reason: reason ?? null } });
     return after;
+  });
+}
+
+/**
+ * Exclusão LÓGICA (somente Proprietário): a despesa deixa de gerar contas e sai da lista; nada é apagado.
+ * Opcionalmente cancela as contas EM ABERTO dela a partir do mês atual (as pagas ficam; corrigir só por estorno).
+ */
+export async function deleteRecurring(actor: Actor, id: string, input: { reason: string; cancelOpenTitles: boolean }) {
+  need(actor, 'finance.manage');
+  requireOwnerActor(actor, 'Somente o Proprietário pode excluir despesas fixas.');
+  return withTransaction(async (db) => {
+    const before = (await db.query('SELECT * FROM recurring_expenses WHERE id = $1 FOR UPDATE', [id])).rows[0];
+    if (!before) throw Errors.notFound('Despesa fixa não encontrada.');
+    if (before.deleted_at) throw Errors.conflict('Despesa fixa já excluída.');
+    await db.query(
+      `UPDATE recurring_expenses SET is_active = false, deleted_at = now(), deleted_by = $2, delete_reason = $3 WHERE id = $1`,
+      [id, actor.userId, input.reason.trim()],
+    );
+    const cancelled: string[] = [];
+    if (input.cancelOpenTitles) {
+      const { rows } = await db.query<{ id: string; description: string }>(
+        `SELECT t.id, t.description FROM financial_titles t
+         WHERE t.source_type = 'recorrente' AND t.source_id = $1 AND t.status <> 'cancelado'
+           AND t.competence_date >= date_trunc('month', (now() AT TIME ZONE 'America/Sao_Paulo'))::date
+           AND NOT EXISTS (SELECT 1 FROM financial_installments i WHERE i.title_id = t.id AND i.settled > 0)`,
+        [id],
+      );
+      for (const t of rows) {
+        await cancelTitleInDb(db, actor, t.id, `Despesa fixa excluída: ${input.reason.trim()}`);
+        cancelled.push(t.description);
+      }
+    }
+    const after = (await db.query('SELECT * FROM recurring_expenses WHERE id = $1', [id])).rows[0];
+    await writeAudit(db, actor.audit, {
+      action: 'finance.recurring_deleted', entity: 'recurring_expense', entityId: id, before, after,
+      metadata: { reason: input.reason.trim(), cancelledTitles: cancelled },
+    });
+    return { deleted: true, cancelledTitles: cancelled };
   });
 }
 

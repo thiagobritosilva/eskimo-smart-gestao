@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import { getPool, withTransaction, type Queryable } from '../../db/pool.js';
 import { writeAudit } from '../../lib/audit.js';
+import { requireOwnerActor } from '../../lib/actor.js';
 import { Errors } from '../../lib/errors.js';
 import { addDays, addMonths, fromCents, splitCents, toCents, todaySP } from '../../lib/money.js';
 import type { Actor } from '../stock/stock.service.js';
@@ -95,7 +96,7 @@ export async function updateAccount(actor: Actor, id: string, input: Partial<Acc
     const sets: string[] = [];
     const values: unknown[] = [id];
     for (const [k, v] of Object.entries(input)) {
-      if (v === undefined || !map[k]) continue;
+      if (v === undefined || !map[k]) continue; // 'reason' e 'dueDates' não são colunas
       values.push(k === 'openingBalance' ? fromCents(toCents(v as string)) : typeof v === 'string' && !v.trim() ? null : v);
       sets.push(`${map[k]} = $${values.length}`);
     }
@@ -192,6 +193,8 @@ export async function saveCategory(
     const dup = await db.query('SELECT 1 FROM financial_categories WHERE kind = $1 AND lower(name) = lower($2) AND id IS DISTINCT FROM $3', [input.kind, input.name, id]);
     if (dup.rowCount) throw Errors.conflict('Já existe uma categoria com este nome.');
     if (id) {
+      // mudar categoria existente altera relatórios (DRE) de meses passados
+      requireOwnerActor(actor, 'Somente o Proprietário pode alterar categorias (afeta os relatórios).');
       const before = (await db.query('SELECT * FROM financial_categories WHERE id = $1 FOR UPDATE', [id])).rows[0];
       if (!before) throw Errors.notFound('Categoria não encontrada.');
       if (before.kind !== input.kind) throw Errors.businessRule('Não é possível mudar uma categoria de receita para despesa (ou vice-versa).');
@@ -359,9 +362,10 @@ export async function createTitleInDb(
 export async function updateTitle(
   actor: Actor,
   id: string,
-  input: { description?: string; categoryId?: string; counterparty?: string | null; document?: string | null; competenceDate?: string; notes?: string | null; dueDates?: { installmentId: string; dueDate: string }[] },
+  input: { description?: string; categoryId?: string; counterparty?: string | null; document?: string | null; competenceDate?: string; notes?: string | null; dueDates?: { installmentId: string; dueDate: string }[]; reason?: string },
 ) {
   require(actor, 'finance.manage');
+  requireOwnerActor(actor);
   return withTransaction(async (db) => {
     const before = (await db.query('SELECT * FROM financial_titles WHERE id = $1 FOR UPDATE', [id])).rows[0];
     if (!before) throw Errors.notFound('Título não encontrado.');
@@ -385,25 +389,26 @@ export async function updateTitle(
       if (!r.rowCount) throw Errors.businessRule('Só é possível alterar o vencimento de parcelas em aberto.');
     }
     const after = (await db.query('SELECT * FROM financial_titles WHERE id = $1', [id])).rows[0];
-    await writeAudit(db, actor.audit, { action: 'finance.title_updated', entity: 'financial_title', entityId: id, before, after: { ...after, dueDates: input.dueDates } });
+    await writeAudit(db, actor.audit, { action: 'finance.title_updated', entity: 'financial_title', entityId: id, before, after: { ...after, dueDates: input.dueDates }, metadata: { reason: input.reason ?? null } });
     return after;
   });
 }
 
 export async function cancelTitle(actor: Actor, id: string, reason: string) {
   require(actor, 'finance.manage');
+  requireOwnerActor(actor);
   return withTransaction((db) => cancelTitleInDb(db, actor, id, reason));
 }
 
 export async function cancelTitleInDb(db: Db, actor: Actor, id: string, reason: string) {
   {
-    const t = (await db.query('SELECT status FROM financial_titles WHERE id = $1 FOR UPDATE', [id])).rows[0];
+    const t = (await db.query('SELECT * FROM financial_titles WHERE id = $1 FOR UPDATE', [id])).rows[0];
     if (!t) throw Errors.notFound('Título não encontrado.');
     if (t.status === 'cancelado') throw Errors.conflict('Título já cancelado.');
     const paid = await db.query('SELECT 1 FROM financial_installments WHERE title_id = $1 AND settled > 0', [id]);
     if (paid.rowCount) throw Errors.businessRule('Há pagamentos/recebimentos registrados. Estorne-os antes de cancelar o título.');
     await db.query(`UPDATE financial_titles SET status = 'cancelado', cancelled_by = $2, cancelled_at = now(), cancel_reason = $3 WHERE id = $1`, [id, actor.userId, reason]);
-    await writeAudit(db, actor.audit, { action: 'finance.title_cancelled', entity: 'financial_title', entityId: id, metadata: { reason } });
+    await writeAudit(db, actor.audit, { action: 'finance.title_cancelled', entity: 'financial_title', entityId: id, before: t, after: { status: 'cancelado' }, metadata: { reason } });
     return { cancelled: true };
   }
 }
@@ -555,6 +560,7 @@ export async function transfer(
 // =====================================================================
 export async function reverseTransaction(actor: Actor, id: string, reason: string) {
   require(actor, 'finance.manage', 'Somente gestores financeiros podem estornar.');
+  requireOwnerActor(actor, 'Somente o Proprietário pode estornar pagamentos e recebimentos.');
   return withTransaction(async (db) => {
     const tx = (await db.query(
       `SELECT t.*, t.amount::text AS amount_text FROM financial_transactions t WHERE t.id = $1 FOR UPDATE`,

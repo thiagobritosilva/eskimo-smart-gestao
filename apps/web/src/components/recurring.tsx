@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, FileSpreadsheet, Plus, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage } from '../lib/api';
-import { useAuth } from '../lib/auth';
+import { useAuth, useIsOwner } from '../lib/auth';
 import { formatMoney, fromDecimal, todayYMD, toDecimal } from '../lib/format';
 import { invalidateFinance, useFinCategories, usePaymentMethods } from '../lib/finance';
 import { Alert, Field, Modal, Spinner } from './ui';
@@ -54,6 +54,13 @@ function RecurringForm({ item, onDone }: { item?: RecurringExpense; onDone: () =
     isActive: item?.is_active ?? true,
     variableAmount: item?.variable_amount ?? false,
   });
+  const [reason, setReason] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(true);
+  const del = useMutation({
+    mutationFn: () => api.post(`/finance/recurring/${item!.id}/delete`, { reason, cancelOpenTitles: cancelOpen }),
+    onSuccess: () => { invalidateFinance(qc); onDone(); },
+  });
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const m = useMutation({
     mutationFn: () => {
@@ -62,7 +69,7 @@ function RecurringForm({ item, onDone }: { item?: RecurringExpense; onDone: () =
         paymentMethodCode: f.paymentMethodCode || null, amount: !f.variableAmount && f.amount.trim() ? toDecimal(f.amount) : null, variableAmount: f.variableAmount,
         dueDay: Number(f.dueDay), startMonth: f.startMonth, endMonth: f.endMonth || null, notes: f.notes || null,
       };
-      return item ? api.patch(`/finance/recurring/${item.id}`, { ...body, isActive: f.isActive }) : api.post('/finance/recurring', body);
+      return item ? api.patch(`/finance/recurring/${item.id}`, { ...body, isActive: f.isActive, reason }) : api.post('/finance/recurring', body);
     },
     onSuccess: () => { invalidateFinance(qc); onDone(); },
   });
@@ -97,7 +104,21 @@ function RecurringForm({ item, onDone }: { item?: RecurringExpense; onDone: () =
       <Field label="Observações"><textarea className="input" rows={2} maxLength={500} value={f.notes} onChange={set('notes')} /></Field>
       {item && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.isActive} onChange={(e) => setF({ ...f, isActive: e.target.checked })} /> Ativa (gera a conta todo mês)</label>}
       {item && <Alert kind="info">Mudanças valem para os meses ainda não gerados. Contas já lançadas não são alteradas — se precisar, corrija ou cancele a conta em “Contas a pagar”.</Alert>}
+      {item && <Field label="Motivo da alteração *" hint="Fica registrado na auditoria, com o antes e o depois."><input className="input" required minLength={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex.: reajuste salarial de novembro" /></Field>}
+      {item && deleting && (
+        <div className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-3">
+          {del.error && <Alert>{errorMessage(del.error)}</Alert>}
+          <p className="text-sm text-red-800">A despesa deixa de gerar contas e sai da lista. <strong>Nada é apagado do histórico</strong>: contas já pagas permanecem (corrigir só por estorno) e a exclusão fica na auditoria.</p>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cancelOpen} onChange={(e) => setCancelOpen(e.target.checked)} /> Cancelar também as contas EM ABERTO desta despesa a partir deste mês</label>
+          <p className="text-xs text-slate-600">O motivo informado acima será usado na exclusão.</p>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-secondary" onClick={() => setDeleting(false)}>Voltar</button>
+            <button type="button" className="btn-danger" disabled={del.isPending || reason.trim().length < 3} onClick={() => del.mutate()}>Confirmar exclusão</button>
+          </div>
+        </div>
+      )}
       <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
+        {item && !deleting && <button type="button" className="btn-danger mr-auto" onClick={() => setDeleting(true)}>Excluir despesa</button>}
         <button type="button" className="btn-secondary" onClick={onDone}>Cancelar</button>
         <button className="btn-primary" disabled={m.isPending}>{m.isPending ? 'Salvando…' : 'Salvar'}</button>
       </div>
@@ -108,6 +129,7 @@ function RecurringForm({ item, onDone }: { item?: RecurringExpense; onDone: () =
 export function RecurringTab() {
   const { can } = useAuth();
   const manage = can('finance.manage');
+  const owner = useIsOwner();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<RecurringExpense | 'new' | null>(null);
   const [importing, setImporting] = useState(false);
@@ -172,7 +194,7 @@ export function RecurringTab() {
                 <td className="td">{i.due_day}</td>
                 <td className="td text-slate-600">{monthLabel(i.start_month)} {i.end_month ? `a ${monthLabel(i.end_month)}` : 'em diante'}{!i.is_active && ' · inativa'}</td>
                 <td className="td text-slate-600">{monthLabel(i.last_generated_month)}{i.generated_count > 0 && <span className="text-xs text-slate-400"> ({i.generated_count})</span>}</td>
-                <td className="td whitespace-nowrap text-right">{manage && i.is_active && !i.amount && !i.current_month_amount && i.start_month <= currentMonth && <button className="btn-secondary py-1 text-xs" onClick={() => setMonthFor(i)}>Informar valor</button>}{manage && <button className="btn-ghost py-1 text-xs" onClick={() => setEditing(i)}>Editar</button>}</td>
+                <td className="td whitespace-nowrap text-right">{manage && i.is_active && !i.amount && !i.current_month_amount && i.start_month <= currentMonth && <button className="btn-secondary py-1 text-xs" onClick={() => setMonthFor(i)}>Informar valor</button>}{owner && <button className="btn-ghost py-1 text-xs" onClick={() => setEditing(i)}>Editar</button>}</td>
               </tr>
             ))}
             {!items.length && (

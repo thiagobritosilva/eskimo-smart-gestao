@@ -75,6 +75,8 @@ export interface MovementInput {
 export interface Actor {
   userId: string;
   permissions: string[];
+  /** Perfil do usuário (ex.: PROPRIETARIO). Ausente em ações do sistema. */
+  roleCode?: string;
   audit: AuditContext;
 }
 

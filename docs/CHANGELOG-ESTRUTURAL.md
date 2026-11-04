@@ -107,3 +107,13 @@ com impacto e estratégia de preservação de dados.
   ignora despesas já cadastradas); baixa das despesas já pagas na conta escolhida; "Informar valor" do mês para as variáveis.
 - **Dados:** os dados da planilha (nomes e salários) NÃO ficam no código: são enviados pela tela, direto para o banco.
 
+## 0010_exclusao_despesas — Alterações e exclusões somente pelo Proprietário (2026-11-04)
+- **Regra:** alterar ou excluir o que já foi lançado é exclusivo do perfil **Proprietário** — verificado pelo PERFIL,
+  não por permissão, para que não possa ser liberado individualmente a outro usuário. Vale para: editar/excluir
+  despesas fixas; editar e cancelar contas a pagar/receber; estornar pagamentos/recebimentos; editar categorias
+  (afetam o DRE) e contas financeiras; alterar as regras de alertas. Lançar continua com quem tem `finance.manage`.
+- **O quê:** `recurring_expenses.deleted_at/deleted_by/delete_reason` — exclusão LÓGICA (nada é apagado; o
+  registro some da lista e deixa de gerar contas; opcionalmente cancela as contas em aberto dele a partir do mês atual).
+- **Auditoria:** toda alteração exige **motivo** e grava antes, depois, motivo, usuário, data/hora e IP;
+  cancelamentos gravam o título completo antes da mudança.
+

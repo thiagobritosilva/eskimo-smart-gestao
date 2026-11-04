@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import type { AuditContext } from './audit.js';
 import { Errors } from './errors.js';
+import { OWNER_ROLE } from '../modules/auth/permissions.js';
 
 export function auditCtx(req: FastifyRequest): AuditContext {
   return {
@@ -34,4 +35,13 @@ export function requirePermission(...codes: string[]): preHandlerHookHandler {
 
 export function hasPermission(req: FastifyRequest, code: string): boolean {
   return !!req.auth?.permissions.includes(code);
+}
+
+/** Exige o perfil Proprietário (não pode ser liberado por permissão individual). */
+export function requireOwner(message = 'Somente o Proprietário pode alterar ou excluir lançamentos.'): preHandlerHookHandler {
+  const auth = requireAuth();
+  return async function (this: unknown, req, reply) {
+    await (auth as (r: FastifyRequest, p: FastifyReply) => Promise<void>)(req, reply);
+    if (req.auth!.roleCode !== OWNER_ROLE) throw Errors.forbidden(message);
+  };
 }

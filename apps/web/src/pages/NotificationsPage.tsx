@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertOctagon, AlertTriangle, BellRing, CheckCircle2, ChevronDown, Info, RefreshCw, Settings2 } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage } from '../lib/api';
-import { useAuth } from '../lib/auth';
+import { useIsOwner } from '../lib/auth';
 import { useAlerts, type AlertGroup, type Severity } from '../lib/alerts';
 import { formatDate, formatDateTime, formatMoney } from '../lib/format';
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
@@ -82,7 +82,7 @@ function ParamsForm({ initial, onDone }: { initial: { payablesDueDays: number; f
 }
 
 export function NotificationsPage() {
-  const { can } = useAuth();
+  const owner = useIsOwner();
   const { data, isLoading, isFetching, refetch, error } = useAlerts();
   const [config, setConfig] = useState(false);
   return (
@@ -93,7 +93,7 @@ export function NotificationsPage() {
         actions={
           <>
             <button className="btn-secondary" onClick={() => void refetch()} aria-label="Atualizar"><RefreshCw className={clsx('h-4 w-4', isFetching && 'animate-spin')} /></button>
-            {can('settings.manage') && data && <button className="btn-secondary" onClick={() => setConfig(true)}><Settings2 className="h-4 w-4" /> Regras</button>}
+            {owner && data && <button className="btn-secondary" onClick={() => setConfig(true)}><Settings2 className="h-4 w-4" /> Regras</button>}
           </>
         }
       />

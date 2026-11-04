@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage } from '../lib/api';
-import { useAuth } from '../lib/auth';
+import { useIsOwner } from '../lib/auth';
 import { formatDate, formatDateTime, formatMoney, fromDecimal, todayYMD, toDecimal } from '../lib/format';
 import {
   ACCOUNT_KIND, invalidateFinance, localToIso, useFinAccounts, useFinCategories, usePaymentMethods,
@@ -188,7 +188,10 @@ export function SettleForm({ inst, onDone }: { inst: InstallmentRow; onDone: () 
 // Detalhe do título
 // ---------------------------------------------------------------------
 export function TitleDetailView({ id, onClose }: { id: string; onClose: () => void }) {
-  const { can } = useAuth();
+  const owner = useIsOwner();
+  const cats = useFinCategories();
+  const [editing, setEditing] = useState(false);
+  const [ef, setEf] = useState({ description: '', categoryId: '', counterparty: '', competenceDate: '', notes: '', reason: '', dues: {} as Record<string, string> });
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ['fin', 'title', id], queryFn: () => api.get<TitleDetail>(`/finance/titles/${id}`) });
   const [reason, setReason] = useState('');
@@ -199,13 +202,26 @@ export function TitleDetailView({ id, onClose }: { id: string; onClose: () => vo
       : api.post(`/finance/transactions/${(action as { txId: string }).txId}/reverse`, { reason }),
     onSuccess: () => { invalidateFinance(qc); setAction(null); setReason(''); if (action?.kind === 'cancel') onClose(); },
   });
+  const save = useMutation({
+    mutationFn: () => api.patch(`/finance/titles/${id}`, {
+      description: ef.description, categoryId: ef.categoryId, counterparty: ef.counterparty || null, competenceDate: ef.competenceDate,
+      notes: ef.notes || null, reason: ef.reason,
+      dueDates: Object.entries(ef.dues).filter(([iid, d]) => data?.installments.find((x) => x.id === iid)?.due_date !== d).map(([installmentId, dueDate]) => ({ installmentId, dueDate })),
+    }),
+    onSuccess: () => { invalidateFinance(qc); setEditing(false); },
+  });
   const byInst = useMemo(() => {
     const map = new Map<string, TitleDetail['settlements']>();
     for (const s of data?.settlements ?? []) map.set(s.installment_id, [...(map.get(s.installment_id) ?? []), s]);
     return map;
   }, [data]);
   if (isLoading || !data) return <p className="text-sm text-slate-500">Carregando…</p>;
-  const manage = can('finance.manage');
+  const manage = owner; // alterar, cancelar e estornar: somente Proprietário
+  const startEdit = () => {
+    setEf({ description: data.description, categoryId: data.category_id, counterparty: data.counterparty ?? '', competenceDate: data.competence_date, notes: data.notes ?? '', reason: '',
+      dues: Object.fromEntries(data.installments.filter((i) => Number(i.open_amount) > 0).map((i) => [i.id, i.due_date])) });
+    setEditing(true);
+  };
   const hasActivePayment = data.settlements.some((s) => !s.reversed);
   return (
     <div className="space-y-4 text-sm">
@@ -243,6 +259,32 @@ export function TitleDetailView({ id, onClose }: { id: string; onClose: () => vo
           </div>
         ))}
       </div>
+      {editing && (
+        <form className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+          {save.error && <Alert>{errorMessage(save.error)}</Alert>}
+          <Field label="Descrição"><input className="input" required minLength={2} maxLength={200} value={ef.description} onChange={(e) => setEf({ ...ef, description: e.target.value })} /></Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Categoria">
+              <select className="input" value={ef.categoryId} onChange={(e) => setEf({ ...ef, categoryId: e.target.value })}>
+                {cats.data?.filter((c) => c.kind === (data.direction === 'pagar' ? 'despesa' : 'receita')).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Competência"><input className="input" type="date" required value={ef.competenceDate} onChange={(e) => setEf({ ...ef, competenceDate: e.target.value })} /></Field>
+          </div>
+          <Field label={data.direction === 'pagar' ? 'Favorecido' : 'Pagador'}><input className="input" maxLength={120} value={ef.counterparty} onChange={(e) => setEf({ ...ef, counterparty: e.target.value })} /></Field>
+          {Object.keys(ef.dues).length > 0 && (
+            <div className="grid gap-2 sm:grid-cols-3">
+              {data.installments.filter((i) => ef.dues[i.id]).map((i) => (
+                <Field key={i.id} label={`Vencimento parcela ${i.number}`}><input className="input" type="date" value={ef.dues[i.id]} onChange={(e) => setEf({ ...ef, dues: { ...ef.dues, [i.id]: e.target.value } })} /></Field>
+              ))}
+            </div>
+          )}
+          <Field label="Observações"><textarea className="input" rows={2} maxLength={500} value={ef.notes} onChange={(e) => setEf({ ...ef, notes: e.target.value })} /></Field>
+          <Field label="Motivo da alteração *" hint="Fica na auditoria com o antes e o depois."><input className="input" required minLength={3} maxLength={300} value={ef.reason} onChange={(e) => setEf({ ...ef, reason: e.target.value })} /></Field>
+          <p className="text-xs text-slate-500">O valor não é editável: para corrigir valor, cancele o título e lance de novo (ou estorne o pagamento), mantendo o histórico.</p>
+          <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setEditing(false)}>Voltar</button><button className="btn-primary" disabled={save.isPending}>Salvar alteração</button></div>
+        </form>
+      )}
       {action ? (
         <form className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-3" onSubmit={(e) => { e.preventDefault(); mut.mutate(); }}>
           {mut.error && <Alert>{errorMessage(mut.error)}</Alert>}
@@ -250,9 +292,13 @@ export function TitleDetailView({ id, onClose }: { id: string; onClose: () => vo
           <p className="text-xs text-red-800">{action.kind === 'cancel' ? 'O título fica registrado como cancelado; nada é apagado.' : 'Será criado um lançamento inverso; o original permanece no histórico.'}</p>
           <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setAction(null)}>Voltar</button><button className="btn-danger" disabled={mut.isPending}>Confirmar</button></div>
         </form>
-      ) : manage && data.status !== 'cancelado' && !hasActivePayment && (
-        <div className="flex justify-end"><button className="btn-secondary text-red-700" onClick={() => setAction({ kind: 'cancel' })}>Cancelar título</button></div>
+      ) : manage && !editing && data.status !== 'cancelado' && (
+        <div className="flex justify-end gap-2">
+          <button className="btn-secondary" onClick={startEdit}>Editar</button>
+          {!hasActivePayment && <button className="btn-secondary text-red-700" onClick={() => setAction({ kind: 'cancel' })}>Cancelar título</button>}
+        </div>
       )}
+      {!owner && data.status !== 'cancelado' && <p className="text-xs text-slate-500">Alterar, cancelar ou estornar: somente o Proprietário.</p>}
     </div>
   );
 }
