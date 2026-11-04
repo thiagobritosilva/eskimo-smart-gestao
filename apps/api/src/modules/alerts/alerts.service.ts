@@ -219,14 +219,24 @@ async function cartsLate(db: Queryable): Promise<AlertGroup[]> {
 }
 
 async function recurringPending(db: Queryable): Promise<AlertGroup[]> {
-  const { rows } = await db.query<{ id: string; description: string }>(
-    `SELECT id, description FROM recurring_expenses WHERE is_active AND amount IS NULL ORDER BY description`,
+  const { rows } = await db.query<{ id: string; description: string; variable_amount: boolean }>(
+    `SELECT r.id, r.description, r.variable_amount FROM recurring_expenses r
+     WHERE r.is_active AND r.amount IS NULL
+       AND r.start_month <= date_trunc('month', $1::date) AND (r.end_month IS NULL OR r.end_month >= date_trunc('month', $1::date))
+       AND NOT EXISTS (SELECT 1 FROM recurring_expense_runs x WHERE x.recurring_id = r.id AND x.month = date_trunc('month', $1::date))
+     ORDER BY r.description`,
+    [todaySP()],
   );
   if (!rows.length) return [];
+  const label = `${todaySP().slice(5, 7)}/${todaySP().slice(0, 4)}`;
   return [{
-    key: 'recurring_no_value', title: 'Despesas fixas sem valor definido', severity: 'info',
-    description: 'Enquanto o valor não for informado, a conta do mês não é gerada.', count: rows.length, link: '/financeiro?aba=fixas',
-    rows: rows.map((r) => ({ id: r.id, label: r.description, detail: 'valor a definir', link: '/financeiro?aba=fixas', severity: 'info' as Severity })),
+    key: 'recurring_no_value', title: `Despesas fixas sem valor em ${label}`, severity: 'atencao',
+    description: 'Contas do mês que só são lançadas quando o valor for informado (valores variáveis, como impostos e energia, ou ainda não definidos).',
+    count: rows.length, link: '/financeiro?aba=fixas',
+    rows: rows.map((r) => ({
+      id: r.id, label: r.description, detail: r.variable_amount ? 'valor variável: informe o valor deste mês' : 'valor a definir',
+      link: '/financeiro?aba=fixas', severity: 'atencao' as Severity,
+    })),
   }];
 }
 

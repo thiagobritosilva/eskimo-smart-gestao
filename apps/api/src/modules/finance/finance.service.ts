@@ -435,7 +435,7 @@ async function findByKey(db: Db, key: string) {
   return rows[0] ? { ...rows[0], duplicate: true as const } : null;
 }
 
-async function settleInDb(db: Db, actor: Actor, installmentId: string, input: SettleInput) {
+export async function settleInDb(db: Db, actor: Actor, installmentId: string, input: SettleInput) {
   const { rows } = await db.query<{ id: string; title_id: string; number: number; amount: string; settled: string; direction: 'pagar' | 'receber'; status: string; description: string; title_number: string; payment_method_code: string | null }>(
     `SELECT i.id, i.title_id, i.number, i.amount::text, i.settled::text, t.direction, t.status, t.description,
             t.number::text AS title_number, t.payment_method_code

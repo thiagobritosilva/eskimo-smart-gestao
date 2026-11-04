@@ -96,3 +96,14 @@ com impacto e estratégia de preservação de dados.
   referência (informativo). Cada grupo respeita a permissão do usuário.
 - **Telas:** página Notificações, contador no menu e faixa de alertas no Dashboard; campo "% de alerta" no produto.
 
+## 0009_despesas_variaveis — Importação da planilha de despesas fixas (2026-11-04)
+- **Motivo:** a loja controla as despesas fixas do mês em planilha (DESCRIÇÃO, VALOR, VENCIMENTO, DATA DE PGTO,
+  FORMA DE PGTO, BANCO, STATUS); algumas se repetem com valor que muda todo mês (Simples Nacional, FGTS, INSS, energia).
+- **O quê:** `recurring_expenses.variable_amount` (valor variável: sem valor fixo; o valor de cada mês é informado à
+  parte e nunca repetido). Novas categorias de despesa: Vale-transporte e Encargos sociais (FGTS/INSS) — grupo Pessoal;
+  Contabilidade e Sistemas e software — Administrativas; Internet e telefone e Segurança e monitoramento — Ocupação.
+- **Funcionalidades:** Financeiro → Despesas fixas → "Importar planilha" (prévia editável, nada gravado antes da
+  confirmação; divide linhas "VA R$x e VT R$y" quando a soma confere; confere o total da planilha; avisa datas suspeitas;
+  ignora despesas já cadastradas); baixa das despesas já pagas na conta escolhida; "Informar valor" do mês para as variáveis.
+- **Dados:** os dados da planilha (nomes e salários) NÃO ficam no código: são enviados pela tela, direto para o banco.
+

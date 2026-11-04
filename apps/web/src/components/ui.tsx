@@ -39,7 +39,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 export function Modal({
   open, title, onClose, children, footer, size = 'md',
 }: {
-  open: boolean; title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; size?: 'md' | 'lg';
+  open: boolean; title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; size?: 'md' | 'lg' | 'xl';
 }) {
   useEffect(() => {
     if (!open) return;
@@ -56,7 +56,7 @@ export function Modal({
         aria-label={title}
         className={clsx(
           'flex max-h-[92vh] w-full flex-col rounded-t-2xl bg-white shadow-xl sm:rounded-2xl',
-          size === 'lg' ? 'sm:max-w-3xl' : 'sm:max-w-lg',
+          size === 'xl' ? 'sm:max-w-6xl' : size === 'lg' ? 'sm:max-w-3xl' : 'sm:max-w-lg',
         )}
         onClick={(e) => e.stopPropagation()}
       >

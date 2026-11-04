@@ -53,7 +53,9 @@ describe('despesas fixas mensais (VR/VA)', () => {
     ]);
     const list = await call(owner.cookie, { method: 'GET', url: '/api/finance/recurring' });
     expect(list.statusCode).toBe(200);
-    expect(list.json()).toEqual([]);
+    // nenhum modelo foi criado pelas migrations (todos têm um usuário responsável)
+    const { rows: sys } = await getPool().query('SELECT count(*)::int AS n FROM recurring_expenses WHERE created_by IS NULL');
+    expect(sys[0].n).toBe(0);
   });
 
   it('gera a conta a pagar do mês com competência no dia 1º e vencimento no dia escolhido, uma única vez', async () => {
@@ -100,7 +102,7 @@ describe('despesas fixas mensais (VR/VA)', () => {
 
   it('alteração de valor vale só para os meses seguintes; meses já gerados ficam como estavam', async () => {
     const list = (await call(owner.cookie, { method: 'GET', url: '/api/finance/recurring' })).json();
-    const vr = list.find((x: { description: string }) => x.description === 'Vale-refeição funcionários');
+    const vr = list.find((x: { description: string; is_active: boolean }) => x.description === 'Vale-refeição funcionários' && x.is_active);
     // fevereiro já foi gerado (no teste anterior) com o valor antigo
     await call(owner.cookie, { method: 'PATCH', url: `/api/finance/recurring/${vr.id}`, payload: { amount: '900.00' } });
     await generate('2031-02');

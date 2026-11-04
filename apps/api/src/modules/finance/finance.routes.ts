@@ -8,6 +8,7 @@ import { parse, uuidSchema } from '../../lib/validation.js';
 import * as reports from './finance.reports.js';
 import * as svc from './finance.service.js';
 import * as recurring from './recurring.service.js';
+import * as recurringImport from './recurring.import.js';
 
 const money = z
   .union([z.string(), z.number()])
@@ -257,13 +258,43 @@ export async function financeRoutes(app: FastifyInstance) {
   };
   app.get('/finance/recurring', { preHandler: view }, async () => recurring.listRecurring());
   app.post('/finance/recurring', { preHandler: manage }, async (req, reply) => {
-    const body = parse(z.object(recurringBase), req.body);
+    const body = parse(z.object({ ...recurringBase, variableAmount: z.boolean().optional() }), req.body);
     reply.code(201);
     return recurring.createRecurring(actorOf(req), body);
   });
+  app.post('/finance/recurring/:id/month', { preHandler: manage }, async (req, reply) => {
+    const { id } = parse(idParams, req.params);
+    const body = parse(z.object({ month, amount: money }), req.body);
+    reply.code(201);
+    return recurring.setMonthAmount(actorOf(req), id, body.month, body.amount);
+  });
+  app.post('/finance/recurring/import/preview', { preHandler: manage, bodyLimit: 8 * 1024 * 1024 }, async (req) => {
+    const body = parse(z.object({ fileName: z.string().max(200), base64: z.string().max(7 * 1024 * 1024) }), req.body);
+    return recurringImport.previewImport({ name: body.fileName, base64: body.base64 });
+  });
+  app.post('/finance/recurring/import', { preHandler: manage }, async (req) => {
+    const body = parse(
+      z.object({
+        month,
+        accountId: uuidSchema.nullable().optional(),
+        rows: z.array(z.object({
+          description: z.string().trim().min(2).max(120),
+          categoryId: uuidSchema,
+          amount: money,
+          dueDay: z.number().int().min(1).max(28),
+          paymentMethodCode: z.string().regex(/^[a-z_]+$/).nullable().optional(),
+          variableAmount: z.boolean(),
+          paid: z.boolean(),
+          paidOn: date.nullable().optional(),
+        })).min(1).max(200),
+      }),
+      req.body,
+    );
+    return recurringImport.commitImport(actorOf(req), body);
+  });
   app.patch('/finance/recurring/:id', { preHandler: manage }, async (req) => {
     const { id } = parse(idParams, req.params);
-    const body = parse(z.object(recurringBase).partial().extend({ isActive: z.boolean().optional() }), req.body);
+    const body = parse(z.object(recurringBase).partial().extend({ isActive: z.boolean().optional(), variableAmount: z.boolean().optional() }), req.body);
     return recurring.updateRecurring(actorOf(req), id, body);
   });
   app.post('/finance/recurring/generate', { preHandler: manage }, async (req) => {

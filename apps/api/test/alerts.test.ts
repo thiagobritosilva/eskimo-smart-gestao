@@ -92,6 +92,10 @@ describe('central de alertas', () => {
     } });
     expect(r.statusCode, r.body).toBe(201);
     expect(labels((await alerts()).groups, 'carts_late')).toContain(`CARR-07 · Atrasado ${tag}`);
+    // devolve, para não afetar os demais testes
+    const ret = await call(owner.cookie, { method: 'POST', url: `/api/cart-rentals/${r.json().id}/return`, payload: { returnedOn: today } });
+    expect(ret.statusCode, ret.body).toBe(200);
+    expect(labels((await alerts()).groups, 'carts_late')).not.toContain(`CARR-07 · Atrasado ${tag}`);
   });
 
   it('respeita permissões: funcionário não vê alertas financeiros nem altera parâmetros', async () => {

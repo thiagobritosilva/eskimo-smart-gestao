@@ -34,13 +34,15 @@ export interface RecurringInput {
   endMonth?: string | null;
   notes?: string | null;
   isActive?: boolean;
+  variableAmount?: boolean;
 }
 
 export async function listRecurring() {
   const { rows } = await getPool().query(
     `SELECT r.id, r.description, r.category_id, c.name AS category_name, r.counterparty, r.payment_method_code,
             pm.name AS payment_method_name, r.amount::text, r.due_day, to_char(r.start_month, 'YYYY-MM') AS start_month,
-            to_char(r.end_month, 'YYYY-MM') AS end_month, r.is_active, r.notes,
+            to_char(r.end_month, 'YYYY-MM') AS end_month, r.is_active, r.notes, r.variable_amount,
+            (SELECT x.amount::text FROM recurring_expense_runs x WHERE x.recurring_id = r.id AND x.month = date_trunc('month', (now() AT TIME ZONE 'America/Sao_Paulo'))::date) AS current_month_amount,
             (SELECT to_char(max(x.month), 'YYYY-MM') FROM recurring_expense_runs x WHERE x.recurring_id = r.id) AS last_generated_month,
             (SELECT count(*)::int FROM recurring_expense_runs x WHERE x.recurring_id = r.id) AS generated_count
      FROM recurring_expenses r JOIN financial_categories c ON c.id = r.category_id
@@ -69,18 +71,23 @@ const norm = (v: string | null | undefined) => (v == null || v.trim() === '' ? n
 
 export async function createRecurring(actor: Actor, input: RecurringInput) {
   need(actor, 'finance.manage');
-  return withTransaction(async (db) => {
+  return withTransaction((db) => createRecurringInDb(db, actor, input));
+}
+
+export async function createRecurringInDb(db: import('pg').PoolClient, actor: Actor, input: RecurringInput) {
+  {
     await validate(input, db);
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO recurring_expenses (description, category_id, counterparty, payment_method_code, amount, due_day,
-                                       start_month, end_month, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, ($7 || '-01')::date, ($8 || '-01')::date, $9, $10) RETURNING id`,
+                                       start_month, end_month, notes, created_by, variable_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, ($7 || '-01')::date, ($8 || '-01')::date, $9, $10, $11) RETURNING id`,
       [input.description.trim(), input.categoryId, norm(input.counterparty), norm(input.paymentMethodCode),
-        input.amount ? fromCents(toCents(input.amount)) : null, input.dueDay, input.startMonth, norm(input.endMonth), norm(input.notes), actor.userId],
+        !input.variableAmount && input.amount ? fromCents(toCents(input.amount)) : null, input.dueDay, input.startMonth, norm(input.endMonth),
+        norm(input.notes), actor.userId, input.variableAmount ?? false],
     );
     await writeAudit(db, actor.audit, { action: 'finance.recurring_created', entity: 'recurring_expense', entityId: rows[0]!.id, after: input });
     return rows[0]!;
-  });
+  }
 }
 
 export async function updateRecurring(actor: Actor, id: string, input: Partial<RecurringInput>) {
@@ -105,6 +112,10 @@ export async function updateRecurring(actor: Actor, id: string, input: Partial<R
     if (input.endMonth !== undefined) set('end_month', input.endMonth ? `${input.endMonth}-01` : null, '::date');
     if (input.notes !== undefined) set('notes', norm(input.notes));
     if (input.isActive !== undefined) set('is_active', input.isActive);
+    if (input.variableAmount !== undefined) {
+      set('variable_amount', input.variableAmount);
+      if (input.variableAmount) set('amount', null);
+    }
     if (sets.length) await db.query(`UPDATE recurring_expenses SET ${sets.join(', ')} WHERE id = $1`, values);
     const after = (await db.query('SELECT * FROM recurring_expenses WHERE id = $1', [id])).rows[0];
     await writeAudit(db, actor.audit, { action: 'finance.recurring_updated', entity: 'recurring_expense', entityId: id, before, after });
@@ -118,15 +129,47 @@ export interface GenerationResult {
   pendingValue: string[];
 }
 
+export interface TemplateRow {
+  id: string; description: string; category_id: string; counterparty: string | null; payment_method_code: string | null;
+  amount: string | null; due_day: number; variable_amount?: boolean;
+}
+
+/**
+ * Lança a conta a pagar de UM modelo em UM mês (competência dia 1º; vencimento no dia do modelo).
+ * Idempotente: repetir devolve o título existente (duplicate = true) e não cria outro registro do mês.
+ */
+export async function createMonthTitle(db: Queryable, actor: Actor, r: TemplateRow, month: string, amount: string) {
+  const first = `${month}-01`;
+  const dueDate = `${month}-${String(r.due_day).padStart(2, '0')}`;
+  const label = `${month.slice(5, 7)}/${month.slice(0, 4)}`;
+  const t = await createTitleInDb(db as never, actor, {
+    direction: 'pagar',
+    description: `${r.description} — ${label}`,
+    categoryId: r.category_id,
+    counterparty: r.counterparty,
+    paymentMethodCode: r.payment_method_code,
+    competenceDate: first,
+    issueDate: first,
+    totalAmount: amount,
+    plan: { count: 1, firstDueDate: dueDate },
+    idempotencyKey: `recorrente:${r.id}:${month}`,
+    sourceType: 'recorrente',
+    sourceId: r.id,
+    notes: r.variable_amount ? 'Despesa fixa de valor variável: valor informado para o mês.' : 'Gerado automaticamente a partir das despesas fixas mensais.',
+  });
+  if (!t.duplicate) {
+    await db.query('INSERT INTO recurring_expense_runs (recurring_id, month, title_id, amount) VALUES ($1, $2::date, $3, $4)', [r.id, first, t.id, amount]);
+  }
+  const inst = (await db.query<{ id: string }>('SELECT id FROM financial_installments WHERE title_id = $1 ORDER BY number LIMIT 1', [t.id])).rows[0]!;
+  return { titleId: t.id, titleNumber: t.number, installmentId: inst.id, dueDate, duplicate: t.duplicate };
+}
+
 /** Gera as contas a pagar de um mês (AAAA-MM). Idempotente: meses já gerados são ignorados. */
 export async function generateMonth(actor: Actor, month: string): Promise<GenerationResult> {
   const first = `${month}-01`;
   return withTransaction(async (db) => {
-    const { rows } = await db.query<{
-      id: string; description: string; category_id: string; counterparty: string | null; payment_method_code: string | null;
-      amount: string | null; due_day: number;
-    }>(
-      `SELECT r.id, r.description, r.category_id, r.counterparty, r.payment_method_code, r.amount::text, r.due_day
+    const { rows } = await db.query<TemplateRow>(
+      `SELECT r.id, r.description, r.category_id, r.counterparty, r.payment_method_code, r.amount::text, r.due_day, r.variable_amount
        FROM recurring_expenses r
        WHERE r.is_active AND r.start_month <= $1::date AND (r.end_month IS NULL OR r.end_month >= $1::date)
          AND NOT EXISTS (SELECT 1 FROM recurring_expense_runs x WHERE x.recurring_id = r.id AND x.month = $1::date)
@@ -135,37 +178,42 @@ export async function generateMonth(actor: Actor, month: string): Promise<Genera
       [first],
     );
     const result: GenerationResult = { month, created: [], pendingValue: [] };
-    const label = `${month.slice(5, 7)}/${month.slice(0, 4)}`;
     for (const r of rows) {
       if (!r.amount) {
         result.pendingValue.push(r.description);
         continue;
       }
-      const dueDate = `${month}-${String(r.due_day).padStart(2, '0')}`;
-      const t = await createTitleInDb(db, actor, {
-        direction: 'pagar',
-        description: `${r.description} — ${label}`,
-        categoryId: r.category_id,
-        counterparty: r.counterparty,
-        paymentMethodCode: r.payment_method_code,
-        competenceDate: first,
-        issueDate: first,
-        totalAmount: r.amount,
-        plan: { count: 1, firstDueDate: dueDate },
-        idempotencyKey: `recorrente:${r.id}:${month}`,
-        sourceType: 'recorrente',
-        sourceId: r.id,
-        notes: 'Gerado automaticamente a partir das despesas fixas mensais.',
-      });
+      const t = await createMonthTitle(db, actor, r, month, r.amount);
       // geração concorrente (agendador × botão): a chave de idempotência já devolveu o título existente
       if (t.duplicate) continue;
-      await db.query('INSERT INTO recurring_expense_runs (recurring_id, month, title_id, amount) VALUES ($1, $2::date, $3, $4)', [r.id, first, t.id, r.amount]);
-      result.created.push({ description: r.description, amount: r.amount, dueDate, titleNumber: t.number });
+      result.created.push({ description: r.description, amount: r.amount, dueDate: t.dueDate, titleNumber: t.titleNumber });
     }
     if (result.created.length) {
       await writeAudit(db, actor.audit, { action: 'finance.recurring_generated', entity: 'recurring_expense', metadata: { month, titles: result.created.length } });
     }
     return result;
+  });
+}
+
+/** Informa o valor de UM mês (despesa de valor variável ou modelo ainda sem valor). Não altera o modelo. */
+export async function setMonthAmount(actor: Actor, id: string, month: string, amount: string) {
+  need(actor, 'finance.manage');
+  return withTransaction(async (db) => {
+    const r = (await db.query<TemplateRow & { is_active: boolean; start_month: string; end_month: string | null }>(
+      `SELECT id, description, category_id, counterparty, payment_method_code, amount::text, due_day, variable_amount, is_active,
+              to_char(start_month, 'YYYY-MM') AS start_month, to_char(end_month, 'YYYY-MM') AS end_month
+       FROM recurring_expenses WHERE id = $1 FOR UPDATE`,
+      [id],
+    )).rows[0];
+    if (!r) throw Errors.notFound('Despesa fixa não encontrada.');
+    if (!r.is_active) throw Errors.businessRule('Despesa fixa inativa.');
+    if (month < r.start_month || (r.end_month && month > r.end_month)) throw Errors.businessRule('Mês fora do período da despesa fixa.');
+    const exists = await db.query('SELECT 1 FROM recurring_expense_runs WHERE recurring_id = $1 AND month = $2::date', [id, `${month}-01`]);
+    if (exists.rowCount) throw Errors.businessRule('A conta deste mês já foi lançada. Para corrigir, ajuste ou cancele a conta em Contas a pagar.');
+    const value = fromCents(toCents(amount));
+    const t = await createMonthTitle(db, actor, r, month, value);
+    await writeAudit(db, actor.audit, { action: 'finance.recurring_month_amount', entity: 'recurring_expense', entityId: id, after: { month, amount: value, titleId: t.titleId } });
+    return { ...t, amount: value };
   });
 }
 
