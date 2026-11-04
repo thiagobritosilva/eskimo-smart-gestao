@@ -22,7 +22,7 @@ export function useMovementTypes() {
 }
 
 export function invalidateStock(qc: ReturnType<typeof useQueryClient>) {
-  for (const k of ['locations', 'carts', 'balances', 'product-stock', 'movements', 'dashboard', 'expiring', 'products', 'inventory']) {
+  for (const k of ['locations', 'carts', 'alerts', 'balances', 'product-stock', 'movements', 'dashboard', 'expiring', 'products', 'inventory']) {
     void qc.invalidateQueries({ queryKey: [k] });
   }
 }

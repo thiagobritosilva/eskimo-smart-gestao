@@ -28,6 +28,7 @@ const productSchema = z.object({
   salePrice: optionalDecimal(2),
   minStock: optionalDecimal(3),
   maxStock: optionalDecimal(3),
+  alertPercent: optionalDecimal(2).refine((v) => v == null || (Number(v) > 0 && Number(v) <= 100), 'Percentual de alerta entre 0 e 100.'),
   tracksExpiry: z.boolean().optional(),
   isActive: z.boolean().optional(),
 });

@@ -4,6 +4,7 @@ import { ChevronDown, LogOut, Menu, Search, UserCircle2, X } from 'lucide-react'
 import clsx from 'clsx';
 import { useAuth } from '../lib/auth';
 import { NAV_ITEMS, type NavItem } from '../lib/navigation';
+import { useAlerts } from '../lib/alerts';
 import { Logo, Modal } from '../components/ui';
 
 function useVisibleNav(): NavItem[] {
@@ -14,6 +15,8 @@ function useVisibleNav(): NavItem[] {
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const items = useVisibleNav();
   const sections = [...new Set(items.map((i) => i.section))];
+  const alerts = useAlerts();
+  const alertCount = alerts.data?.summary.total ?? 0;
   return (
     <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4" aria-label="Menu principal">
       {sections.map((section) => (
@@ -37,6 +40,9 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   >
                     <item.icon className="h-[18px] w-[18px] shrink-0" />
                     <span className="flex-1 truncate">{item.label}</span>
+                    {item.to === '/notificacoes' && alertCount > 0 && (
+                      <span className="min-w-[1.25rem] rounded-full bg-accent-400 px-1.5 py-0.5 text-center text-[10px] font-bold text-brand-900">{alertCount > 99 ? '99+' : alertCount}</span>
+                    )}
                     {item.phase && (
                       <span className="rounded bg-black/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-100">F{item.phase}</span>
                     )}

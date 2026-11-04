@@ -15,6 +15,7 @@ import { ProductsPage } from './pages/ProductsPage';
 import { FreezersPage } from './pages/FreezersPage';
 import { LocationDetailPage } from './pages/LocationDetailPage';
 import { CartsPage } from './pages/CartsPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { StockPage } from './pages/StockPage';
 import { InventoryCountPage, InventoryListPage } from './pages/InventoryPages';
 import { FinancePage } from './pages/FinancePage';
@@ -43,7 +44,6 @@ const FUTURE = [
   { path: 'assistente', title: 'Assistente IA', phase: 6, perm: 'ai.chat', desc: 'Consultas em linguagem natural via Claude e ChatGPT, somente leitura, sobre os dados reais da loja.' },
   { path: 'relatorios', title: 'Relatórios', phase: 7, perm: 'reports.view', desc: 'Relatórios gerenciais com exportação para Excel e PDF.' },
   { path: 'indicadores', title: 'Rentabilidade', phase: 7, perm: 'reports.view', desc: 'Margens, giro, valor parado em estoque e ponto de equilíbrio.' },
-  { path: 'notificacoes', title: 'Notificações', phase: 7, perm: 'alerts.view', desc: 'Central de alertas: estoque baixo, vencimentos, contas, divergências e falhas de sincronização.' },
 ];
 
 export function App() {
@@ -58,6 +58,7 @@ export function App() {
         <Route path="perfil" element={<ProfilePage />} />
         <Route path="produtos" element={<RequirePermission permission="products.view"><ProductsPage /></RequirePermission>} />
         <Route path="freezers" element={<RequirePermission permission="stock.view"><FreezersPage /></RequirePermission>} />
+        <Route path="notificacoes" element={<RequirePermission permission="alerts.view"><NotificationsPage /></RequirePermission>} />
         <Route path="carrinhos" element={<RequirePermission permission="stock.view"><CartsPage /></RequirePermission>} />
         <Route path="carrinhos/:id" element={<RequirePermission permission="stock.view"><LocationDetailPage /></RequirePermission>} />
         <Route path="freezers/:id" element={<RequirePermission permission="stock.view"><LocationDetailPage /></RequirePermission>} />

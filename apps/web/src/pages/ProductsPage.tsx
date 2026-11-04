@@ -32,6 +32,7 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
     salePrice: fromDecimal(product?.sale_price),
     minStock: fromDecimal(product?.min_stock),
     maxStock: fromDecimal(product?.max_stock),
+    alertPercent: fromDecimal(product?.alert_percent),
     tracksExpiry: product?.tracks_expiry ?? false,
     isActive: product?.is_active ?? true,
   });
@@ -51,6 +52,7 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
         salePrice: toDecimal(f.salePrice) || null,
         minStock: toDecimal(f.minStock) || null,
         maxStock: toDecimal(f.maxStock) || null,
+        alertPercent: toDecimal(f.alertPercent) || null,
       };
       if (!canCost) delete body.costPrice;
       return product ? api.patch(`/products/${product.id}`, body) : api.post('/products', body);
@@ -97,9 +99,10 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
           </div>
         )}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Estoque mínimo (total da loja)"><input className="input" inputMode="decimal" value={f.minStock} onChange={set('minStock')} /></Field>
-        <Field label="Estoque máximo"><input className="input" inputMode="decimal" value={f.maxStock} onChange={set('maxStock')} /></Field>
+        <Field label="Estoque máximo (referência)" hint="Base do alerta de estoque frágil."><input className="input" inputMode="decimal" value={f.maxStock} onChange={set('maxStock')} /></Field>
+        <Field label="Alerta de estoque frágil (%)" hint="Em branco = padrão geral (20%)."><input className="input" inputMode="decimal" placeholder="padrão" value={f.alertPercent} onChange={set('alertPercent')} /></Field>
       </div>
       <div className="flex flex-wrap gap-6 text-sm">
         <label className="flex items-center gap-2"><input type="checkbox" checked={f.tracksExpiry} onChange={(e) => setF({ ...f, tracksExpiry: e.target.checked })} /> Controla validade (lote/vencimento)</label>

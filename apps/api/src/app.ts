@@ -20,6 +20,7 @@ import { stockRoutes } from './modules/stock/stock.routes.js';
 import { financeRoutes } from './modules/finance/finance.routes.js';
 import { purchasesRoutes } from './modules/purchases/purchases.routes.js';
 import { pdvRoutes } from './modules/pdv/pdv.routes.js';
+import { alertsRoutes } from './modules/alerts/alerts.routes.js';
 import './types.js';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -103,6 +104,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(auditRoutes);
       await api.register(settingsRoutes);
       await api.register(dashboardRoutes);
+      await api.register(alertsRoutes);
       await api.register(productsRoutes);
       await api.register(stockRoutes);
       await api.register(financeRoutes);

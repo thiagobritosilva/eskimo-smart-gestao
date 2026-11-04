@@ -147,6 +147,7 @@ export function usePaymentMethods() {
 export function invalidateFinance(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: ['fin'] });
   void qc.invalidateQueries({ queryKey: ['dashboard'] });
+  void qc.invalidateQueries({ queryKey: ['alerts'] });
 }
 
 /** Converte "2026-10-15T14:30" (datetime-local) para ISO com fuso do navegador. */

@@ -98,6 +98,7 @@ export interface Product {
   sale_price: string | null;
   min_stock: string | null;
   max_stock: string | null;
+  alert_percent?: string | null;
   tracks_expiry: boolean;
   is_active: boolean;
   margin_percent?: string | null;

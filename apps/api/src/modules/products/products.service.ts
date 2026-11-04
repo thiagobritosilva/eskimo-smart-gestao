@@ -17,6 +17,7 @@ export interface ProductInput {
   salePrice?: string | null;
   minStock?: string | null;
   maxStock?: string | null;
+  alertPercent?: string | null;
   tracksExpiry?: boolean;
   isActive?: boolean;
 }
@@ -35,6 +36,7 @@ const COLUMN: Record<keyof ProductInput, string> = {
   salePrice: 'sale_price',
   minStock: 'min_stock',
   maxStock: 'max_stock',
+  alertPercent: 'alert_percent',
   tracksExpiry: 'tracks_expiry',
   isActive: 'is_active',
 };
@@ -42,7 +44,7 @@ const COLUMN: Record<keyof ProductInput, string> = {
 const SELECT_PRODUCT = `
   SELECT p.id, p.internal_code, p.barcode, p.name, p.description, p.category_id, c.name AS category_name,
          p.brand, p.unit_code, p.packaging, p.qty_per_box::text, p.cost_price::text, p.avg_cost::text,
-         p.sale_price::text, p.min_stock::text, p.max_stock::text, p.tracks_expiry, p.is_active,
+         p.sale_price::text, p.min_stock::text, p.max_stock::text, p.alert_percent::text, p.tracks_expiry, p.is_active,
          CASE WHEN p.sale_price > 0 AND coalesce(p.avg_cost, p.cost_price) IS NOT NULL
               THEN round((p.sale_price - coalesce(p.avg_cost, p.cost_price)) / p.sale_price * 100, 2)::text END AS margin_percent,
          (SELECT coalesce(sum(b.quantity), 0)::text FROM stock_balances b WHERE b.product_id = p.id) AS stock_qty,
@@ -125,13 +127,14 @@ export async function insertProduct(db: pg.PoolClient, input: ProductInput, user
   await assertUnique(db, input);
   const { rows } = await db.query<{ id: string }>(
     `INSERT INTO products (internal_code, barcode, name, description, category_id, brand, unit_code, packaging,
-                           qty_per_box, cost_price, avg_cost, sale_price, min_stock, max_stock, tracks_expiry, is_active, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+                           qty_per_box, cost_price, avg_cost, sale_price, min_stock, max_stock, tracks_expiry, is_active, created_by,
+                           alert_percent)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
     [
       input.internalCode.trim(), input.barcode || null, input.name.trim(), input.description || null,
       input.categoryId || null, input.brand || null, input.unitCode, input.packaging || null,
       input.qtyPerBox || null, input.costPrice ?? null, input.salePrice ?? null, input.minStock ?? null,
-      input.maxStock ?? null, input.tracksExpiry ?? false, input.isActive ?? true, userId,
+      input.maxStock ?? null, input.tracksExpiry ?? false, input.isActive ?? true, userId, input.alertPercent ?? null,
     ],
   );
   const id = rows[0]!.id;

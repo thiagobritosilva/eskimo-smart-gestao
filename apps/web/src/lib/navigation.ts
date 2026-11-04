@@ -15,7 +15,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard.view', section: 'Visão geral' },
-  { to: '/notificacoes', label: 'Notificações', icon: Bell, permission: 'alerts.view', phase: 7, section: 'Visão geral' },
+  { to: '/notificacoes', label: 'Notificações', icon: Bell, permission: 'alerts.view', section: 'Visão geral' },
   { to: '/freezers', label: 'Freezers', icon: Snowflake, permission: 'stock.view', section: 'Operação' },
   { to: '/carrinhos', label: 'Carrinhos', icon: IceCreamCone, permission: 'stock.view', section: 'Operação' },
   { to: '/estoque', label: 'Estoque', icon: Boxes, permission: 'stock.view', section: 'Operação' },

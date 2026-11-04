@@ -87,3 +87,12 @@ com impacto e estratégia de preservação de dados.
   só a devolução é registrada, uma vez (gatilho); aluguel idempotente; conta a receber gerada uma única vez e só com
   valor informado e permissão do financeiro; carrinho alugado não vai para manutenção/inativo; inativo exige carrinho vazio.
 
+## 0008_alertas — Central de alertas (Fase 7, parte 1) (2026-11-04)
+- **O quê:** `products.alert_percent` (percentual próprio de alerta de estoque frágil; NULL = padrão geral) e
+  configuração `alerts.params` (`payablesDueDays` = 7, `fragileStockPercent` = 20).
+- **Alertas (calculados na hora, nada é gravado):** contas a pagar vencidas e a vencer em N dias; contas a receber
+  atrasadas; estoque frágil (estoque total ≤ X% do estoque máximo/referência); abaixo do mínimo; validade vencida ou
+  próxima; carrinhos com devolução atrasada; despesas fixas sem valor; pendências do PDV; produtos sem estoque de
+  referência (informativo). Cada grupo respeita a permissão do usuário.
+- **Telas:** página Notificações, contador no menu e faixa de alertas no Dashboard; campo "% de alerta" no produto.
+

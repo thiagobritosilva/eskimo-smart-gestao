@@ -6,6 +6,7 @@ import { api, qs } from '../lib/api';
 import { firstDayOfMonthYMD, formatDate, formatDateTime, formatMoney, formatNumber, todayYMD } from '../lib/format';
 import type { DashboardSummary, Indicator } from '../lib/types';
 import { Alert, PageHeader, Spinner } from '../components/ui';
+import { AlertsStrip } from './NotificationsPage';
 import { StockChart } from './DashboardCharts';
 import { useAuth } from '../lib/auth';
 
@@ -72,6 +73,7 @@ export function DashboardPage() {
 
       {data && (
         <div className="space-y-8">
+          <AlertsStrip />
           <Alert kind="info">
             <strong>Implantação em andamento.</strong> Os indicadores exibem valores somente quando há dados reais lançados ou
             sincronizados. "—" significa ausência de dados, não zero.
