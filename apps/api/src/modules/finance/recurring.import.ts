@@ -105,7 +105,7 @@ function cellMoney(v: ExcelJS.CellValue): string | null {
   return /^\d+(\.\d{1,2})?$/.test(s) ? fromCents(toCents(s)) : null;
 }
 
-/** "VALE ALIMENTAÇÃO SR. JORGE R$437,00 E VALE TRANSPORTE R$360,00." → duas linhas, se a soma conferir. */
+/** "VALE ALIMENTAÇÃO FULANO R$400,00 E VALE TRANSPORTE R$150,00." → duas linhas, se a soma conferir. */
 function splitCombined(desc: string, total: string): { description: string; amount: string }[] | null {
   const parts = [...desc.matchAll(/(VALE[\s-]?(?:ALIMENTA\S*|REFEI\S*|TRANSPORTE))\s*(.*?)\s*R\$\s*([\d.,]+)/gi)];
   if (parts.length < 2) return null;
