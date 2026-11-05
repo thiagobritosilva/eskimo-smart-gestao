@@ -23,7 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/produtos', label: 'Produtos', icon: Package, permission: 'products.view', section: 'Operação' },
   { to: '/compras', label: 'Compras e fornecedores', icon: ShoppingCart, permission: 'purchases.view', section: 'Operação' },
   { to: '/financeiro', label: 'Financeiro', icon: Wallet, permission: 'finance.view', section: 'Gestão' },
-  { to: '/relatorios', label: 'Relatórios', icon: FileText, permission: 'reports.view', phase: 7, section: 'Gestão' },
+  { to: '/relatorios', label: 'Relatórios', icon: FileText, permission: 'reports.view', section: 'Gestão' },
   { to: '/indicadores', label: 'Rentabilidade', icon: BarChart3, permission: 'reports.view', phase: 7, section: 'Gestão' },
   { to: '/assistente', label: 'Assistente IA', icon: Bot, permission: 'ai.chat', phase: 6, section: 'Gestão' },
   { to: '/pdv', label: 'PDV Connector', icon: Plug, permission: 'sales.view', section: 'Sistema' },

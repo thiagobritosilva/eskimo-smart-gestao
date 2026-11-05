@@ -130,3 +130,14 @@ com impacto e estratégia de preservação de dados.
   nenhuma, cria a "Conta principal" sem saldo inicial (auditado). Conta sem saldo inicial não bloqueia datas
   anteriores; ao informar o saldo depois, a data dele deve ser até a primeira movimentação.
 
+## Relatórios (Fase 7, parte 2) — sem mudança de banco (2026-11-05)
+- **20 relatórios** em Gestão → Relatórios, todos lidos dos dados reais, com limitações informadas no rodapé:
+  Financeiro (contas a pagar, a receber, movimentação financeira, despesas por categoria, DRE, DRE mês a mês,
+  despesas fixas do mês); Estoque (posição por produto, por local, movimentações, perdas/avarias/vencidos, validades,
+  inventários); Compras (recebidas, por fornecedor); Vendas (por dia, por forma de pagamento, produtos mais vendidos);
+  Carrinhos (aluguéis); Controle (auditoria).
+- **Exportação:** Excel (.xlsx com cabeçalho da loja, período, formatos de moeda/data, totais, filtros e observações)
+  e PDF pela impressão do navegador (A4 paisagem). Toda exportação é registrada na auditoria (`report.exported`).
+- **Permissões:** `reports.view` + a permissão da área (ex.: financeiro exige `finance.view`; DRE exige também
+  `dashboard.financial`; custo só com `products.view_cost`).
+

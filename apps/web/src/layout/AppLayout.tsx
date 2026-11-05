@@ -117,9 +117,9 @@ export function AppLayout() {
   return (
     <>
     <UpdateBanner show={outdated} />
-    <div className="min-h-screen lg:pl-64">
+    <div className="min-h-screen lg:pl-64 print:pl-0">
       {/* Sidebar desktop */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-brand-600 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-brand-600 lg:flex print:!hidden">
         <div className="flex h-16 items-center px-5"><Logo dark /></div>
         <Sidebar />
         <div className="border-t border-white/15 px-5 py-3 text-[11px] text-red-100/80">v0.5 · Fase 5 — PDV Connector</div>
@@ -141,7 +141,7 @@ export function AppLayout() {
         </div>
       )}
 
-      <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6">
+      <header className="sticky top-0 z-20 flex h-16 print:hidden items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6">
         <button className="btn-ghost -ml-2 p-2 lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Abrir menu">
           <Menu className="h-5 w-5" />
         </button>
@@ -178,7 +178,7 @@ export function AppLayout() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8 print:max-w-none print:p-0">
         <Outlet />
       </main>
       <QuickSearch open={searchOpen} onClose={() => setSearchOpen(false)} />

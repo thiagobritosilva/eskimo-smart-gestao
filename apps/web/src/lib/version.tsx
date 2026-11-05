@@ -58,7 +58,7 @@ export function useVersionWatcher() {
 export function UpdateBanner({ show }: { show: boolean }) {
   if (!show) return null;
   return (
-    <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-ink-900 px-4 py-3 text-sm text-white shadow-2xl" role="status">
+    <div className="fixed bottom-4 left-1/2 z-50 flex print:hidden -translate-x-1/2 items-center gap-3 rounded-xl bg-ink-900 px-4 py-3 text-sm text-white shadow-2xl" role="status">
       <RefreshCw className="h-4 w-4 text-accent-400" />
       <span>Há uma versão nova do sistema.</span>
       <button className="rounded-lg bg-accent-400 px-3 py-1.5 font-semibold text-ink-900 hover:bg-accent-300" onClick={() => window.location.reload()}>Atualizar agora</button>
