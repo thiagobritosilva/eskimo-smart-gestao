@@ -27,6 +27,15 @@ const ACTION: Record<Item['action'], [string, string]> = {
   sem_custo: ['Sem custo — informe', 'bg-amber-100 text-amber-800'],
 };
 
+/** Quantidade no formato brasileiro: "13.000" = 13 mil; "1.341,5" = 1341,5; "26" = 26. */
+export function parseQtyBR(v: string): string {
+  const s = v.trim().replace(/\s/g, '');
+  if (!s) return '';
+  if (s.includes(',')) return s.replace(/\./g, '').replace(',', '.');
+  if (/^\d{1,3}(\.\d{3})+$/.test(s)) return s.replace(/\./g, '');
+  return s;
+}
+
 async function toBase64(f: File) {
   const buf = new Uint8Array(await f.arrayBuffer());
   let bin = '';
@@ -48,14 +57,14 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
     onSuccess: (p) => {
       setPreview(p);
       setLocationId(p.defaultLocationId ?? '');
-      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '', qtyText: fromDecimal(i.quantity) })));
+      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '', qtyText: formatQty(i.quantity) })));
     },
   });
   const commit = useMutation({
     mutationFn: () => api.post<Result>('/stock/pdv-inventory/import', {
       number: preview!.number, date: preview!.date, locationId,
       items: rows.filter((r) => r.include).map((r) => ({
-        code: r.code, description: r.description, unit: r.unit, quantity: toDecimal(r.qtyText) || '0', unitCost: toDecimal(r.costText) || '0', category: r.category || null, pdfQuantity: r.quantity, pdfUnitCost: r.unitCost,
+        code: r.code, description: r.description, unit: r.unit, quantity: parseQtyBR(r.qtyText) || '0', unitCost: toDecimal(r.costText) || '0', category: r.category || null, pdfQuantity: r.quantity, pdfUnitCost: r.unitCost,
       })),
     }),
     onSuccess: (r) => { setResult(r); invalidateStock(qc); void qc.invalidateQueries({ queryKey: ['products'] }); },
@@ -64,7 +73,7 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
   const selected = rows.filter((r) => r.include);
   const missingCost = selected.filter((r) => !(Number(toDecimal(r.costText)) > 0));
   const totals = useMemo(() => {
-    const t = selected.reduce((a, r) => { const q = Number(toDecimal(r.qtyText)) || 0; return { q: a.q + Math.round(q * 1000), c: a.c + Math.round(q * (Number(toDecimal(r.costText)) || 0) * 100) }; }, { q: 0, c: 0 });
+    const t = selected.reduce((a, r) => { const q = Number(parseQtyBR(r.qtyText)) || 0; return { q: a.q + Math.round(q * 1000), c: a.c + Math.round(q * (Number(toDecimal(r.costText)) || 0) * 100) }; }, { q: 0, c: 0 });
     return { q: t.q / 1000, v: t.c / 100 };
   }, [selected]);
   const shown = filter === 'avisos' ? rows.filter((r) => r.warnings.length || r.action !== 'criar_e_lancar') : rows;
@@ -142,12 +151,12 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
                 </td>
                 <td className="px-2 py-1.5"><input className="input w-48 py-1" list="pdv-cats" disabled={!!r.existingName} value={r.category ?? ''} placeholder="sem categoria" onChange={(e) => upd(r.code, { category: e.target.value || null })} /></td>
                 <td className="px-2 py-1.5 text-right">
-                  <input className={clsx('input w-24 py-1 text-right', Number(toDecimal(r.qtyText)) !== Number(r.quantity) && 'border-amber-400 bg-amber-50')} inputMode="decimal" value={r.qtyText} onChange={(e) => upd(r.code, { qtyText: e.target.value })} />
-                  {Number(toDecimal(r.qtyText)) !== Number(r.quantity) && <div className="mt-0.5 text-[11px] text-amber-700">PDF: {formatQty(r.quantity)}</div>}
+                  <input className={clsx('input w-24 py-1 text-right', Number(parseQtyBR(r.qtyText)) !== Number(r.quantity) && 'border-amber-400 bg-amber-50')} inputMode="decimal" value={r.qtyText} onChange={(e) => upd(r.code, { qtyText: e.target.value })} />
+                  {Number(parseQtyBR(r.qtyText)) !== Number(r.quantity) && <div className="mt-0.5 whitespace-nowrap text-[11px] text-amber-700">= {formatQty(parseQtyBR(r.qtyText) || '0')} un. (PDF: {formatQty(r.quantity)})</div>}
                 </td>
                 <td className="px-2 py-1.5 text-right"><input className={clsx('input w-24 py-1 text-right', r.include && !(Number(toDecimal(r.costText)) > 0) && 'border-red-400')} inputMode="decimal" value={r.costText} placeholder="informe"
                   onChange={(e) => upd(r.code, { costText: e.target.value, include: r.action === 'sem_custo' && Number(toDecimal(e.target.value)) > 0 ? true : r.include })} /></td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{formatMoney(((Number(toDecimal(r.qtyText)) || 0) * (Number(toDecimal(r.costText)) || 0)).toFixed(2))}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{formatMoney(((Number(parseQtyBR(r.qtyText)) || 0) * (Number(toDecimal(r.costText)) || 0)).toFixed(2))}</td>
                 <td className="px-2 py-1.5"><span className={clsx('badge whitespace-nowrap', ACTION[r.action][1])}>{ACTION[r.action][0]}</span></td>
               </tr>
             ))}
