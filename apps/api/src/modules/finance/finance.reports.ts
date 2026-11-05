@@ -459,7 +459,7 @@ export async function dreByMonth(from: string, to: string) {
 export async function financeSnapshot(db: Queryable, from: string, to: string) {
   const today = todaySP();
   const r = (await db.query<{
-    accounts_caixa: number; accounts_banco: number; cash: string | null; bank: string | null;
+    accounts_caixa: number; accounts_banco: number; cash: string | null; bank: string | null; bank_unknown_opening: number;
     exp_today: string; exp_period: string; exp_titles: number;
     pay_open: string; pay_overdue: string; rec_open: string; rec_overdue: string; titles: number;
   }>(
@@ -467,6 +467,7 @@ export async function financeSnapshot(db: Queryable, from: string, to: string) {
             (SELECT count(*)::int FROM financial_accounts WHERE kind IN ('banco', 'carteira_digital') AND is_active) AS accounts_banco,
             (SELECT sum(b.balance)::text FROM financial_account_balances b JOIN financial_accounts a ON a.id = b.account_id WHERE a.kind = 'caixa' AND a.is_active) AS cash,
             (SELECT sum(b.balance)::text FROM financial_account_balances b JOIN financial_accounts a ON a.id = b.account_id WHERE a.kind IN ('banco', 'carteira_digital') AND a.is_active) AS bank,
+            (SELECT count(*)::int FROM financial_accounts a WHERE a.kind IN ('banco', 'carteira_digital') AND a.is_active AND a.opening_balance IS NULL) AS bank_unknown_opening,
             (SELECT coalesce(sum(t.total_amount), 0)::text FROM financial_titles t JOIN financial_categories c ON c.id = t.category_id
               WHERE t.direction = 'pagar' AND t.status <> 'cancelado' AND c.dre_group NOT IN ('compras_mercadorias', 'investimentos', 'distribuicao_lucros')
                 AND t.competence_date = $3::date) AS exp_today,

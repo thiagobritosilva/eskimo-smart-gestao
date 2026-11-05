@@ -51,7 +51,11 @@ export async function cashBalance(db: Queryable, f: DashboardFilters): Promise<I
 export async function bankBalance(db: Queryable, f: DashboardFilters): Promise<IndicatorValue> {
   const s = await snap(db, f);
   if (!s.accounts_banco) return { value: null, status: 'no_data', reason: 'Nenhuma conta bancária cadastrada.' };
-  return { value: money(s.bank), status: 'ok' };
+  return {
+    value: money(s.bank),
+    status: 'ok',
+    caveats: s.bank_unknown_opening ? ['Saldo inicial não informado: mostra só a movimentação registrada no sistema, não o saldo real do banco.'] : undefined,
+  };
 }
 
 export async function expensesTrendChart(db: Queryable): Promise<ChartData> {

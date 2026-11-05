@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
@@ -19,12 +19,17 @@ const money2 = (v: string) => {
 };
 
 export function AccountSelect({ value, onChange, accounts, label = 'Conta', filter }: { value: string; onChange: (v: string) => void; accounts: FinAccount[]; label?: string; filter?: (a: FinAccount) => boolean }) {
+  const options = accounts.filter((a) => a.is_active && (!filter || filter(a)));
+  // conta única: já vem selecionada
+  useEffect(() => {
+    if (!value && options.length === 1) onChange(options[0]!.id);
+  }, [value, options.length]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Field label={label}>
       <select className="input" required value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Selecione…</option>
-        {accounts.filter((a) => a.is_active && (!filter || filter(a))).map((a) => (
-          <option key={a.id} value={a.id}>{a.name} ({ACCOUNT_KIND[a.kind]}) — saldo {formatMoney(a.balance)}</option>
+        {options.map((a) => (
+          <option key={a.id} value={a.id}>{a.name} ({ACCOUNT_KIND[a.kind]}){a.opening_known ? ` — saldo ${formatMoney(a.balance)}` : ''}</option>
         ))}
       </select>
     </Field>

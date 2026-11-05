@@ -14,9 +14,9 @@ interface PreviewRow {
 }
 interface Preview {
   month: string | null; rows: PreviewRow[]; total: string; sheetTotal: string | null; totalMatches: boolean;
-  accounts: { id: string; name: string; kind: string; bank_name: string | null }[]; suggestedAccountId: string | null; bankName: string | null;
+  accounts: { id: string; name: string; kind: string; bank_name: string | null }[]; suggestedAccountId: string | null; bankName: string | null; autoAccountName: string | null;
 }
-interface Result { created: number; titles: number; settled: number; skipped: string[]; warnings: string[] }
+interface Result { created: number; titles: number; settled: number; skipped: string[]; warnings: string[]; accountCreated: string | null }
 type EditRow = PreviewRow & { include: boolean; amountText: string };
 
 async function toBase64(f: File) {
@@ -49,6 +49,7 @@ export function RecurringImport({ onDone }: { onDone: () => void }) {
     mutationFn: () => api.post<Result>('/finance/recurring/import', {
       month,
       accountId: accountId || null,
+      bankName: preview?.bankName ?? null,
       rows: rows.filter((r) => r.include).map((r) => ({
         description: r.description, categoryId: r.categoryId, amount: toDecimal(r.amountText), dueDay: r.dueDay,
         paymentMethodCode: r.paymentMethodCode, variableAmount: r.variableAmount, paid: r.paid, paidOn: r.paid ? r.paidOn : null,
@@ -71,6 +72,7 @@ export function RecurringImport({ onDone }: { onDone: () => void }) {
           <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="h-4 w-4" /> Importação concluída</div>
           {result.created} despesa(s) fixa(s) cadastrada(s) · {result.titles} conta(s) a pagar lançada(s) no mês · {result.settled} baixa(s) de pagamento.
         </Alert>
+        {result.accountCreated && <Alert kind="info">Conta <strong>{result.accountCreated}</strong> criada automaticamente para registrar os pagamentos, <strong>sem saldo inicial</strong>. Quando quiser, informe o saldo em Financeiro → Configurações (Editar a conta).</Alert>}
         {result.skipped.length > 0 && <Alert kind="info">Ignoradas por já existirem: {result.skipped.join(', ')}.</Alert>}
         {result.warnings.length > 0 && <Alert kind="warning"><ul className="list-disc pl-4">{result.warnings.map((w) => <li key={w}>{w}</li>)}</ul></Alert>}
         <div className="flex justify-end"><button className="btn-primary" onClick={onDone}>Fechar</button></div>
@@ -100,7 +102,7 @@ export function RecurringImport({ onDone }: { onDone: () => void }) {
             <Field label="Mês das contas *" hint="Competência e vencimentos deste mês."><input className="input" type="month" required value={month} onChange={(e) => setMonth(e.target.value)} /></Field>
             <Field label={`Conta de onde saíram os pagamentos (${paidCount} paga(s))`} hint={preview.bankName ? `Planilha: ${preview.bankName}` : undefined}>
               <select className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                <option value="">Nenhuma — deixar as pagas em aberto</option>
+                <option value="">{preview.autoAccountName ? `Criar a conta "${preview.autoAccountName}" automaticamente` : preview.accounts.length > 1 ? 'Nenhuma — deixar as pagas em aberto' : '—'}</option>
                 {preview.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank_name ? ` (${a.bank_name})` : ''}</option>)}
               </select>
             </Field>
@@ -114,11 +116,11 @@ export function RecurringImport({ onDone }: { onDone: () => void }) {
             </div>
           </div>
           {paidCount > 0 && !accountId && (
-            <Alert kind="warning">
-              {preview.accounts.length === 0
-                ? `Não há conta bancária cadastrada${preview.bankName ? ` (${preview.bankName})` : ''}. As despesas marcadas como pagas serão lançadas EM ABERTO; cadastre a conta em Financeiro → Configurações e depois dê baixa em Contas a pagar.`
-                : 'Sem conta escolhida, as despesas marcadas como pagas serão lançadas em aberto.'}
-            </Alert>
+            preview.autoAccountName ? (
+              <Alert kind="info">Nenhuma conta cadastrada: a conta <strong>{preview.autoAccountName}</strong> será criada automaticamente para registrar os {paidCount} pagamento(s), <strong>sem saldo inicial</strong> (não inventamos valor). O saldo pode ser informado depois.</Alert>
+            ) : preview.accounts.length > 1 ? (
+              <Alert kind="warning">Sem conta escolhida, as despesas marcadas como pagas serão lançadas em aberto.</Alert>
+            ) : null
           )}
           <div className="max-h-[52vh] overflow-auto rounded-lg border border-slate-200">
             <table className="min-w-full text-sm">

@@ -43,7 +43,7 @@ function Overview({ go }: { go: (t: Tab) => void }) {
       )}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi icon={<Wallet className="h-5 w-5" />} label="Saldo em caixa" value={active.some((a) => a.kind === 'caixa') ? formatMoney(sum(['caixa'])) : '—'} />
-        <Kpi icon={<Landmark className="h-5 w-5" />} label="Saldo em bancos" value={active.some((a) => a.kind !== 'caixa') ? formatMoney(sum(['banco', 'carteira_digital'])) : '—'} />
+        <Kpi icon={<Landmark className="h-5 w-5" />} label={active.some((a) => a.kind !== 'caixa' && !a.opening_known) ? 'Bancos (movimentação; saldo inicial não informado)' : 'Saldo em bancos'} value={active.some((a) => a.kind !== 'caixa') ? formatMoney(sum(['banco', 'carteira_digital'])) : '—'} />
         <Kpi icon={<ArrowUpRight className="h-5 w-5" />} tone="red" label="A pagar (em aberto)" value={formatMoney(pagar.data?.totals.open ?? 0)} sub={num(pagar.data?.totals.overdue) > 0 ? `${formatMoney(pagar.data!.totals.overdue)} vencido` : undefined} onClick={() => go('pagar')} />
         <Kpi icon={<ArrowDownLeft className="h-5 w-5" />} tone="green" label="A receber (em aberto)" value={formatMoney(receber.data?.totals.open ?? 0)} sub={num(receber.data?.totals.overdue) > 0 ? `${formatMoney(receber.data!.totals.overdue)} vencido` : undefined} onClick={() => go('receber')} />
       </div>
@@ -526,12 +526,13 @@ function AccountForm({ account, onDone }: { account?: FinAccount; onDone: () => 
     allowNegative: account?.allow_negative ?? false, isActive: account?.is_active ?? true,
   });
   const locked = (account?.transactions_count ?? 0) > 0;
+  const canCompleteOpening = locked && account?.opening_balance == null;
   const m = useMutation({
     mutationFn: () => {
-      const body = { ...f, openingBalance: Number(toDecimal(f.openingBalance || '0')).toFixed(2), bankName: f.bankName || null, agency: f.agency || null, accountNumber: f.accountNumber || null };
+      const body = { ...f, openingBalance: f.openingBalance.trim() ? Number(toDecimal(f.openingBalance)).toFixed(2) : null, bankName: f.bankName || null, agency: f.agency || null, accountNumber: f.accountNumber || null };
       if (account) {
         const { kind: _k, ...rest } = body;
-        return api.patch(`/finance/accounts/${account.id}`, locked ? { name: rest.name, bankName: rest.bankName, agency: rest.agency, accountNumber: rest.accountNumber, allowNegative: rest.allowNegative, isActive: rest.isActive } : rest);
+        return api.patch(`/finance/accounts/${account.id}`, locked ? { name: rest.name, bankName: rest.bankName, agency: rest.agency, accountNumber: rest.accountNumber, allowNegative: rest.allowNegative, isActive: rest.isActive, ...(canCompleteOpening && rest.openingBalance != null ? { openingBalance: rest.openingBalance } : {}) } : rest);
       }
       const { isActive: _a, ...create } = body;
       return api.post('/finance/accounts', create);
@@ -554,10 +555,11 @@ function AccountForm({ account, onDone }: { account?: FinAccount; onDone: () => 
         </div>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Saldo inicial (R$)" hint="Saldo real na data de início do uso do sistema."><input className="input" inputMode="decimal" disabled={locked} value={f.openingBalance} onChange={set('openingBalance')} /></Field>
+        <Field label="Saldo inicial (R$)" hint={f.kind === 'caixa' ? 'Dinheiro no caixa na data de início (obrigatório).' : 'Opcional: em branco = não informado agora (pode informar depois).'}><input className="input" inputMode="decimal" required={f.kind === 'caixa'} disabled={locked && !canCompleteOpening} placeholder={f.kind === 'caixa' ? '' : 'não informado'} value={f.openingBalance} onChange={set('openingBalance')} /></Field>
         <Field label="Data do saldo inicial"><input className="input" type="date" disabled={locked} value={f.openingDate} onChange={set('openingDate')} /></Field>
       </div>
-      {locked && <p className="text-xs text-slate-500">Saldo e data iniciais ficam bloqueados após a primeira movimentação.</p>}
+      {locked && !canCompleteOpening && <p className="text-xs text-slate-500">Saldo e data iniciais ficam bloqueados após a primeira movimentação.</p>}
+      {canCompleteOpening && <p className="text-xs text-amber-700">Saldo inicial ainda não informado: informe o saldo real do banco em {formatDate(f.openingDate)} para que o saldo exibido passe a ser o real.</p>}
       <div className="flex flex-wrap gap-6 text-sm">
         {f.kind !== 'caixa' && <label className="flex items-center gap-2"><input type="checkbox" checked={f.allowNegative} onChange={(e) => setF({ ...f, allowNegative: e.target.checked })} /> Permite saldo negativo (cheque especial)</label>}
         {account && <label className="flex items-center gap-2"><input type="checkbox" checked={f.isActive} onChange={(e) => setF({ ...f, isActive: e.target.checked })} /> Ativa</label>}
@@ -648,8 +650,8 @@ function Config() {
                 <tr key={a.id} className={clsx(!a.is_active && 'opacity-50')}>
                   <td className="td"><div className="font-medium">{a.name}</div>{a.bank_name && <div className="text-xs text-slate-500">{a.bank_name} {a.agency && `ag. ${a.agency}`} {a.account_number && `c/c ${a.account_number}`}</div>}</td>
                   <td className="td">{ACCOUNT_KIND[a.kind]}</td>
-                  <td className="td text-right tabular-nums">{formatMoney(a.opening_balance)}<div className="text-xs text-slate-500">em {formatDate(a.opening_date)}</div></td>
-                  <td className="td text-right font-semibold tabular-nums">{formatMoney(a.balance)}</td>
+                  <td className="td text-right tabular-nums">{a.opening_balance != null ? formatMoney(a.opening_balance) : <span className="rounded bg-accent-100 px-1.5 py-0.5 text-xs font-medium text-ink-900">não informado</span>}<div className="text-xs text-slate-500">em {formatDate(a.opening_date)}</div></td>
+                  <td className="td text-right font-semibold tabular-nums">{formatMoney(a.balance)}{!a.opening_known && <div className="text-xs font-normal text-amber-700">só movimentação</div>}</td>
                   <td className="td text-right">{owner && <button className="btn-ghost py-1 text-xs" onClick={() => setEditing(a)}>Editar</button>}</td>
                 </tr>
               ))}

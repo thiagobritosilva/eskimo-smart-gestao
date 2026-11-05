@@ -212,9 +212,10 @@ export async function previewImport(file: { name: string; base64: string }) {
   const month = [...months.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   const total = fromCents(rows.reduce((s, r) => s + toCents(r.amount), 0));
   const bankName = rows.find((r) => r.bank)?.bank ?? null;
-  const suggestedAccount = bankName
-    ? accounts.find((a) => strip(`${a.name} ${a.bank_name ?? ''}`).includes(strip(bankName)))?.id ?? null
-    : null;
+  // a loja usa uma conta só: havendo apenas uma conta ativa, ela é a sugerida
+  const suggestedAccount = accounts.length === 1
+    ? accounts[0]!.id
+    : bankName ? accounts.find((a) => strip(`${a.name} ${a.bank_name ?? ''}`).includes(strip(bankName)))?.id ?? null : null;
   return {
     month,
     rows,
@@ -224,7 +225,13 @@ export async function previewImport(file: { name: string; base64: string }) {
     accounts,
     suggestedAccountId: suggestedAccount,
     bankName,
+    /** Nome da conta que será criada automaticamente se não houver nenhuma. */
+    autoAccountName: accounts.length === 0 ? autoAccountName(bankName) : null,
   };
+}
+
+function autoAccountName(bank: string | null): string {
+  return bank ? titleCase(bank) : 'Conta principal';
 }
 
 export interface CommitRow {
@@ -238,10 +245,32 @@ export interface CommitRow {
   paidOn?: string | null;
 }
 
-export async function commitImport(actor: Actor, input: { month: string; accountId?: string | null; rows: CommitRow[] }) {
+export async function commitImport(actor: Actor, input: { month: string; accountId?: string | null; bankName?: string | null; rows: CommitRow[] }) {
   if (!actor.permissions.includes('finance.manage')) throw Errors.forbidden();
   return withTransaction(async (db) => {
-    const result = { created: 0, titles: 0, settled: 0, skipped: [] as string[], warnings: [] as string[] };
+    const result = { created: 0, titles: 0, settled: 0, skipped: [] as string[], warnings: [] as string[], accountCreated: null as string | null };
+    let accountId = input.accountId ?? null;
+    if (!accountId && input.rows.some((r) => r.paid)) {
+      const active = (await db.query<{ id: string }>('SELECT id FROM financial_accounts WHERE is_active')).rows;
+      if (active.length === 1) accountId = active[0]!.id;
+      else if (active.length === 0) {
+        // conta única da loja criada automaticamente, SEM saldo inicial (não é inventado; pode ser informado depois)
+        const paidDates = input.rows.filter((r) => r.paid && r.paidOn).map((r) => r.paidOn!);
+        const openingDate = [`${input.month}-01`, ...paidDates].sort()[0]!;
+        const name = autoAccountName(input.bankName ?? null);
+        const acc = await db.query<{ id: string }>(
+          `INSERT INTO financial_accounts (kind, name, bank_name, opening_balance, opening_date, allow_negative, created_by)
+           VALUES ('banco', $1, $2, NULL, $3, true, $4) RETURNING id`,
+          [name, input.bankName ? titleCase(input.bankName) : null, openingDate, actor.userId],
+        );
+        accountId = acc.rows[0]!.id;
+        result.accountCreated = name;
+        await writeAudit(db, actor.audit, {
+          action: 'finance.account_created', entity: 'financial_account', entityId: accountId,
+          after: { kind: 'banco', name, openingBalance: null, openingDate, origem: 'importação da planilha de despesas fixas' },
+        });
+      }
+    }
     for (const [idx, r] of input.rows.entries()) {
       const dup = await db.query(`SELECT 1 FROM recurring_expenses WHERE is_active AND lower(description) = lower($1)`, [r.description.trim()]);
       if (dup.rowCount) {
@@ -260,14 +289,14 @@ export async function commitImport(actor: Actor, input: { month: string; account
       }, input.month, fromCents(toCents(r.amount)));
       if (!t.duplicate) result.titles++;
       if (r.paid) {
-        if (!input.accountId) {
+        if (!accountId) {
           result.warnings.push(`${r.description}: marcada como paga, mas ficou EM ABERTO (nenhuma conta de pagamento informada).`);
           continue;
         }
         await db.query('SAVEPOINT baixa');
         try {
           await settleInDb(db, actor, t.installmentId, {
-            accountId: input.accountId,
+            accountId,
             occurredAt: r.paidOn ? `${r.paidOn}T12:00:00-03:00` : null,
             principal: fromCents(toCents(r.amount)),
             paymentMethodCode: r.paymentMethodCode ?? null,

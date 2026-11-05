@@ -30,7 +30,7 @@ const accountSchema = z.object({
   bankName: text(80),
   agency: text(20),
   accountNumber: text(30),
-  openingBalance: money,
+  openingBalance: optMoney.transform((v) => v ?? null),
   openingDate: date,
   allowNegative: z.boolean().optional(),
 });
@@ -279,6 +279,7 @@ export async function financeRoutes(app: FastifyInstance) {
       z.object({
         month,
         accountId: uuidSchema.nullable().optional(),
+        bankName: z.string().trim().max(60).nullable().optional(),
         rows: z.array(z.object({
           description: z.string().trim().min(2).max(120),
           categoryId: uuidSchema,

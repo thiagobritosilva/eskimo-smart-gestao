@@ -29,7 +29,7 @@ function require(actor: Actor, perm: string, msg?: string) {
 export async function listAccounts(db: Queryable = getPool()) {
   const { rows } = await db.query(
     `SELECT a.id, a.kind, a.name, a.bank_name, a.agency, a.account_number, a.opening_balance::text,
-            a.opening_date::text, a.allow_negative, a.is_active, b.balance::text,
+            a.opening_date::text, a.allow_negative, a.is_active, b.balance::text, b.opening_known,
             (SELECT count(*)::int FROM financial_transactions t WHERE t.account_id = a.id) AS transactions_count,
             (SELECT s.id FROM cash_sessions s WHERE s.account_id = a.id AND s.status = 'aberta') AS open_session_id
      FROM financial_accounts a JOIN financial_account_balances b ON b.account_id = a.id
@@ -44,7 +44,8 @@ export interface AccountInput {
   bankName?: string | null;
   agency?: string | null;
   accountNumber?: string | null;
-  openingBalance: string;
+  /** null = saldo inicial ainda não informado (nada é inventado). */
+  openingBalance: string | null;
   openingDate: string;
   allowNegative?: boolean;
 }
@@ -55,11 +56,14 @@ export async function createAccount(actor: Actor, input: AccountInput) {
     const dup = await db.query('SELECT 1 FROM financial_accounts WHERE lower(name) = lower($1)', [input.name]);
     if (dup.rowCount) throw Errors.conflict('Já existe uma conta com este nome.');
     if (input.kind === 'caixa' && input.allowNegative) throw Errors.businessRule('Caixa físico não pode ter saldo negativo.');
+    if (input.kind === 'caixa' && input.openingBalance == null) throw Errors.businessRule('Informe o valor em dinheiro do caixa (fundo de troco).');
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO financial_accounts (kind, name, bank_name, agency, account_number, opening_balance, opening_date, allow_negative, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
       [input.kind, input.name.trim(), input.bankName || null, input.agency || null, input.accountNumber || null,
-        fromCents(toCents(input.openingBalance, 'saldo inicial')), input.openingDate, input.allowNegative ?? false, actor.userId],
+        input.openingBalance == null ? null : fromCents(toCents(input.openingBalance, 'saldo inicial')), input.openingDate,
+        // sem saldo inicial não há como conferir 'saldo insuficiente'
+        input.openingBalance == null ? true : input.allowNegative ?? false, actor.userId],
     );
     await writeAudit(db, actor.audit, { action: 'finance.account_created', entity: 'financial_account', entityId: rows[0]!.id, after: input });
     return rows[0]!;
@@ -77,8 +81,11 @@ export async function updateAccount(actor: Actor, id: string, input: Partial<Acc
     const before = rows[0];
     if (!before) throw Errors.notFound('Conta não encontrada.');
     if (input.kind && input.kind !== before.kind) throw Errors.businessRule('O tipo da conta não pode ser alterado.');
-    if ((input.openingBalance !== undefined || input.openingDate !== undefined) && before.tx > 0) {
-      const sameBal = input.openingBalance === undefined || toCents(input.openingBalance) === toCents(before.opening_balance);
+    // informar o saldo inicial que estava "não informado" é completar o dado (permitido); trocar um saldo já informado, não
+    const completingOpening = before.opening_balance == null && input.openingBalance != null && input.openingDate === undefined;
+    if ((input.openingBalance !== undefined || input.openingDate !== undefined) && before.tx > 0 && !completingOpening) {
+      const sameBal = input.openingBalance === undefined
+        || (input.openingBalance == null ? before.opening_balance == null : before.opening_balance != null && toCents(input.openingBalance) === toCents(before.opening_balance));
       const sameDate = input.openingDate === undefined || input.openingDate === before.opening_date.toISOString().slice(0, 10);
       if (!sameBal || !sameDate) {
         throw Errors.businessRule('Saldo e data de abertura não podem ser alterados após a primeira movimentação.');
@@ -96,8 +103,8 @@ export async function updateAccount(actor: Actor, id: string, input: Partial<Acc
     const sets: string[] = [];
     const values: unknown[] = [id];
     for (const [k, v] of Object.entries(input)) {
-      if (v === undefined || !map[k]) continue; // 'reason' e 'dueDates' não são colunas
-      values.push(k === 'openingBalance' ? fromCents(toCents(v as string)) : typeof v === 'string' && !v.trim() ? null : v);
+      if (v === undefined || !map[k]) continue;
+      values.push(k === 'openingBalance' ? (v == null ? null : fromCents(toCents(v as string))) : typeof v === 'string' && !v.trim() ? null : v);
       sets.push(`${map[k]} = $${values.length}`);
     }
     if (sets.length) await db.query(`UPDATE financial_accounts SET ${sets.join(', ')} WHERE id = $1`, values);
@@ -107,14 +114,14 @@ export async function updateAccount(actor: Actor, id: string, input: Partial<Acc
   });
 }
 
-interface AccountRow { id: string; kind: string; name: string; opening_date: string; allow_negative: boolean; is_active: boolean; balance: string }
+interface AccountRow { id: string; kind: string; name: string; opening_date: string; allow_negative: boolean; is_active: boolean; balance: string; opening_known: boolean }
 
 async function lockAccount(db: Db, id: string): Promise<AccountRow> {
   // Trava a conta ANTES de ler o saldo: movimentações concorrentes ficam serializadas.
   const lock = await db.query('SELECT 1 FROM financial_accounts WHERE id = $1 FOR UPDATE', [id]);
   if (!lock.rowCount) throw Errors.notFound('Conta financeira não encontrada.');
   const { rows } = await db.query<AccountRow>(
-    `SELECT a.id, a.kind, a.name, a.opening_date::text, a.allow_negative, a.is_active, b.balance::text
+    `SELECT a.id, a.kind, a.name, a.opening_date::text, a.allow_negative, a.is_active, b.balance::text, b.opening_known
      FROM financial_accounts a JOIN financial_account_balances b ON b.account_id = a.id WHERE a.id = $1`,
     [id],
   );
@@ -134,7 +141,7 @@ function assertDate(account: AccountRow, occurredAt: string | null | undefined) 
 }
 
 function assertFunds(account: AccountRow, outCents: number) {
-  if (account.allow_negative) return;
+  if (account.allow_negative || !account.opening_known) return;
   const after = toCentsSigned(account.balance) - outCents;
   if (after < 0) {
     throw Errors.businessRule(`Saldo insuficiente em "${account.name}": disponível R$ ${fromCents(toCentsSigned(account.balance)).replace('.', ',')}.`);

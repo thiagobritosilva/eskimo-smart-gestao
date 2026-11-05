@@ -117,3 +117,13 @@ com impacto e estratégia de preservação de dados.
 - **Auditoria:** toda alteração exige **motivo** e grava antes, depois, motivo, usuário, data/hora e IP;
   cancelamentos gravam o título completo antes da mudança.
 
+## 0011_saldo_inicial_opcional — Conta única, sem cadastro obrigatório (2026-11-05)
+- **Motivo:** a loja usa uma única conta bancária e não quer ser obrigada a cadastrar conta/saldo antes de lançar.
+- **O quê:** `financial_accounts.opening_balance` passa a aceitar NULL (= saldo inicial não informado); a visão
+  `financial_account_balances` ganha `opening_known`. Sem saldo inicial, o sistema mostra apenas a movimentação
+  registrada (com aviso) e não bloqueia pagamentos por "saldo insuficiente". O saldo pode ser informado depois
+  (uma vez, auditado), e aí o saldo exibido passa a ser o real. Caixa físico continua exigindo o valor inicial.
+- **Importação:** sem nenhuma conta cadastrada, a conta da coluna BANCO da planilha é criada automaticamente
+  (sem saldo) para registrar os pagamentos; havendo uma conta só, ela é usada automaticamente.
+- **Telas:** conta única já vem selecionada nos pagamentos; "não informado" e "só movimentação" sinalizados.
+

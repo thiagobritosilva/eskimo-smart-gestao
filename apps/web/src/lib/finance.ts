@@ -8,7 +8,9 @@ export interface FinAccount {
   bank_name: string | null;
   agency: string | null;
   account_number: string | null;
-  opening_balance: string;
+  opening_balance: string | null;
+  /** false = saldo inicial não informado: o saldo mostra só a movimentação registrada. */
+  opening_known: boolean;
   opening_date: string;
   allow_negative: boolean;
   is_active: boolean;
