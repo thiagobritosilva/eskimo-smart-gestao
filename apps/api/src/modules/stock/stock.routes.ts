@@ -74,7 +74,7 @@ export async function stockRoutes(app: FastifyInstance) {
   app.post('/stock/pdv-inventory/import', { preHandler: pdvInvPerm, bodyLimit: 4 * 1024 * 1024 }, async (req) => {
     const b = parse(
       z.object({
-        number: z.string().regex(/^\d{1,12}$/),
+        number: z.string().regex(/^[A-Z0-9-]{1,30}$/),
         date: dateStr,
         locationId: uuidSchema,
         items: z.array(z.object({
@@ -85,6 +85,7 @@ export async function stockRoutes(app: FastifyInstance) {
           unitCost: z.string().regex(/^\d{1,10}(\.\d{1,4})?$/, 'Custo inválido.'),
           category: z.string().trim().max(60).nullable(),
           salePrice: z.string().regex(/^\d{1,10}(\.\d{1,2})?$/, 'Preço inválido.').nullable().optional(),
+          gtin: z.string().regex(/^\d{8,14}$/).nullable().optional(),
           pdfQuantity: z.string().max(20).optional(),
           pdfUnitCost: z.string().max(20).optional(),
         })).min(1).max(500),

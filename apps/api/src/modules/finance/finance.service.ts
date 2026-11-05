@@ -609,7 +609,12 @@ export async function transfer(
 export async function reverseTransaction(actor: Actor, id: string, reason: string) {
   require(actor, 'finance.manage', 'Somente gestores financeiros podem estornar.');
   requireOwnerActor(actor, 'Somente o Proprietário pode estornar pagamentos e recebimentos.');
-  return withTransaction(async (db) => {
+  return withTransaction((db) => reverseTransactionInDb(db, actor, id, reason));
+}
+
+/** Estorno dentro de uma transação já aberta (ex.: cancelamento de venda do caixa). Permissões verificadas por quem chama. */
+export async function reverseTransactionInDb(db: Db, actor: Actor, id: string, reason: string) {
+  {
     const tx = (await db.query(
       `SELECT t.*, t.amount::text AS amount_text FROM financial_transactions t WHERE t.id = $1 FOR UPDATE`,
       [id],
@@ -646,7 +651,7 @@ export async function reverseTransaction(actor: Actor, id: string, reason: strin
     }
     await writeAudit(db, actor.audit, { action: 'finance.transaction_reversed', entity: 'financial_transaction', entityId: id, metadata: { reason, legs: legs.length } });
     return { reversed: true };
-  });
+  }
 }
 
 // =====================================================================

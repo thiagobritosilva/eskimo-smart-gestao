@@ -60,7 +60,7 @@ export async function listConnectors() {
     ...r,
     // O conector de API não pode ser ativado: não há documentação oficial nem adaptador testado.
     available: r.mode === 'arquivo_nfce',
-    status: r.mode === 'arquivo_nfce' ? (r.is_enabled ? 'ativo' : 'desativado') : 'aguardando_documentacao',
+    status: r.mode === 'arquivo_nfce' || r.mode === 'caixa' ? (r.is_enabled ? 'ativo' : 'desativado') : 'aguardando_documentacao',
     checklist: r.mode === 'api' ? WEBSEMPRE_API_CHECKLIST : undefined,
   }));
 }
@@ -219,8 +219,10 @@ async function setPending(db: Db, saleId: string, reason: string) {
 /** Tenta baixar o estoque de uma venda pelas regras. Nunca baixa sem regra; nunca baixa duas vezes. */
 export async function allocateSale(db: Db, actor: Actor, saleId: string): Promise<'alocada' | 'pendente' | 'nao_aplicavel'> {
   const sale = (await db.query(
-    `SELECT s.id, s.connector_id, s.status, s.stock_status, s.sold_at, s.document_number, s.document_series, c.stock_mode
-     FROM sales s JOIN pdv_connectors c ON c.id = s.connector_id WHERE s.id = $1 FOR UPDATE OF s`,
+    `SELECT s.id, s.connector_id, s.status, s.stock_status, s.sold_at, s.document_number, s.document_series, s.document_model, c.stock_mode,
+            t.location_ids AS terminal_locations
+     FROM sales s JOIN pdv_connectors c ON c.id = s.connector_id LEFT JOIN pos_terminals t ON t.id = s.pos_terminal_id
+     WHERE s.id = $1 FOR UPDATE OF s`,
     [saleId],
   )).rows[0];
   if (!sale) throw Errors.notFound('Venda não encontrada.');
@@ -246,17 +248,21 @@ export async function allocateSale(db: Db, actor: Actor, saleId: string): Promis
   const { rows: rules } = await db.query<{ scope: string; category_id: string | null; product_id: string | null; location_ids: string[] }>(
     'SELECT scope, category_id, product_id, location_ids FROM stock_allocation_rules WHERE is_active',
   );
+  // vendas do caixa: sem regra por produto/categoria, saem dos locais configurados no próprio caixa
+  const terminalRule = sale.terminal_locations ? { scope: 'caixa', category_id: null, product_id: null, location_ids: sale.terminal_locations as string[] } : undefined;
   const ruleFor = (i: ItemRow) =>
     rules.find((r) => r.scope === 'produto' && r.product_id === i.product_id) ??
     rules.find((r) => r.scope === 'categoria' && i.category_id && r.category_id === i.category_id) ??
+    terminalRule ??
     rules.find((r) => r.scope === 'padrao');
+  const docLabel = sale.document_model === 'CAIXA' ? `Venda do caixa nº ${sale.document_number}` : `Venda NFC-e ${sale.document_number}`;
 
   // Agrega quantidades por produto (a mesma venda pode ter o produto em várias linhas)
   const needByProduct = new Map<string, { qty: number; name: string; locations: string[] }>();
   for (const i of items) {
     const rule = ruleFor(i);
     if (!rule) {
-      await openIssue(db, sale.connector_id, saleId, 'sem_regra_alocacao', `Venda NFC-e ${sale.document_number}: "${i.product_name}" sem regra de baixa (configure o freezer padrão ou uma regra).`, `regra:${saleId}`);
+      await openIssue(db, sale.connector_id, saleId, 'sem_regra_alocacao', `${docLabel}: "${i.product_name}" sem regra de baixa (configure o freezer padrão ou uma regra).`, `regra:${saleId}`);
       await setPending(db, saleId, 'Sem regra de alocação para todos os itens.');
       return 'pendente';
     }
@@ -284,7 +290,7 @@ export async function allocateSale(db: Db, actor: Actor, saleId: string): Promis
       }
     }
     if (remaining > 0) {
-      await openIssue(db, sale.connector_id, saleId, 'estoque_insuficiente', `Venda NFC-e ${sale.document_number}: saldo insuficiente de "${n.name}" nas localizações da regra (faltam ${(remaining / 1000).toLocaleString('pt-BR')}).`, `estoque:${saleId}`);
+      await openIssue(db, sale.connector_id, saleId, 'estoque_insuficiente', `${docLabel}: saldo insuficiente de "${n.name}" nas localizações da regra (faltam ${(remaining / 1000).toLocaleString('pt-BR')}).`, `estoque:${saleId}`);
       await setPending(db, saleId, `Saldo insuficiente de "${n.name}" nas localizações da regra.`);
       return 'pendente';
     }
@@ -296,8 +302,8 @@ export async function allocateSale(db: Db, actor: Actor, saleId: string): Promis
     {
       type: 'saida_venda',
       occurredAt: new Date(sale.sold_at).toISOString(),
-      reason: 'Venda importada do PDV',
-      referenceDoc: `NFC-e ${sale.document_number}/${sale.document_series}`,
+      reason: sale.document_model === 'CAIXA' ? 'Venda no caixa da loja' : 'Venda importada do PDV',
+      referenceDoc: sale.document_model === 'CAIXA' ? `Caixa ${sale.document_series} nº ${sale.document_number}` : `NFC-e ${sale.document_number}/${sale.document_series}`,
       sourceType: 'pdv',
       sourceId: saleId,
       idempotencyKey: `pdv:venda:${saleId}`,
@@ -526,6 +532,7 @@ export async function consolidationPreview(connectorId?: string) {
      FROM sales s JOIN sale_payments p ON p.sale_id = s.id JOIN payment_methods pm ON pm.code = p.method_code
      WHERE s.status = 'concluida' AND s.consolidated_at IS NULL AND (s.sold_at AT TIME ZONE '${TZ}')::date < $1::date
        AND ($2::uuid IS NULL OR s.connector_id = $2)
+       AND p.settled_title_id IS NULL
      GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 2, 3`,
     [today, connectorId ?? null],
   );
@@ -546,6 +553,7 @@ export async function consolidateDays(actor: Actor, upTo?: string) {
               sum(p.amount)::text AS amount, count(DISTINCT s.id)::int AS sales_count, array_agg(DISTINCT s.id) AS sale_ids
        FROM sales s JOIN sale_payments p ON p.sale_id = s.id JOIN payment_methods pm ON pm.code = p.method_code
        WHERE s.status = 'concluida' AND s.consolidated_at IS NULL AND (s.sold_at AT TIME ZONE '${TZ}')::date <= $1::date
+         AND p.settled_title_id IS NULL -- dinheiro do caixa já entrou na hora da venda
        GROUP BY 1, 2, 3, 4, 5 ORDER BY 2, 3`,
       [limit],
     );

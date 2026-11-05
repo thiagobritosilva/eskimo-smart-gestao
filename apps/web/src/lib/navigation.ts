@@ -1,6 +1,6 @@
 import {
   BarChart3, Bell, Bot, Boxes, ClipboardCheck, FileText, LayoutDashboard, Package, Plug, Settings, ShieldCheck,
-  IceCreamCone, ShoppingCart, Snowflake, Users, Wallet, type LucideIcon,
+  IceCreamCone, ScanBarcode, ShoppingCart, Snowflake, Users, Wallet, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -16,6 +16,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard.view', section: 'Visão geral' },
   { to: '/notificacoes', label: 'Notificações', icon: Bell, permission: 'alerts.view', section: 'Visão geral' },
+  { to: '/caixa', label: 'Caixa (PDV)', icon: ScanBarcode, permission: 'pos.operate', section: 'Operação' },
   { to: '/freezers', label: 'Freezers', icon: Snowflake, permission: 'stock.view', section: 'Operação' },
   { to: '/carrinhos', label: 'Carrinhos', icon: IceCreamCone, permission: 'stock.view', section: 'Operação' },
   { to: '/estoque', label: 'Estoque', icon: Boxes, permission: 'stock.view', section: 'Operação' },

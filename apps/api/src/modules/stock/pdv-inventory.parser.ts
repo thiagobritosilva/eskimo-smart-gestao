@@ -7,7 +7,7 @@ import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
  * Rodapé de cada página: total de quantidade e total de valor do inventário.
  * Só lê; não grava nada.
  */
-export interface PdvInventoryItem { line: number; code: string; description: string; unit: string; quantity: string; unitCost: string; total: string; salePrice?: string | null }
+export interface PdvInventoryItem { line: number; code: string; description: string; unit: string; quantity: string; unitCost: string; total: string; salePrice?: string | null; gtin?: string | null }
 export interface PdvInventory {
   number: string | null;
   date: string | null; // AAAA-MM-DD

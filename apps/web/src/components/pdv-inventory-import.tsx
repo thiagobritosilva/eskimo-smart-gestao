@@ -9,7 +9,7 @@ import { Alert, Field } from './ui';
 
 interface Item {
   code: string; description: string; unit: string; quantity: string; unitCost: string; total: string;
-  salePrice?: string | null; category: string | null; action: 'criar_e_lancar' | 'lancar' | 'ignorar' | 'sem_custo'; existingName: string | null; warnings: string[];
+  salePrice?: string | null; gtin?: string | null; category: string | null; action: 'criar_e_lancar' | 'lancar' | 'ignorar' | 'sem_custo' | 'completar'; existingName: string | null; warnings: string[];
 }
 interface Preview {
   number: string | null; date: string | null; store: string | null; status: string | null; items: Item[];
@@ -17,7 +17,7 @@ interface Preview {
   sumQty: string; sumTotal: string; declaredQty: string | null; declaredTotal: string | null; totalsMatch: boolean;
   unparsed: string[]; alreadyImported: string | null; defaultLocationId: string | null;
 }
-interface Result { productsCreated: number; linked: number; lines: number; quantity: number; value: number; skipped: string[]; movementNumber: string }
+interface Result { completed?: number; productsCreated: number; linked: number; lines: number; quantity: number; value: number; skipped: string[]; movementNumber: string }
 type Row = Item & { include: boolean; costText: string; qtyText: string; priceText: string };
 
 const CATEGORIES = ['Picolés', 'Potes de sorvete', 'Sobremesas, copinhos e cones', 'Açaí', 'Coberturas, caldas e casquinhas', 'Bebidas', 'Balas e doces', 'Descartáveis e utensílios'];
@@ -25,6 +25,7 @@ const ACTION: Record<Item['action'], [string, string]> = {
   criar_e_lancar: ['Novo produto + estoque', 'bg-emerald-100 text-emerald-800'],
   lancar: ['Produto existente + estoque', 'bg-sky-100 text-sky-800'],
   ignorar: ['Já tem estoque — ignorado', 'bg-slate-100 text-slate-600'],
+  completar: ['Já tem estoque — completa GTIN/preço', 'bg-violet-100 text-violet-800'],
   sem_custo: ['Sem custo — informe', 'bg-amber-100 text-amber-800'],
 };
 
@@ -76,7 +77,7 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
     onSuccess: (p) => {
       setPreview(p);
       setLocationId(p.defaultLocationId ?? '');
-      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '', qtyText: formatQty(i.quantity), priceText: i.salePrice && Number(i.salePrice) > 0 ? fromDecimal(i.salePrice) : '' })));
+      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar' || i.action === 'completar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '', qtyText: formatQty(i.quantity), priceText: i.salePrice && Number(i.salePrice) > 0 ? fromDecimal(i.salePrice) : '' })));
       setRule(null);
     },
   });
@@ -85,7 +86,7 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
       number: preview!.number, date: preview!.date, locationId,
       costRule: rule,
       items: rows.filter((r) => r.include).map((r) => ({
-        code: r.code, description: r.description, unit: r.unit, quantity: parseQtyBR(r.qtyText) || '0', unitCost: toDecimal(r.costText) || '0', category: r.category || null, salePrice: r.priceText.trim() ? (Number(toDecimal(r.priceText)) || 0).toFixed(2) : null, pdfQuantity: r.quantity, pdfUnitCost: r.unitCost,
+        code: r.code, description: r.description, unit: r.unit, quantity: parseQtyBR(r.qtyText) || '0', unitCost: toDecimal(r.costText) || '0', category: r.category || null, gtin: r.gtin ?? null, salePrice: r.priceText.trim() ? (Number(toDecimal(r.priceText)) || 0).toFixed(2) : null, pdfQuantity: r.quantity, pdfUnitCost: r.unitCost,
       })),
     }),
     onSuccess: (r) => { setResult(r); invalidateStock(qc); void qc.invalidateQueries({ queryKey: ['products'] }); },
@@ -103,8 +104,8 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
     return (
       <div className="space-y-4">
         <Alert kind="success">
-          <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="h-4 w-4" /> Estoque inicial lançado — movimentação nº {result.movementNumber}</div>
-          {result.productsCreated} produto(s) cadastrado(s) · {result.lines} item(ns) no estoque · {formatQty(String(result.quantity))} unidades · {formatMoney(String(result.value))} a custo.
+          <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="h-4 w-4" /> {result.movementNumber ? `Estoque inicial lançado — movimentação nº ${result.movementNumber}` : 'Cadastro atualizado'}</div>
+          {result.productsCreated} produto(s) cadastrado(s) · {result.lines} item(ns) no estoque · {formatQty(String(result.quantity))} unidades · {formatMoney(String(result.value))} a custo{result.completed ? ` · ${result.completed} produto(s) existente(s) completado(s) com GTIN/preço` : ''}.
         </Alert>
         {result.skipped.length > 0 && <Alert kind="warning"><div className="mb-1 font-medium">Não lançados ({result.skipped.length}):</div><ul className="list-disc pl-4 text-xs">{result.skipped.map((s) => <li key={s}>{s}</li>)}</ul></Alert>}
         <Alert kind="info">Próximos passos: cadastre o <strong>preço de venda</strong> dos produtos (o PDF traz só o custo) e transfira do estoque central para os freezers e carrinhos.</Alert>
@@ -117,13 +118,13 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-slate-600">
-          Envie o <strong>PDF do relatório de inventário</strong> emitido pelo sistema do PDV. O sistema lê código, descrição, quantidade e custo de cada item,
+          Envie o <strong>PDF do relatório de inventário</strong> do PDV ou a <strong>planilha de estoque (.xlsx)</strong> com Código, GTIN, Produto, Qtd., Vr. Custo e Vr. Venda. O sistema lê cada item,
           confere com os totais do rodapé e mostra uma <strong>prévia</strong>. Nada é gravado antes da confirmação.
         </p>
         <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-300 p-8 text-center hover:border-brand-400">
           <FileText className="h-8 w-8 text-brand-600" />
-          <span className="font-medium">{load.isPending ? 'Lendo o PDF…' : 'Escolher PDF do inventário'}</span>
-          <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => e.target.files?.[0] && load.mutate(e.target.files[0])} />
+          <span className="font-medium">{load.isPending ? 'Lendo o arquivo…' : 'Escolher PDF ou planilha (.xlsx)'}</span>
+          <input type="file" accept="application/pdf,.pdf,.xlsx" className="hidden" onChange={(e) => e.target.files?.[0] && load.mutate(e.target.files[0])} />
         </label>
         {load.error && <Alert>{errorMessage(load.error)}</Alert>}
       </div>
@@ -185,14 +186,14 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
       <div className="max-h-[50vh] overflow-auto rounded-lg border border-slate-200">
         <table className="min-w-full text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50"><tr className="text-left text-xs uppercase text-slate-500">
-            <th className="px-2 py-2" /><th className="px-2 py-2">Código</th><th className="px-2 py-2">Descrição</th><th className="px-2 py-2">Categoria</th>
+            <th className="px-2 py-2" /><th className="px-2 py-2">Código / GTIN</th><th className="px-2 py-2">Descrição</th><th className="px-2 py-2">Categoria</th>
             <th className="px-2 py-2 text-right">Qtd.</th><th className="px-2 py-2 text-right">Custo un. (R$)</th><th className="px-2 py-2 text-right">Preço venda</th><th className="px-2 py-2 text-right">Total</th><th className="px-2 py-2">Ação</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
             {shown.map((r) => (
               <tr key={r.code} className={clsx('align-top', !r.include && 'opacity-50')}>
                 <td className="px-2 py-1.5"><input type="checkbox" disabled={r.action === 'ignorar'} checked={r.include} onChange={(e) => upd(r.code, { include: e.target.checked })} aria-label="Lançar" /></td>
-                <td className="px-2 py-1.5 font-mono text-xs">{r.code}</td>
+                <td className="px-2 py-1.5 font-mono text-xs">{r.code}{r.gtin ? <div className="text-[11px] text-slate-500">{r.gtin}</div> : <div className="text-[11px] text-amber-600">sem GTIN</div>}</td>
                 <td className="min-w-[16rem] px-2 py-1.5">
                   <input className="input py-1" value={r.description} disabled={!!r.existingName} onChange={(e) => upd(r.code, { description: e.target.value })} />
                   {r.warnings.map((w) => <div key={w} className="mt-1 flex gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3 shrink-0 translate-y-0.5" />{w}</div>)}

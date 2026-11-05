@@ -239,7 +239,7 @@ export function StockPage() {
         subtitle="Visão consolidada de todas as localizações. Toda movimentação fica registrada e é corrigida apenas por estorno."
         actions={
           <>
-            {can('products.manage') && can('stock.adjust') && <button className="btn-secondary" onClick={() => setImporting(true)}><FileText className="h-4 w-4" /> Importar inventário do PDV (PDF)</button>}
+            {can('products.manage') && can('stock.adjust') && <button className="btn-secondary" onClick={() => setImporting(true)}><FileText className="h-4 w-4" /> Importar inventário (PDF/planilha)</button>}
             {canMove && <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nova movimentação</button>}
           </>
         }
@@ -252,7 +252,7 @@ export function StockPage() {
       {tab === 'produtos' && <ProductStockTable />}
       {tab === 'movimentacoes' && <MovementsTable />}
       {tab === 'validades' && <ExpiringTable />}
-      <Modal open={importing} size="xl" title="Importar inventário do PDV (PDF)" onClose={() => setImporting(false)}>
+      <Modal open={importing} size="xl" title="Importar inventário (PDF ou planilha)" onClose={() => setImporting(false)}>
         {importing && <PdvInventoryImport onDone={() => setImporting(false)} />}
       </Modal>
       <Modal open={creating} title="Nova movimentação" onClose={() => setCreating(false)} size="lg">

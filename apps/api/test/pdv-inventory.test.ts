@@ -133,3 +133,44 @@ describe('inventário com custo e preço de venda (formato "atualizado")', () =>
     ]);
   });
 });
+
+describe('planilha de estoque (.xlsx) com GTIN', () => {
+  it('grava GTIN válido, não repete GTIN duplicado e completa o cadastro de produto já existente sem mexer no estoque', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const z = String(Math.floor(100000 + Math.random() * 800000));
+    const g = (base: string) => { const d = base.padStart(12, '0').slice(-12).split('').map(Number); const s = d.reduce((a, x, i) => a + x * (i % 2 === 0 ? 1 : 3), 0); return d.join('') + ((10 - (s % 10)) % 10); };
+    const G = g(`78${z}11`), GD = g(`78${z}22`);
+    const make = async () => {
+      const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Estoque final');
+      ws.addRow(['Código', 'GTIN', 'Produto', 'Und', 'Qtd.', 'Vr. Custo', 'Total Custo', 'Vr. Venda', 'Total Venda']);
+      ws.addRow([`7${z}1`, G, 'PICOLE XLSX', 'UN', 10, 1.16, 11.6, 2, 20]);
+      ws.addRow([`7${z}2`, GD, 'TIGELA AZUL XLSX', 'UN', 3, 2.93, 8.79, 6.99, 20.97]);
+      ws.addRow([`7${z}3`, GD, 'TIGELA ROSA XLSX', 'UN', 3, 2.93, 8.79, 6.99, 20.97]);
+      ws.addRow([null, null, 'TOTAL GERAL', null, 16, null, 29.18, null, 61.94]);
+      ws.addRow([null, null, 'Obs.: observação qualquer']);
+      return Buffer.from(await wb.xlsx.writeBuffer()).toString('base64');
+    };
+    const p = (await post(owner.cookie, '/api/stock/pdv-inventory/preview', { fileName: 'Estoque_Final_Teste_02-11-2025.xlsx', base64: await make() })).json();
+    expect(p).toMatchObject({ number: 'PLANILHA-20251102', date: '2025-11-02', sumQty: '16.000', totalsMatch: true, unparsed: [] });
+    expect(p.items.map((i: { gtin: string | null }) => i.gtin)).toEqual([G, GD, null]);
+    expect(p.items[2].warnings.join(' ')).toMatch(/repetido/);
+    const items = p.items.map((i: Record<string, string>) => ({ code: i.code, description: i.description, unit: i.unit, quantity: i.quantity, unitCost: i.unitCost, category: i.category, salePrice: i.salePrice, gtin: i.gtin }));
+    const r = await post(owner.cookie, '/api/stock/pdv-inventory/import', { number: p.number, date: p.date, locationId: p.defaultLocationId, items });
+    expect(r.statusCode, r.body).toBe(200);
+    const rows = (await getPool().query('SELECT internal_code, barcode, sale_price::text FROM products WHERE internal_code LIKE $1 ORDER BY 1', [`7${z}%`])).rows;
+    expect(rows).toEqual([
+      { internal_code: `7${z}1`, barcode: G, sale_price: '2.00' },
+      { internal_code: `7${z}2`, barcode: GD, sale_price: '6.99' },
+      { internal_code: `7${z}3`, barcode: null, sale_price: '6.99' },
+    ]);
+    // produto existente sem GTIN/preço: a reimportação completa o cadastro e NÃO lança estoque de novo
+    await getPool().query('UPDATE products SET barcode = NULL, sale_price = NULL WHERE internal_code = $1', [`7${z}1`]);
+    const p2 = (await post(owner.cookie, '/api/stock/pdv-inventory/preview', { fileName: 'Estoque_Final_Teste_03-11-2025.xlsx', base64: await make() })).json();
+    expect(p2.items[0].action).toBe('completar');
+    const r2 = await post(owner.cookie, '/api/stock/pdv-inventory/import', { number: p2.number, date: p2.date, locationId: p2.defaultLocationId, items: [{ ...items[0] }] });
+    expect(r2.statusCode, r2.body).toBe(200);
+    expect(r2.json()).toMatchObject({ completed: 1, lines: 0 });
+    const after = (await getPool().query('SELECT barcode, sale_price::text, (SELECT sum(quantity) FROM stock_balances b WHERE b.product_id = p.id)::text AS q FROM products p WHERE internal_code = $1', [`7${z}1`])).rows[0];
+    expect(after).toEqual({ barcode: G, sale_price: '2.00', q: '10.000' });
+  });
+});

@@ -16,6 +16,7 @@ import { FreezersPage } from './pages/FreezersPage';
 import { LocationDetailPage } from './pages/LocationDetailPage';
 import { CartsPage } from './pages/CartsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { PosPage } from './pages/PosPage';
 import { ReportsPage, ReportViewPage } from './pages/ReportsPage';
 import { StockPage } from './pages/StockPage';
 import { InventoryCountPage, InventoryListPage } from './pages/InventoryPages';
@@ -50,6 +51,8 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* frente de caixa em tela cheia (sem o menu lateral) */}
+      <Route path="/caixa" element={<Protected><RequirePermission permission="pos.operate"><PosPage /></RequirePermission></Protected>} />
       <Route element={<Protected><AppLayout /></Protected>}>
         <Route index element={<RequirePermission permission="dashboard.view"><DashboardPage /></RequirePermission>} />
         <Route path="usuarios" element={<RequirePermission permission="users.view"><UsersPage /></RequirePermission>} />

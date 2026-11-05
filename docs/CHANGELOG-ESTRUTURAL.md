@@ -156,3 +156,23 @@ com impacto e estratégia de preservação de dados.
   VR. CUSTO, TOTAL CUSTO, VR. VENDA, TOTAL VENDA; rodapé "TOTAL GERAL"), gravando custo e preço de venda. Inventários com
   a mesma base (nº + data) não podem ser importados duas vezes.
 
+## 0012_frente_caixa — Frente de caixa (PDV próprio) e planilha com GTIN (2026-11-05)
+- **Planilha de estoque (.xlsx):** o importador de inventário aceita a planilha Código | GTIN | Produto | Und | Qtd. |
+  Vr. Custo | Vr. Venda (linha TOTAL GERAL para conferência). Grava o **GTIN** (dígito verificador conferido; GTIN
+  repetido ou de outro produto não é gravado) e, para produtos já cadastrados, **completa** GTIN e preço que faltarem,
+  sem alterar o estoque.
+- **Frente de caixa** (menu Operação → Caixa (PDV), tela cheia): leitor de código de barras (GTIN) ou código interno,
+  "3*código" para quantidade, busca por nome (F2), desconto com motivo (acima de 10% só o Proprietário), pagamento em
+  dinheiro com troco, Pix, débito, crédito e dividido, cupom de 80 mm "não é documento fiscal", vendas da sessão,
+  reimpressão, cancelamento (somente Proprietário, com motivo: devolve estoque e estorna o dinheiro), abertura e
+  fechamento "às cegas" por caixa.
+- **O quê (banco):** `pos_terminals` (caixa físico → conta caixa com fundo de troco e locais de estoque em ordem);
+  conector "Caixa da loja" (`provider 'eskimo'`, `mode 'caixa'`, ativado ao cadastrar o 1º caixa); `sales` ganha
+  terminal, sessão de caixa, operador e dados de cancelamento; `sale_payments` ganha troco e título quitado; sequência
+  de numeração das vendas; permissões `pos.operate` (Proprietário, Gerente, Funcionário) e `pos.manage`.
+- **Regras:** preço sempre do cadastro; venda idempotente (internet instável não duplica); dinheiro entra na hora no
+  caixa (receita de vendas, competência do dia); cartão/Pix entram na consolidação diária como contas a receber;
+  estoque baixa pelas regras de produto/categoria ou pelos locais do caixa (sem saldo: venda concluída e pendência
+  aberta). As vendas do caixa entram nos relatórios de vendas, no dashboard e no CMV/DRE.
+- **Fiscal:** não há emissão de NFC-e nesta etapa (cupom identificado como não fiscal); estrutura pronta para integrar.
+
