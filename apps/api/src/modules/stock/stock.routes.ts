@@ -84,6 +84,8 @@ export async function stockRoutes(app: FastifyInstance) {
           quantity: decimalSchema(3, 'Quantidade inválida.'),
           unitCost: z.string().regex(/^\d{1,10}(\.\d{1,4})?$/, 'Custo inválido.'),
           category: z.string().trim().max(60).nullable(),
+          pdfQuantity: z.string().max(20).optional(),
+          pdfUnitCost: z.string().max(20).optional(),
         })).min(1).max(500),
       }),
       req.body,

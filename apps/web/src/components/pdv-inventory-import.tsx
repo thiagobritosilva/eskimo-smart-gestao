@@ -17,7 +17,7 @@ interface Preview {
   unparsed: string[]; alreadyImported: string | null; defaultLocationId: string | null;
 }
 interface Result { productsCreated: number; linked: number; lines: number; quantity: number; value: number; skipped: string[]; movementNumber: string }
-type Row = Item & { include: boolean; costText: string };
+type Row = Item & { include: boolean; costText: string; qtyText: string };
 
 const CATEGORIES = ['Picolés', 'Potes de sorvete', 'Sobremesas, copinhos e cones', 'Açaí', 'Coberturas, caldas e casquinhas', 'Bebidas', 'Balas e doces', 'Descartáveis e utensílios'];
 const ACTION: Record<Item['action'], [string, string]> = {
@@ -48,14 +48,14 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
     onSuccess: (p) => {
       setPreview(p);
       setLocationId(p.defaultLocationId ?? '');
-      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '' })));
+      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '', qtyText: fromDecimal(i.quantity) })));
     },
   });
   const commit = useMutation({
     mutationFn: () => api.post<Result>('/stock/pdv-inventory/import', {
       number: preview!.number, date: preview!.date, locationId,
       items: rows.filter((r) => r.include).map((r) => ({
-        code: r.code, description: r.description, unit: r.unit, quantity: r.quantity, unitCost: toDecimal(r.costText) || '0', category: r.category || null,
+        code: r.code, description: r.description, unit: r.unit, quantity: toDecimal(r.qtyText) || '0', unitCost: toDecimal(r.costText) || '0', category: r.category || null, pdfQuantity: r.quantity, pdfUnitCost: r.unitCost,
       })),
     }),
     onSuccess: (r) => { setResult(r); invalidateStock(qc); void qc.invalidateQueries({ queryKey: ['products'] }); },
@@ -64,7 +64,7 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
   const selected = rows.filter((r) => r.include);
   const missingCost = selected.filter((r) => !(Number(toDecimal(r.costText)) > 0));
   const totals = useMemo(() => {
-    const t = selected.reduce((a, r) => ({ q: a.q + Math.round(Number(r.quantity) * 1000), c: a.c + Math.round(Number(r.quantity) * (Number(toDecimal(r.costText)) || 0) * 100) }), { q: 0, c: 0 });
+    const t = selected.reduce((a, r) => { const q = Number(toDecimal(r.qtyText)) || 0; return { q: a.q + Math.round(q * 1000), c: a.c + Math.round(q * (Number(toDecimal(r.costText)) || 0) * 100) }; }, { q: 0, c: 0 });
     return { q: t.q / 1000, v: t.c / 100 };
   }, [selected]);
   const shown = filter === 'avisos' ? rows.filter((r) => r.warnings.length || r.action !== 'criar_e_lancar') : rows;
@@ -141,10 +141,13 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
                   {r.warnings.map((w) => <div key={w} className="mt-1 flex gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3 shrink-0 translate-y-0.5" />{w}</div>)}
                 </td>
                 <td className="px-2 py-1.5"><input className="input w-48 py-1" list="pdv-cats" disabled={!!r.existingName} value={r.category ?? ''} placeholder="sem categoria" onChange={(e) => upd(r.code, { category: e.target.value || null })} /></td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{formatQty(r.quantity)}</td>
+                <td className="px-2 py-1.5 text-right">
+                  <input className={clsx('input w-24 py-1 text-right', Number(toDecimal(r.qtyText)) !== Number(r.quantity) && 'border-amber-400 bg-amber-50')} inputMode="decimal" value={r.qtyText} onChange={(e) => upd(r.code, { qtyText: e.target.value })} />
+                  {Number(toDecimal(r.qtyText)) !== Number(r.quantity) && <div className="mt-0.5 text-[11px] text-amber-700">PDF: {formatQty(r.quantity)}</div>}
+                </td>
                 <td className="px-2 py-1.5 text-right"><input className={clsx('input w-24 py-1 text-right', r.include && !(Number(toDecimal(r.costText)) > 0) && 'border-red-400')} inputMode="decimal" value={r.costText} placeholder="informe"
                   onChange={(e) => upd(r.code, { costText: e.target.value, include: r.action === 'sem_custo' && Number(toDecimal(e.target.value)) > 0 ? true : r.include })} /></td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{formatMoney((Number(r.quantity) * (Number(toDecimal(r.costText)) || 0)).toFixed(2))}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{formatMoney(((Number(toDecimal(r.qtyText)) || 0) * (Number(toDecimal(r.costText)) || 0)).toFixed(2))}</td>
                 <td className="px-2 py-1.5"><span className={clsx('badge whitespace-nowrap', ACTION[r.action][1])}>{ACTION[r.action][0]}</span></td>
               </tr>
             ))}
@@ -152,6 +155,7 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
         </table>
       </div>
       <p className="text-xs text-slate-500">
+        Quantidade e custo podem ser corrigidos antes de lançar (o valor do PDF fica indicado ao lado e a alteração fica registrada na auditoria).
         Os produtos novos recebem o <strong>código do PDV</strong> como código interno (e ficam vinculados ao PDV para as vendas). O <strong>preço de venda</strong> não vem no PDF
         e deve ser cadastrado depois. Itens sem custo só entram se você informar o custo.
       </p>

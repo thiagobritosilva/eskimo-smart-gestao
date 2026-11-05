@@ -85,7 +85,7 @@ export async function previewPdvInventory(file: { name: string; base64: string }
   };
 }
 
-export interface CommitItem { code: string; description: string; unit: string; quantity: string; unitCost: string; category: string | null }
+export interface CommitItem { code: string; description: string; unit: string; quantity: string; unitCost: string; category: string | null; pdfQuantity?: string; pdfUnitCost?: string }
 
 export async function commitPdvInventory(actor: Actor, input: { number: string; date: string; locationId: string; items: CommitItem[] }) {
   for (const p of ['products.manage', 'stock.adjust']) if (!actor.permissions.includes(p)) throw Errors.forbidden();
@@ -157,7 +157,13 @@ export async function commitPdvInventory(actor: Actor, input: { number: string; 
     result.value = Math.round(result.value * 100) / 100;
     await writeAudit(db, actor.audit, {
       action: 'stock.pdv_inventory_imported', entity: 'stock_movement', entityId: mv.id,
-      metadata: { inventory: input.number, date: input.date, items: lines.length, productsCreated: result.productsCreated, skipped: result.skipped },
+      metadata: {
+        inventory: input.number, date: input.date, items: lines.length, productsCreated: result.productsCreated, skipped: result.skipped,
+        // correções feitas na prévia em relação ao que estava impresso no PDF
+        corrections: input.items
+          .filter((i) => (i.pdfQuantity != null && Number(i.pdfQuantity) !== Number(i.quantity)) || (i.pdfUnitCost != null && Number(i.pdfUnitCost) !== Number(i.unitCost)))
+          .map((i) => ({ code: i.code, description: i.description, pdf: { quantity: i.pdfQuantity, unitCost: i.pdfUnitCost }, lancado: { quantity: i.quantity, unitCost: i.unitCost } })),
+      },
     });
     return result;
   });
