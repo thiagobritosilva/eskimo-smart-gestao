@@ -149,4 +149,7 @@ com impacto e estratégia de preservação de dados.
   Idempotente por nº + data do inventário. Produto que já tem estoque não é alterado. Item sem custo só entra com custo
   informado. Preço de venda não vem no PDF (fica para cadastro).
 - **Dependência nova:** `pdfjs-dist` (leitura de texto do PDF, no servidor).
+- **Complemento (05/11):** na prévia, regra por categoria "o valor do PDF é preço de venda; custo = preço − X%"
+  (ex.: Picolés −42%), que também grava o preço de venda; quantidade, custo e preço editáveis por item
+  (quantidade no formato brasileiro). A auditoria registra a regra e cada valor alterado em relação ao PDF.
 

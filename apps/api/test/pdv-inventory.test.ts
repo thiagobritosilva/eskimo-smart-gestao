@@ -55,13 +55,15 @@ describe('carga inicial pelo PDF de inventário do PDV', () => {
   it('importação: cria produtos, lança estoque inicial no central com o custo do PDF e não repete', async () => {
     // o usuário corrige a quantidade do item 2 na prévia (PDF: 13; real: 12)
     const items = preview.items.map(({ code, description, unit, quantity, unitCost, category }) => ({
-      code, description, unit, quantity: code === c(2) ? '12' : quantity, unitCost, category, pdfQuantity: quantity, pdfUnitCost: unitCost,
+      code, description, unit, quantity: code === c(2) ? '12' : quantity, category, pdfQuantity: quantity, pdfUnitCost: unitCost,
+      // picolés: valor do PDF é preço de venda; custo = preço − 42%
+      ...(category === 'Picolés' ? { unitCost: (Math.round(Number(unitCost) * 0.58 * 10000) / 10000).toFixed(4), salePrice: Number(unitCost).toFixed(2) } : { unitCost }),
     }));
-    const body = { number: preview.number, date: preview.date, locationId: preview.defaultLocationId, items };
+    const body = { number: preview.number, date: preview.date, locationId: preview.defaultLocationId, items, costRule: { percent: '42', categories: ['Picolés'] } };
     expect((await post(gerente.cookie, '/api/stock/pdv-inventory/import', body)).statusCode).toBe(403);
     const r = await post(owner.cookie, '/api/stock/pdv-inventory/import', body);
     expect(r.statusCode, r.body).toBe(200);
-    expect(r.json()).toMatchObject({ productsCreated: 3, lines: 3, quantity: 1354, value: 3027.65 });
+    expect(r.json()).toMatchObject({ productsCreated: 3, lines: 3, quantity: 1354, value: 1901.21 }); // 1341×1,16 + 12×28 + 9,65
     expect(r.json().skipped).toEqual([`${c(3)} - REFRIGERANTE SEM CUSTO (sem custo)`]);
 
     const { rows } = await getPool().query(
@@ -71,12 +73,18 @@ describe('carga inicial pelo PDF de inventário do PDV', () => {
       [[c(1), c(2), c(4)]],
     );
     expect(rows).toEqual([
-      { internal_code: c(1), avg_cost: '2.0000', categoria: 'Picolés', qtd: '1341.000', kind: 'central' },
+      { internal_code: c(1), avg_cost: '1.1600', categoria: 'Picolés', qtd: '1341.000', kind: 'central' },
       { internal_code: c(2), avg_cost: '28.0000', categoria: 'Potes de sorvete', qtd: '12.000', kind: 'central' },
       { internal_code: c(4), avg_cost: '9.6500', categoria: 'Bebidas', qtd: '1.000', kind: 'central' },
     ]);
+    const price = await getPool().query('SELECT sale_price::text FROM products WHERE internal_code = $1', [c(1)]);
+    expect(price.rows[0].sale_price).toBe('2.00');
     const audit = await getPool().query(`SELECT metadata FROM audit_log WHERE action = 'stock.pdv_inventory_imported' AND user_id = $1 ORDER BY id DESC LIMIT 1`, [owner.id]);
-    expect(audit.rows[0].metadata.corrections).toEqual([{ code: c(2), description: 'POTE SORVETE 2L - TESTE', pdf: { quantity: '13.000', unitCost: '28.000' }, lancado: { quantity: '12', unitCost: '28.000' } }]);
+    expect(audit.rows[0].metadata.costRule).toEqual({ percent: '42', categories: ['Picolés'] });
+    expect(audit.rows[0].metadata.corrections).toEqual([
+      { code: c(1), description: 'PICOLE FRUTA TESTE', pdf: { quantity: '1341.000', unitCost: '2.000' }, lancado: { quantity: '1341.000', unitCost: '1.1600', salePrice: '2.00' } },
+      { code: c(2), description: 'POTE SORVETE 2L - TESTE', pdf: { quantity: '13.000', unitCost: '28.000' }, lancado: { quantity: '12', unitCost: '28.000', salePrice: null } },
+    ]);
     const link = await getPool().query('SELECT count(*)::int AS n FROM product_external_codes WHERE external_code = ANY($1)', [[c(1), c(2), c(4)]]);
     expect(link.rows[0].n).toBe(3);
 

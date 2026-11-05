@@ -85,9 +85,14 @@ export async function previewPdvInventory(file: { name: string; base64: string }
   };
 }
 
-export interface CommitItem { code: string; description: string; unit: string; quantity: string; unitCost: string; category: string | null; pdfQuantity?: string; pdfUnitCost?: string }
+export interface CommitItem {
+  code: string; description: string; unit: string; quantity: string; unitCost: string; category: string | null;
+  /** preço de venda (quando o valor do PDF é preço de venda e o custo foi calculado com desconto) */
+  salePrice?: string | null;
+  pdfQuantity?: string; pdfUnitCost?: string;
+}
 
-export async function commitPdvInventory(actor: Actor, input: { number: string; date: string; locationId: string; items: CommitItem[] }) {
+export async function commitPdvInventory(actor: Actor, input: { number: string; date: string; locationId: string; items: CommitItem[]; costRule?: { percent: string; categories: string[] } | null }) {
   for (const p of ['products.manage', 'stock.adjust']) if (!actor.permissions.includes(p)) throw Errors.forbidden();
   return withTransaction(async (db) => {
     const idem = key(input.number, input.date);
@@ -121,7 +126,7 @@ export async function commitPdvInventory(actor: Actor, input: { number: string; 
       if (!p) {
         const created = await insertProduct(db, {
           internalCode: it.code, name: it.description.trim(), unitCode: units.has(it.unit) ? it.unit : 'UN',
-          categoryId: await categoryId(it.category), costPrice: it.unitCost,
+          categoryId: await categoryId(it.category), costPrice: it.unitCost, salePrice: it.salePrice ?? null,
         }, actor.userId, actor.audit);
         p = { id: (created as { id: string }).id, stock: '0' };
         result.productsCreated++;
@@ -159,10 +164,12 @@ export async function commitPdvInventory(actor: Actor, input: { number: string; 
       action: 'stock.pdv_inventory_imported', entity: 'stock_movement', entityId: mv.id,
       metadata: {
         inventory: input.number, date: input.date, items: lines.length, productsCreated: result.productsCreated, skipped: result.skipped,
+        // regra informada na prévia: valor do PDF = preço de venda; custo = preço − X% (por categoria)
+        costRule: input.costRule ?? null,
         // correções feitas na prévia em relação ao que estava impresso no PDF
         corrections: input.items
           .filter((i) => (i.pdfQuantity != null && Number(i.pdfQuantity) !== Number(i.quantity)) || (i.pdfUnitCost != null && Number(i.pdfUnitCost) !== Number(i.unitCost)))
-          .map((i) => ({ code: i.code, description: i.description, pdf: { quantity: i.pdfQuantity, unitCost: i.pdfUnitCost }, lancado: { quantity: i.quantity, unitCost: i.unitCost } })),
+          .map((i) => ({ code: i.code, description: i.description, pdf: { quantity: i.pdfQuantity, unitCost: i.pdfUnitCost }, lancado: { quantity: i.quantity, unitCost: i.unitCost, salePrice: i.salePrice ?? null } })),
       },
     });
     return result;

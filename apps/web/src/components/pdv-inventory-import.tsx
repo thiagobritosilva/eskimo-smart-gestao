@@ -17,7 +17,7 @@ interface Preview {
   unparsed: string[]; alreadyImported: string | null; defaultLocationId: string | null;
 }
 interface Result { productsCreated: number; linked: number; lines: number; quantity: number; value: number; skipped: string[]; movementNumber: string }
-type Row = Item & { include: boolean; costText: string; qtyText: string };
+type Row = Item & { include: boolean; costText: string; qtyText: string; priceText: string };
 
 const CATEGORIES = ['Picolés', 'Potes de sorvete', 'Sobremesas, copinhos e cones', 'Açaí', 'Coberturas, caldas e casquinhas', 'Bebidas', 'Balas e doces', 'Descartáveis e utensílios'];
 const ACTION: Record<Item['action'], [string, string]> = {
@@ -51,20 +51,40 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
   const [locationId, setLocationId] = useState('');
   const [result, setResult] = useState<Result | null>(null);
   const [filter, setFilter] = useState<'todos' | 'avisos'>('todos');
+  // regra: o valor do PDF é PREÇO DE VENDA nestas categorias; custo = preço − X%
+  const [rule, setRule] = useState<{ percent: string; categories: string[] } | null>(null);
+  const [ruleForm, setRuleForm] = useState<{ percent: string; categories: string[] }>({ percent: '', categories: [] });
+  const ruleCats = useMemo(() => [...new Set(rows.map((r) => r.category).filter(Boolean) as string[])].sort(), [rows]);
+  const applyRule = () => {
+    const p = Number(ruleForm.percent.replace(',', '.'));
+    if (!(p > 0 && p < 100) || !ruleForm.categories.length) return;
+    setRows((rs) => rs.map((r) => {
+      if (!r.category || !ruleForm.categories.includes(r.category) || !(Number(r.unitCost) > 0)) return r;
+      const cost = Math.round(Number(r.unitCost) * (1 - p / 100) * 10000) / 10000;
+      return { ...r, costText: fromDecimal(String(cost)), priceText: fromDecimal(Number(r.unitCost).toFixed(2)) };
+    }));
+    setRule({ percent: String(p), categories: ruleForm.categories });
+  };
+  const removeRule = () => {
+    setRows((rs) => rs.map((r) => (r.category && rule?.categories.includes(r.category) ? { ...r, costText: Number(r.unitCost) > 0 ? fromDecimal(r.unitCost) : '', priceText: '' } : r)));
+    setRule(null);
+  };
 
   const load = useMutation({
     mutationFn: async (f: File) => api.post<Preview>('/stock/pdv-inventory/preview', { fileName: f.name, base64: await toBase64(f) }),
     onSuccess: (p) => {
       setPreview(p);
       setLocationId(p.defaultLocationId ?? '');
-      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '', qtyText: formatQty(i.quantity) })));
+      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '', qtyText: formatQty(i.quantity), priceText: '' })));
+      setRule(null);
     },
   });
   const commit = useMutation({
     mutationFn: () => api.post<Result>('/stock/pdv-inventory/import', {
       number: preview!.number, date: preview!.date, locationId,
+      costRule: rule,
       items: rows.filter((r) => r.include).map((r) => ({
-        code: r.code, description: r.description, unit: r.unit, quantity: parseQtyBR(r.qtyText) || '0', unitCost: toDecimal(r.costText) || '0', category: r.category || null, pdfQuantity: r.quantity, pdfUnitCost: r.unitCost,
+        code: r.code, description: r.description, unit: r.unit, quantity: parseQtyBR(r.qtyText) || '0', unitCost: toDecimal(r.costText) || '0', category: r.category || null, salePrice: r.priceText.trim() ? (Number(toDecimal(r.priceText)) || 0).toFixed(2) : null, pdfQuantity: r.quantity, pdfUnitCost: r.unitCost,
       })),
     }),
     onSuccess: (r) => { setResult(r); invalidateStock(qc); void qc.invalidateQueries({ queryKey: ['products'] }); },
@@ -125,6 +145,26 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
           </select>
         </Field>
       </div>
+      <div className="rounded-lg border border-slate-200 p-3">
+        <div className="text-sm font-medium text-ink-900">O valor do PDF é o <strong>preço de venda</strong> em alguma categoria?</div>
+        <div className="mt-0.5 text-xs text-slate-500">Marque as categorias e informe quanto descontar do preço para chegar ao custo. O preço de venda do PDF também fica cadastrado no produto.</div>
+        {rule ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            <span className="badge bg-emerald-100 text-emerald-800">Aplicada: custo = preço − {rule.percent.replace('.', ',')}% em {rule.categories.join(', ')}</span>
+            <button className="btn-ghost px-2 py-1 text-xs" onClick={removeRule}>Remover regra</button>
+          </div>
+        ) : (
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+            {ruleCats.map((c) => (
+              <label key={c} className="flex items-center gap-1.5">
+                <input type="checkbox" checked={ruleForm.categories.includes(c)} onChange={(e) => setRuleForm((f) => ({ ...f, categories: e.target.checked ? [...f.categories, c] : f.categories.filter((x) => x !== c) }))} /> {c}
+              </label>
+            ))}
+            <span className="flex items-center gap-1">custo = preço −<input className="input w-16 py-1 text-right" inputMode="decimal" placeholder="%" value={ruleForm.percent} onChange={(e) => setRuleForm((f) => ({ ...f, percent: e.target.value }))} />%</span>
+            <button className="btn-secondary py-1 text-xs" disabled={!ruleForm.categories.length || !(Number(ruleForm.percent.replace(',', '.')) > 0)} onClick={applyRule}>Aplicar</button>
+          </div>
+        )}
+      </div>
       {preview.alreadyImported && <Alert kind="warning">Este inventário já foi importado (movimentação nº {preview.alreadyImported}). Uma nova importação será recusada para não duplicar o estoque.</Alert>}
       {preview.unparsed.length > 0 && <Alert kind="warning">{preview.unparsed.length} linha(s) parecem itens mas não foram reconhecidas: {preview.unparsed.slice(0, 3).join(' | ')}</Alert>}
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -138,7 +178,7 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
         <table className="min-w-full text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50"><tr className="text-left text-xs uppercase text-slate-500">
             <th className="px-2 py-2" /><th className="px-2 py-2">Código</th><th className="px-2 py-2">Descrição</th><th className="px-2 py-2">Categoria</th>
-            <th className="px-2 py-2 text-right">Qtd.</th><th className="px-2 py-2 text-right">Custo un. (R$)</th><th className="px-2 py-2 text-right">Total</th><th className="px-2 py-2">Ação</th>
+            <th className="px-2 py-2 text-right">Qtd.</th><th className="px-2 py-2 text-right">Custo un. (R$)</th><th className="px-2 py-2 text-right">Preço venda</th><th className="px-2 py-2 text-right">Total</th><th className="px-2 py-2">Ação</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
             {shown.map((r) => (
@@ -156,6 +196,9 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
                 </td>
                 <td className="px-2 py-1.5 text-right"><input className={clsx('input w-24 py-1 text-right', r.include && !(Number(toDecimal(r.costText)) > 0) && 'border-red-400')} inputMode="decimal" value={r.costText} placeholder="informe"
                   onChange={(e) => upd(r.code, { costText: e.target.value, include: r.action === 'sem_custo' && Number(toDecimal(e.target.value)) > 0 ? true : r.include })} /></td>
+                <td className="px-2 py-1.5 text-right">
+                  <input className="input w-24 py-1 text-right" inputMode="decimal" placeholder="—" value={r.priceText} onChange={(e) => upd(r.code, { priceText: e.target.value })} />
+                </td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{formatMoney(((Number(parseQtyBR(r.qtyText)) || 0) * (Number(toDecimal(r.costText)) || 0)).toFixed(2))}</td>
                 <td className="px-2 py-1.5"><span className={clsx('badge whitespace-nowrap', ACTION[r.action][1])}>{ACTION[r.action][0]}</span></td>
               </tr>
@@ -165,8 +208,8 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
       </div>
       <p className="text-xs text-slate-500">
         Quantidade e custo podem ser corrigidos antes de lançar (o valor do PDF fica indicado ao lado e a alteração fica registrada na auditoria).
-        Os produtos novos recebem o <strong>código do PDV</strong> como código interno (e ficam vinculados ao PDV para as vendas). O <strong>preço de venda</strong> não vem no PDF
-        e deve ser cadastrado depois. Itens sem custo só entram se você informar o custo.
+        Os produtos novos recebem o <strong>código do PDV</strong> como código interno (e ficam vinculados ao PDV para as vendas). O <strong>preço de venda</strong> é gravado
+        quando informado (ou pela regra acima); os demais ficam para cadastrar em Produtos. Itens sem custo só entram se você informar o custo.
       </p>
       {missingCost.length > 0 && <Alert kind="warning">{missingCost.length} item(ns) marcado(s) sem custo serão deixados de fora. Informe o custo ou desmarque.</Alert>}
       {commit.error && <Alert>{errorMessage(commit.error)}</Alert>}
