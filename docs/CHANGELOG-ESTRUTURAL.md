@@ -185,3 +185,15 @@ com impacto e estratégia de preservação de dados.
   dados da empresa para o recibo em Configurações (IE, IM, endereço, telefone, mensagem do rodapé).
 - **Caixa:** cliente (F10) e consulta de preço (F3), como no caixa anterior da loja.
 
+
+## 0014_socios — Financeiro › Sócios (2026-11-05)
+- **O quê:** tabelas `partners` (sócios, participação opcional em %) e `partner_entries` (lançamentos
+  `aporte` = investimento/gasto do sócio pela empresa; `acerto` = pagamento de um sócio a outro).
+- **Regra:** saldo do sócio = aportes − (total investido × % do sócio) + acertos pagos − acertos recebidos.
+  Sem % definidos = partes iguais (50-50 com dois sócios). Negativo = quanto deve; o sistema sugere o acerto.
+- **Acesso:** exclusivo do perfil Proprietário (API por perfil — não liberável por permissão; aba oculta para os demais).
+- **Dados estruturais:** nenhum sócio ou valor pré-cadastrado.
+- **Impacto:** somente tabelas novas; nada existente alterado. Sem perda de dados.
+- **Garantias:** lançamentos imutáveis (trigger) — só o cancelamento com motivo é permitido, uma vez; sem DELETE
+  em sócios e lançamentos; idempotência por chave única; tudo auditado (`partners.*`); sócio com lançamentos
+  ativos não pode ser desativado.

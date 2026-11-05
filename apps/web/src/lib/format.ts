@@ -45,6 +45,12 @@ export const ACTION_LABELS: Record<string, string> = {
   'user.permissions_changed': 'Permissões alteradas',
   'user.owner_bootstrap': 'Proprietário inicial criado',
   'settings.updated': 'Configuração alterada',
+  'partners.partner_created': 'Sócio cadastrado',
+  'partners.partner_updated': 'Sócio alterado',
+  'partners.shares_updated': 'Participação dos sócios alterada',
+  'partners.aporte': 'Investimento de sócio',
+  'partners.acerto': 'Acerto entre sócios',
+  'partners.entry_cancelled': 'Lançamento de sócio cancelado',
 };
 
 export function formatQty(v: string | number | null | undefined, unit?: string): string {

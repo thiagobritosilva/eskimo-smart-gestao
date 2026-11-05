@@ -14,11 +14,12 @@ import {
 import { SettleForm, TitleDetailView, TitleForm, TransferForm } from '../components/finance';
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
 import { RecurringTab } from '../components/recurring';
+import { PartnersTab } from '../components/partners';
 
-type Tab = 'geral' | 'pagar' | 'receber' | 'fixas' | 'caixa' | 'extrato' | 'fluxo' | 'dre' | 'config';
+type Tab = 'geral' | 'pagar' | 'receber' | 'fixas' | 'caixa' | 'extrato' | 'fluxo' | 'dre' | 'socios' | 'config';
 const TABS: [Tab, string][] = [
   ['geral', 'Visão geral'], ['pagar', 'Contas a pagar'], ['receber', 'Contas a receber'], ['fixas', 'Despesas fixas'], ['caixa', 'Caixa'],
-  ['extrato', 'Extrato'], ['fluxo', 'Fluxo de caixa'], ['dre', 'DRE gerencial'], ['config', 'Configurações'],
+  ['extrato', 'Extrato'], ['fluxo', 'Fluxo de caixa'], ['dre', 'DRE gerencial'], ['socios', 'Sócios'], ['config', 'Configurações'],
 ];
 
 const signedMoney = (v: string | number) => formatMoney(v);
@@ -693,11 +694,13 @@ export function FinancePage() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get('aba') as Tab) || 'geral';
   const go = (t: Tab) => setParams({ aba: t });
+  const isOwner = useIsOwner();
+  const tabs = TABS.filter(([k]) => k !== 'socios' || isOwner); // aba Sócios: somente Proprietário
   return (
     <>
       <PageHeader title="Financeiro" subtitle="Competência para o resultado (DRE), caixa para os saldos. Todo lançamento é auditado e corrigido apenas por estorno." />
       <div className="mb-5 flex gap-1 overflow-x-auto border-b border-slate-200">
-        {TABS.map(([k, label]) => (
+        {tabs.map(([k, label]) => (
           <button key={k} onClick={() => go(k)} className={clsx('-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium', tab === k ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700')}>{label}</button>
         ))}
       </div>
@@ -709,6 +712,7 @@ export function FinancePage() {
       {tab === 'extrato' && <Statement />}
       {tab === 'fluxo' && <CashFlow />}
       {tab === 'dre' && <Dre />}
+      {tab === 'socios' && isOwner && <PartnersTab />}
       {tab === 'config' && <Config />}
     </>
   );
