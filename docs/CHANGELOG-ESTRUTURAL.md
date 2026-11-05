@@ -126,4 +126,7 @@ com impacto e estratégia de preservação de dados.
 - **Importação:** sem nenhuma conta cadastrada, a conta da coluna BANCO da planilha é criada automaticamente
   (sem saldo) para registrar os pagamentos; havendo uma conta só, ela é usada automaticamente.
 - **Telas:** conta única já vem selecionada nos pagamentos; "não informado" e "só movimentação" sinalizados.
+- **Complemento (sem mudança estrutural):** pagar/receber sem escolher conta — com uma conta ativa, usa ela; sem
+  nenhuma, cria a "Conta principal" sem saldo inicial (auditado). Conta sem saldo inicial não bloqueia datas
+  anteriores; ao informar o saldo depois, a data dele deve ser até a primeira movimentação.
 

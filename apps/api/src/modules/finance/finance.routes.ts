@@ -110,7 +110,7 @@ export async function financeRoutes(app: FastifyInstance) {
         idempotencyKey: z.string().min(8).max(100),
         installments: z.array(z.object({ dueDate: date, amount: money })).min(1).max(120).optional(),
         plan: z.object({ count: z.number().int().min(1).max(120), firstDueDate: date, intervalDays: z.number().int().min(1).max(365).nullable().optional() }).optional(),
-        settleNow: z.object({ accountId: uuidSchema, occurredAt: z.string().datetime({ offset: true }).nullable().optional() }).nullable().optional(),
+        settleNow: z.object({ accountId: uuidSchema.nullable().optional(), occurredAt: z.string().datetime({ offset: true }).nullable().optional() }).nullable().optional(),
       }),
       req.body,
     );
@@ -144,7 +144,7 @@ export async function financeRoutes(app: FastifyInstance) {
     const { id } = parse(idParams, req.params);
     const body = parse(
       z.object({
-        accountId: uuidSchema,
+        accountId: uuidSchema.nullable().optional(),
         occurredAt: z.string().datetime({ offset: true }).nullable().optional(),
         principal: money,
         interest: optMoney,

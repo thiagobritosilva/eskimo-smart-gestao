@@ -24,9 +24,18 @@ export function AccountSelect({ value, onChange, accounts, label = 'Conta', filt
   useEffect(() => {
     if (!value && options.length === 1) onChange(options[0]!.id);
   }, [value, options.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (options.length === 0) {
+    return (
+      <Field label={label}>
+        <div className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600">
+          <strong>Conta principal</strong> — será criada automaticamente, sem saldo inicial (pode ser informado depois em Configurações).
+        </div>
+      </Field>
+    );
+  }
   return (
     <Field label={label}>
-      <select className="input" required value={value} onChange={(e) => onChange(e.target.value)}>
+      <select className="input" required={options.length > 1} value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Selecione…</option>
         {options.map((a) => (
           <option key={a.id} value={a.id}>{a.name} ({ACCOUNT_KIND[a.kind]}){a.opening_known ? ` — saldo ${formatMoney(a.balance)}` : ''}</option>
@@ -75,7 +84,7 @@ export function TitleForm({ direction, onDone }: { direction: 'pagar' | 'receber
         paymentMethodCode: f.paymentMethodCode || null, competenceDate: f.competenceDate, totalAmount: money2(f.totalAmount),
         notes: f.notes || null,
         plan: { count: Number(f.count), firstDueDate: f.firstDueDate, intervalDays: f.intervalDays ? Number(f.intervalDays) : null },
-        settleNow: paidNow ? { accountId } : null,
+        settleNow: paidNow ? { accountId: accountId || null } : null,
       }),
     onSuccess: () => { invalidateFinance(qc); onDone(); },
   });
@@ -155,7 +164,7 @@ export function SettleForm({ inst, onDone }: { inst: InstallmentRow; onDone: () 
   const cash = n(f.principal) + n(f.interest) - n(f.discount) - n(f.fee);
   const m = useMutation({
     mutationFn: () => api.post(`/finance/installments/${inst.id}/settle`, {
-      accountId: f.accountId, idempotencyKey, occurredAt: localToIso(f.occurredAt),
+      accountId: f.accountId || null, idempotencyKey, occurredAt: localToIso(f.occurredAt),
       principal: money2(f.principal), interest: money2(f.interest) || null, discount: money2(f.discount) || null,
       fee: inst.direction === 'receber' ? money2(f.fee) || null : null,
     }),

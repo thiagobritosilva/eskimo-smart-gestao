@@ -39,7 +39,7 @@ function Overview({ go }: { go: (t: Tab) => void }) {
   return (
     <div className="space-y-6">
       {!active.length && (
-        <Alert kind="info">Nenhuma conta cadastrada. Comece em <button className="font-semibold underline" onClick={() => go('config')}>Configurações</button>: cadastre o caixa da loja e as contas bancárias com o saldo real na data de início.</Alert>
+        <Alert kind="info">Nenhuma conta cadastrada — <strong>não é obrigatório</strong>. Ao registrar o primeiro pagamento, a <strong>Conta principal</strong> é criada sozinha, sem saldo inicial. Se quiser, informe o saldo depois em <button className="font-semibold underline" onClick={() => go('config')}>Configurações</button>.</Alert>
       )}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi icon={<Wallet className="h-5 w-5" />} label="Saldo em caixa" value={active.some((a) => a.kind === 'caixa') ? formatMoney(sum(['caixa'])) : '—'} />

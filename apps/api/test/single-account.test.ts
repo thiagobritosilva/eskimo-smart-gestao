@@ -69,4 +69,29 @@ describe('conta única sem saldo inicial', () => {
       await getPool().query('UPDATE financial_accounts SET is_active = true WHERE id = ANY($1)', [actives.map((r) => r.id)]);
     }
   });
+
+  it('pagar sem escolher conta: sem nenhuma conta cria a "Conta principal"; com uma só, usa ela', async () => {
+    const { rows: actives } = await getPool().query<{ id: string }>('SELECT id FROM financial_accounts WHERE is_active');
+    await getPool().query('UPDATE financial_accounts SET is_active = false WHERE id = ANY($1)', [actives.map((r) => r.id)]);
+    try {
+      const pay = async (desc: string, day: string) => {
+        const t = await call({ method: 'POST', url: '/api/finance/titles', payload: { idempotencyKey: randomUUID(), direction: 'pagar', description: `${desc} ${tag}`, categoryId: cat['Água'], competenceDate: day, totalAmount: '80.00', plan: { count: 1, firstDueDate: day } } });
+        expect(t.statusCode, t.body).toBe(201);
+        const inst = (await call({ method: 'GET', url: `/api/finance/titles/${t.json().id}` })).json().installments[0];
+        return call({ method: 'POST', url: `/api/finance/installments/${inst.id}/settle`, payload: { idempotencyKey: randomUUID(), principal: '80.00', occurredAt: `${day}T12:00:00-03:00` } });
+      };
+      const a = await pay('Conta de água', '2025-07-10');
+      expect(a.statusCode, a.body).toBe(201);
+      const acc = (await getPool().query(`SELECT id, opening_balance, is_active FROM financial_accounts WHERE name = 'Conta principal'`)).rows[0];
+      expect(acc).toMatchObject({ opening_balance: null, is_active: true });
+      // segundo pagamento, com data ANTERIOR ao primeiro: aceito (sem saldo inicial não há data de abertura a proteger)
+      const b = await pay('Conta de água junho', '2025-06-10');
+      expect(b.statusCode, b.body).toBe(201);
+      const n = await getPool().query(`SELECT count(*)::int AS n FROM financial_transactions WHERE account_id = $1`, [acc.id]);
+      expect(n.rows[0].n).toBe(2);
+      await getPool().query('UPDATE financial_accounts SET is_active = false WHERE id = $1', [acc.id]);
+    } finally {
+      await getPool().query('UPDATE financial_accounts SET is_active = true WHERE id = ANY($1)', [actives.map((r) => r.id)]);
+    }
+  });
 });

@@ -82,7 +82,15 @@ export async function updateAccount(actor: Actor, id: string, input: Partial<Acc
     if (!before) throw Errors.notFound('Conta não encontrada.');
     if (input.kind && input.kind !== before.kind) throw Errors.businessRule('O tipo da conta não pode ser alterado.');
     // informar o saldo inicial que estava "não informado" é completar o dado (permitido); trocar um saldo já informado, não
-    const completingOpening = before.opening_balance == null && input.openingBalance != null && input.openingDate === undefined;
+    const completingOpening = before.opening_balance == null && input.openingBalance != null;
+    if (completingOpening && input.openingDate) {
+      const first = (await db.query<{ d: string | null }>(
+        `SELECT min((occurred_at AT TIME ZONE 'America/Sao_Paulo')::date)::text AS d FROM financial_transactions WHERE account_id = $1`, [id],
+      )).rows[0]!.d;
+      if (first && input.openingDate > first) {
+        throw Errors.businessRule(`A data do saldo inicial deve ser até ${first.split('-').reverse().join('/')} (primeira movimentação registrada).`);
+      }
+    }
     if ((input.openingBalance !== undefined || input.openingDate !== undefined) && before.tx > 0 && !completingOpening) {
       const sameBal = input.openingBalance === undefined
         || (input.openingBalance == null ? before.opening_balance == null : before.opening_balance != null && toCents(input.openingBalance) === toCents(before.opening_balance));
@@ -131,13 +139,45 @@ async function lockAccount(db: Db, id: string): Promise<AccountRow> {
 function assertDate(account: AccountRow, occurredAt: string | null | undefined) {
   if (!account.is_active) throw Errors.businessRule(`A conta "${account.name}" está inativa.`);
   if (!occurredAt) return;
+  const unknownOpening = !account.opening_known; // sem saldo inicial não há data de abertura a proteger
   const d = new Date(occurredAt);
   if (Number.isNaN(d.getTime())) throw Errors.badRequest('Data inválida.');
   if (d.getTime() > Date.now() + 5 * 60_000) throw Errors.badRequest('A data não pode estar no futuro.');
   const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
-  if (ymd < account.opening_date) {
+  if (!unknownOpening && ymd < account.opening_date) {
     throw Errors.businessRule(`A data é anterior à abertura da conta "${account.name}" (${account.opening_date.split('-').reverse().join('/')}).`);
   }
+}
+
+/**
+ * A loja usa uma conta só e não precisa cadastrá-la antes: sem conta informada, usa a única conta ativa;
+ * se não houver nenhuma, cria a "Conta principal" SEM saldo inicial (nada é inventado; o saldo pode ser
+ * informado depois). Com mais de uma conta, é preciso escolher.
+ */
+export async function resolveAccountId(db: Db, actor: Actor, accountId: string | null | undefined, occurredAt?: string | null): Promise<string> {
+  if (accountId) return accountId;
+  await db.query('LOCK TABLE financial_accounts IN SHARE ROW EXCLUSIVE MODE');
+  const { rows } = await db.query<{ id: string }>(`SELECT id FROM financial_accounts WHERE is_active ORDER BY created_at`);
+  if (rows.length === 1) return rows[0]!.id;
+  if (rows.length > 1) throw Errors.badRequest('Escolha a conta do pagamento.');
+  const day = occurredAt
+    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(occurredAt))
+    : new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  const exists = await db.query<{ id: string }>(`SELECT id FROM financial_accounts WHERE lower(name) = 'conta principal'`);
+  if (exists.rowCount) {
+    await db.query('UPDATE financial_accounts SET is_active = true WHERE id = $1', [exists.rows[0]!.id]);
+    return exists.rows[0]!.id;
+  }
+  const { rows: created } = await db.query<{ id: string }>(
+    `INSERT INTO financial_accounts (kind, name, opening_balance, opening_date, allow_negative, created_by)
+     VALUES ('banco', 'Conta principal', NULL, $1, true, $2) RETURNING id`,
+    [day, actor.userId],
+  );
+  await writeAudit(db, actor.audit, {
+    action: 'finance.account_created', entity: 'financial_account', entityId: created[0]!.id,
+    after: { kind: 'banco', name: 'Conta principal', openingBalance: null, openingDate: day, origem: 'criada automaticamente no primeiro pagamento' },
+  });
+  return created[0]!.id;
 }
 
 function assertFunds(account: AccountRow, outCents: number) {
@@ -266,7 +306,7 @@ export interface TitleInput {
   installments?: { dueDate: string; amount: string }[];
   plan?: { count: number; firstDueDate: string; intervalDays?: number | null };
   /** Já quitado no ato (à vista). */
-  settleNow?: { accountId: string; occurredAt?: string | null } | null;
+  settleNow?: { accountId?: string | null; occurredAt?: string | null } | null;
 }
 
 async function refreshTitleStatus(db: Db, titleId: string) {
@@ -424,7 +464,8 @@ export async function cancelTitleInDb(db: Db, actor: Actor, id: string, reason: 
 // Liquidação de parcela (pagamento / recebimento)
 // =====================================================================
 export interface SettleInput {
-  accountId: string;
+  /** Opcional: com uma conta só (ou nenhuma), o sistema resolve sozinho. */
+  accountId?: string | null;
   occurredAt?: string | null;
   principal: string;
   interest?: string | null;
@@ -474,7 +515,7 @@ export async function settleInDb(db: Db, actor: Actor, installmentId: string, in
   const cash = principal + interest - discount - fee;
   if (cash <= 0) throw Errors.businessRule('O valor movimentado (principal + juros − desconto − taxa) deve ser positivo.');
 
-  const account = await lockAccount(db, input.accountId);
+  const account = await lockAccount(db, await resolveAccountId(db, actor, input.accountId, input.occurredAt));
   assertDate(account, input.occurredAt);
   const direction = inst.direction === 'receber' ? 'entrada' : 'saida';
   if (direction === 'saida') assertFunds(account, cash);
