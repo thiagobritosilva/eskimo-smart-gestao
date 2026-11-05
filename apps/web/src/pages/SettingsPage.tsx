@@ -3,7 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api';
 import { Alert, Field, PageHeader, Spinner } from '../components/ui';
 
-interface Company { tradeName: string | null; legalName: string | null; document: string | null; city: string | null }
+interface Company {
+  tradeName: string | null; legalName: string | null; document: string | null; city: string | null;
+  stateRegistration?: string | null; municipalRegistration?: string | null; address?: string | null; phone?: string | null; receiptMessage?: string | null;
+}
 interface SessionCfg { idleTimeoutMinutes: number; absoluteTimeoutHours: number }
 type Settings = { 'company.profile': Company; 'security.session': SessionCfg };
 
@@ -40,7 +43,12 @@ export function SettingsPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="CNPJ/CPF (somente números)"><input className="input" inputMode="numeric" value={company.document ?? ''} onChange={(e) => setCompany({ ...company, document: nz(e.target.value.replace(/\D/g, '')) })} /></Field>
             <Field label="Cidade"><input className="input" value={company.city ?? ''} onChange={(e) => setCompany({ ...company, city: nz(e.target.value) })} /></Field>
+            <Field label="Inscrição estadual (IE)"><input className="input" value={company.stateRegistration ?? ''} onChange={(e) => setCompany({ ...company, stateRegistration: nz(e.target.value) })} /></Field>
+            <Field label="Inscrição municipal (IM)"><input className="input" value={company.municipalRegistration ?? ''} onChange={(e) => setCompany({ ...company, municipalRegistration: nz(e.target.value) })} /></Field>
+            <Field label="Telefone"><input className="input" value={company.phone ?? ''} onChange={(e) => setCompany({ ...company, phone: nz(e.target.value) })} /></Field>
           </div>
+          <Field label="Endereço completo (sai no recibo do caixa)"><input className="input" value={company.address ?? ''} onChange={(e) => setCompany({ ...company, address: nz(e.target.value) })} placeholder="Rua, número, setor, CEP, cidade-UF" /></Field>
+          <Field label="Mensagem no rodapé do recibo"><input className="input" maxLength={200} value={company.receiptMessage ?? ''} onChange={(e) => setCompany({ ...company, receiptMessage: nz(e.target.value) })} placeholder="Ex.: Obrigado pela preferência!" /></Field>
           <button className="btn-primary" disabled={saveCompany.isPending}>Salvar</button>
         </form>
         <form className="card space-y-4 p-5" onSubmit={(e: FormEvent) => { e.preventDefault(); saveSession.mutate(session); }}>

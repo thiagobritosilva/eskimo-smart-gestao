@@ -179,6 +179,9 @@ export interface SaleInput {
   discount?: string | null;
   discountReason?: string | null;
   payments: { methodCode: string; amount: string }[];
+  /** opcional: só quando o cliente pede identificação no recibo */
+  customerName?: string | null;
+  customerDocument?: string | null;
 }
 
 export async function createSale(actor: Actor, input: SaleInput) {
@@ -240,11 +243,12 @@ export async function createSale(actor: Actor, input: SaleInput) {
     const saleId = randomUUID();
     await db.query(
       `INSERT INTO sales (id, connector_id, external_id, document_model, document_number, document_series, sold_at, gross_amount,
-                          discount_amount, other_amount, net_amount, status, operator_name, stock_status, pos_terminal_id, cash_session_id, created_by)
-       VALUES ($1, $2, $3, 'CAIXA', $4, $5, now(), $6, $7, 0, $8, 'concluida', $9, 'pendente', $10, $11, $12)`,
+                          discount_amount, other_amount, net_amount, status, operator_name, stock_status, pos_terminal_id, cash_session_id, created_by,
+                          customer_name, customer_document)
+       VALUES ($1, $2, $3, 'CAIXA', $4, $5, now(), $6, $7, 0, $8, 'concluida', $9, 'pendente', $10, $11, $12, $13, $14)`,
       [saleId, conn, externalId, number, terminal.code, fromCents(gross), fromCents(discount), fromCents(net),
         (await db.query<{ name: string }>('SELECT name FROM users WHERE id = $1', [actor.userId])).rows[0]?.name ?? null,
-        terminal.id, session.id, actor.userId],
+        terminal.id, session.id, actor.userId, input.customerName?.trim() || null, input.customerDocument || null],
     );
     // desconto rateado proporcionalmente nas linhas (centavos na última)
     let left = discount;
@@ -294,22 +298,30 @@ export async function getSaleReceipt(saleId: string) {
   const db = getPool();
   const s = (await db.query(
     `SELECT s.id, s.document_number AS number, s.document_series AS terminal, s.sold_at, s.gross_amount::text, s.discount_amount::text,
-            s.net_amount::text, s.status, s.stock_status, s.stock_pending_reason, s.operator_name, s.cancel_reason, s.cancelled_at
+            s.net_amount::text, s.status, s.stock_status, s.stock_pending_reason, s.operator_name, s.cancel_reason, s.cancelled_at,
+            s.customer_name, s.customer_document
      FROM sales s WHERE s.id = $1 AND s.document_model = 'CAIXA'`, [saleId],
   )).rows[0];
   if (!s) throw Errors.notFound('Venda não encontrada.');
   const items = (await db.query(
-    `SELECT line_no, external_code, description, quantity::text, unit_price::text, gross_amount::text, discount_amount::text, net_amount::text
+    `SELECT line_no, external_code, description, unit, quantity::text, unit_price::text, gross_amount::text, discount_amount::text, net_amount::text
      FROM sale_items WHERE sale_id = $1 ORDER BY line_no`, [saleId],
   )).rows;
   const payments = (await db.query(
     `SELECT p.method_code, pm.name AS method_name, p.amount::text, p.change_amount::text
      FROM sale_payments p JOIN payment_methods pm ON pm.code = p.method_code WHERE p.sale_id = $1 ORDER BY p.method_code`, [saleId],
   )).rows;
-  const company = (await db.query<{ value: { tradeName?: string | null; legalName?: string | null; document?: string | null } }>(
+  const c = (await db.query<{ value: Record<string, string | null | undefined> }>(
     `SELECT value FROM app_settings WHERE key = 'company.profile'`,
   )).rows[0]?.value ?? {};
-  return { ...s, items, payments, company: { name: company.tradeName || company.legalName || null, document: company.document ?? null } };
+  return {
+    ...s, items, payments,
+    company: {
+      name: c.legalName || c.tradeName || null, tradeName: c.tradeName ?? null, document: c.document ?? null,
+      stateRegistration: c.stateRegistration ?? null, municipalRegistration: c.municipalRegistration ?? null,
+      address: c.address ?? null, phone: c.phone ?? null, city: c.city ?? null, receiptMessage: c.receiptMessage ?? null,
+    },
+  };
 }
 
 export async function listSessionSales(terminalId: string) {

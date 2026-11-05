@@ -60,6 +60,8 @@ export async function posRoutes(app: FastifyInstance) {
       discount: money.nullable().optional(),
       discountReason: z.string().trim().max(200).nullable().optional(),
       payments: z.array(z.object({ methodCode: z.string().regex(/^[a-z_]+$/), amount: money })).min(1).max(10),
+      customerName: z.string().trim().min(2).max(120).nullable().optional(),
+      customerDocument: z.string().transform((v) => v.replace(/\D/g, '')).refine((v) => v === '' || /^(\d{11}|\d{14})$/.test(v), 'CPF (11) ou CNPJ (14 dígitos).').transform((v) => v || null).nullable().optional(),
     }), req.body);
     const r = await svc.createSale(actorOf(req), b);
     reply.code(r.duplicate ? 200 : 201);

@@ -15,6 +15,12 @@ const companySchema = z.object({
     .regex(/^\d{11}$|^\d{14}$/, 'Informe CPF (11 dígitos) ou CNPJ (14 dígitos), somente números.')
     .nullable(),
   city: z.string().trim().max(80).nullable(),
+  // dados impressos no recibo de venda do caixa
+  stateRegistration: z.string().trim().max(30).nullable().optional(),
+  municipalRegistration: z.string().trim().max(30).nullable().optional(),
+  address: z.string().trim().max(200).nullable().optional(),
+  phone: z.string().trim().max(30).nullable().optional(),
+  receiptMessage: z.string().trim().max(200).nullable().optional(),
 });
 
 const EDITABLE = {

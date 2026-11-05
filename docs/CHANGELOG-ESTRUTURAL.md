@@ -176,3 +176,12 @@ com impacto e estratégia de preservação de dados.
   aberta). As vendas do caixa entram nos relatórios de vendas, no dashboard e no CMV/DRE.
 - **Fiscal:** não há emissão de NFC-e nesta etapa (cupom identificado como não fiscal); estrutura pronta para integrar.
 
+## 0013_recibo_cliente — Recibo de venda do caixa (2026-11-05)
+- **Recibo de venda** para impressora térmica 80 mm no formato prático do cupom da loja (empresa, CNPJ, IE/IM,
+  endereço, telefone; itens com código, descrição, QT, UN, valor e total; totais; forma de pagamento e troco; nº da
+  venda, caixa, data/hora, operador e cliente). Identificado como **"RECIBO DE VENDA — NÃO É DOCUMENTO FISCAL"**: não
+  reproduz elementos do DANFE NFC-e (chave de acesso, QR Code da SEFAZ, protocolo). Impressão automática opcional e 2ª via.
+- **O quê:** `sales.customer_name` e `sales.customer_document` (opcionais, só quando o cliente pede; CPF/CNPJ só dígitos);
+  dados da empresa para o recibo em Configurações (IE, IM, endereço, telefone, mensagem do rodapé).
+- **Caixa:** cliente (F10) e consulta de preço (F3), como no caixa anterior da loja.
+

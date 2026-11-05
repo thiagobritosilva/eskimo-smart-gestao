@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Banknote, CreditCard, LogOut, Minus, Plus, Printer, QrCode, Receipt, ScanBarcode, Search, Settings2, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Banknote, CreditCard, LogOut, Minus, Plus, Printer, QrCode, Receipt, ScanBarcode, Search, Settings2, Tag, Trash2, UserRound, X } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage } from '../lib/api';
 import { useAuth, useIsOwner } from '../lib/auth';
@@ -18,9 +18,13 @@ interface Payment { methodCode: string; amount: string }
 interface ReceiptData {
   id: string; number: string; terminal: string; sold_at: string; gross_amount: string; discount_amount: string; net_amount: string; status: string;
   stock_status: string; stock_pending_reason: string | null; operator_name: string | null; cancel_reason: string | null;
-  items: { line_no: number; description: string; quantity: string; unit_price: string; net_amount: string }[];
+  customer_name: string | null; customer_document: string | null;
+  items: { line_no: number; external_code: string; description: string; unit: string | null; quantity: string; unit_price: string; discount_amount: string; net_amount: string }[];
   payments: { method_code: string; method_name: string; amount: string; change_amount: string }[];
-  company: { name: string | null; document: string | null };
+  company: {
+    name: string | null; tradeName: string | null; document: string | null; stateRegistration: string | null; municipalRegistration: string | null;
+    address: string | null; phone: string | null; city: string | null; receiptMessage: string | null;
+  };
 }
 
 const METHODS: { code: string; label: string; icon: typeof Banknote; key: string }[] = [
@@ -35,27 +39,73 @@ const TERMINAL_KEY = 'eskimo.pos.terminal';
 const readTerminal = () => { try { return localStorage.getItem(TERMINAL_KEY); } catch { return null; } };
 const saveTerminal = (id: string | null) => { try { if (id) localStorage.setItem(TERMINAL_KEY, id); else localStorage.removeItem(TERMINAL_KEY); } catch { /* sem armazenamento */ } };
 
-// ------------------------------------------------------------------ comprovante (80 mm)
-function printReceipt(r: ReceiptData) {
+// ------------------------------------------------------------------ recibo de venda (80 mm)
+const fmtDoc = (d: string | null) => {
+  if (!d) return '';
+  if (d.length === 14) return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  if (d.length === 11) return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+  return d;
+};
+const num = (v: string | number, dec = 2) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const AUTO_PRINT_KEY = 'eskimo.pos.autoprint';
+export const readAutoPrint = () => { try { return localStorage.getItem(AUTO_PRINT_KEY) === '1'; } catch { return false; } };
+export const saveAutoPrint = (v: boolean) => { try { localStorage.setItem(AUTO_PRINT_KEY, v ? '1' : '0'); } catch { /* sem armazenamento */ } };
+
+/**
+ * Recibo de venda no mesmo formato prático do cupom do caixa (impressora térmica 80 mm).
+ * NÃO é documento fiscal: não traz chave de acesso, QR Code da SEFAZ, protocolo nem a palavra "DANFE".
+ */
+export function printReceipt(r: ReceiptData, copy = false) {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
-  const rows = r.items.map((i) => `<tr><td colspan="3">${esc(i.description)}</td></tr><tr><td>${formatQty(i.quantity)} x ${formatMoney(i.unit_price)}</td><td></td><td class="r">${formatMoney(i.net_amount)}</td></tr>`).join('');
-  const pays = r.payments.map((p) => `<tr><td>${esc(p.method_name)}</td><td></td><td class="r">${formatMoney((Number(p.amount) + Number(p.change_amount)).toFixed(2))}</td></tr>${Number(p.change_amount) > 0 ? `<tr><td>Troco</td><td></td><td class="r">${formatMoney(p.change_amount)}</td></tr>` : ''}`).join('');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venda ${esc(r.number)}</title><style>
-    @page { size: 80mm auto; margin: 3mm; } body { font: 12px/1.35 monospace; width: 74mm; margin: 0; color: #000; }
-    h1 { font-size: 14px; margin: 0 0 2px; text-align: center; } .c { text-align: center; } .r { text-align: right; white-space: nowrap; }
-    table { width: 100%; border-collapse: collapse; } hr { border: 0; border-top: 1px dashed #000; margin: 4px 0; } .b { font-weight: bold; font-size: 14px; }
+  const c = r.company;
+  const qtyItems = r.items.reduce((s, i) => s + Number(i.quantity), 0);
+  const items = r.items.map((i) => `
+    <tr><td class="cod">${esc(i.external_code)}</td><td class="desc">${esc(i.description)}</td>
+      <td class="r">${num(i.quantity, Number(i.quantity) % 1 ? 3 : 0)}</td><td>${esc(i.unit ?? 'UN')}</td>
+      <td class="r">${num(i.unit_price)}</td><td class="r">${num(Number(i.net_amount) + Number(i.discount_amount))}</td></tr>`).join('');
+  const pays = r.payments.map((p) => `<tr><td>${esc(p.method_name)}</td><td class="r">R$ ${num(Number(p.amount) + Number(p.change_amount))}</td></tr>`).join('');
+  const change = r.payments.reduce((s, p) => s + Number(p.change_amount), 0);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Recibo ${esc(r.number)}</title><style>
+    @page { size: 80mm auto; margin: 2mm 3mm; }
+    body { font: 11px/1.3 "Times New Roman", Times, serif; width: 72mm; margin: 0; color: #000; }
+    .c { text-align: center; } .r { text-align: right; white-space: nowrap; } .b { font-weight: bold; }
+    .t { font-size: 13px; font-weight: bold; text-align: center; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; } th { font-size: 10px; text-align: left; border-bottom: 1px solid #000; }
+    td { vertical-align: top; padding: 1px 1px; } td.cod { width: 9mm; } td.desc { word-break: break-word; }
+    .tot td { padding: 0 1px; } hr { border: 0; border-top: 1px dashed #000; margin: 4px 0; } .sm { font-size: 10px; }
+    .nf { border: 1px solid #000; padding: 2px; margin: 4px 0; font-weight: bold; text-align: center; }
   </style></head><body>
-    <h1>${esc(r.company.name ?? 'Eskimo Sorvetes')}</h1>${r.company.document ? `<div class="c">CNPJ ${esc(r.company.document)}</div>` : ''}
-    <hr><div class="c b">CUPOM DE VENDA</div><div class="c">NÃO É DOCUMENTO FISCAL</div>
-    <div>Caixa ${esc(r.terminal)} · Venda nº ${esc(r.number)}</div><div>${esc(formatDateTime(r.sold_at))}${r.operator_name ? ` · ${esc(r.operator_name)}` : ''}</div><hr>
-    <table>${rows}</table><hr>
-    <table>${Number(r.discount_amount) > 0 ? `<tr><td>Subtotal</td><td></td><td class="r">${formatMoney(r.gross_amount)}</td></tr><tr><td>Desconto</td><td></td><td class="r">-${formatMoney(r.discount_amount)}</td></tr>` : ''}
-    <tr class="b"><td>TOTAL</td><td></td><td class="r">${formatMoney(r.net_amount)}</td></tr></table><hr><table>${pays}</table><hr>
-    <div class="c">${r.status === 'cancelada' ? 'VENDA CANCELADA' : 'Obrigado pela preferência!'}</div>
+    <div class="b">${esc(c.name ?? 'EMPRESA (cadastre em Configurações)')}</div>
+    ${c.tradeName && c.tradeName !== c.name ? `<div>${esc(c.tradeName)}</div>` : ''}
+    ${c.document ? `<div>CNPJ: ${esc(fmtDoc(c.document))}</div>` : ''}
+    ${c.stateRegistration || c.municipalRegistration ? `<div>IE: ${esc(c.stateRegistration ?? '-')}${c.municipalRegistration ? ` - IM: ${esc(c.municipalRegistration)}` : ''}</div>` : ''}
+    ${c.address ? `<div>${esc(c.address)}</div>` : ''}
+    ${c.city || c.phone ? `<div>${esc([c.city, c.phone].filter(Boolean).join(' - '))}</div>` : ''}
+    <div class="t">RECIBO DE VENDA${copy ? ' — 2ª VIA' : ''}</div>
+    <div class="nf">NÃO É DOCUMENTO FISCAL</div>
+    <table><thead><tr><th>CÓD.</th><th>DESCRIÇÃO</th><th class="r">QT</th><th>UN</th><th class="r">VALOR</th><th class="r">TOTAL</th></tr></thead><tbody>${items}</tbody></table>
+    <hr>
+    <table class="tot">
+      <tr><td>Qtd. total de itens</td><td class="r">${num(qtyItems, qtyItems % 1 ? 3 : 0)}</td></tr>
+      <tr><td>Total de produtos</td><td class="r">R$ ${num(r.gross_amount)}</td></tr>
+      <tr><td>Descontos</td><td class="r">R$ ${num(r.discount_amount)}</td></tr>
+      <tr class="b"><td>TOTAL</td><td class="r">R$ ${num(r.net_amount)}</td></tr>
+      <tr class="b"><td>FORMA DE PAGAMENTO</td><td class="r">VALOR PAGO</td></tr>
+      ${pays}
+      ${change > 0 ? `<tr><td>Troco</td><td class="r">R$ ${num(change)}</td></tr>` : ''}
+    </table>
+    <hr>
+    <div class="c">Venda nº ${esc(r.number)} · Caixa ${esc(r.terminal)} · ${esc(formatDateTime(r.sold_at))} · Via consumidor</div>
+    ${r.operator_name ? `<div class="c sm">Operador: ${esc(r.operator_name)}</div>` : ''}
+    <div class="c b">CLIENTE</div>
+    <div class="c">${r.customer_name || r.customer_document ? esc([r.customer_name, r.customer_document ? `CPF/CNPJ ${fmtDoc(r.customer_document)}` : null].filter(Boolean).join(' · ')) : 'Consumidor não identificado'}</div>
+    ${r.status === 'cancelada' ? '<div class="nf">VENDA CANCELADA</div>' : ''}
+    <hr><div class="c sm">${esc(c.receiptMessage || 'Obrigado pela preferência!')}</div>
+    <div class="c sm">Este recibo comprova a compra e não substitui a nota fiscal.</div>
     <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 500); };</script>
   </body></html>`;
   const w = window.open('', '_blank', 'width=360,height=640');
-  if (!w) { alert('Permita pop-ups deste site para imprimir o comprovante.'); return; }
+  if (!w) { alert('Permita pop-ups deste site para imprimir o recibo.'); return; }
   w.document.write(html);
   w.document.close();
 }
@@ -203,7 +253,9 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState<{ kind: 'error' | 'warning'; text: string } | null>(null);
   const [discount, setDiscount] = useState<{ value: string; reason: string } | null>(null);
-  const [dialog, setDialog] = useState<null | 'pay' | 'search' | 'discount' | 'close' | 'sales' | 'receipt'>(null);
+  const [dialog, setDialog] = useState<null | 'pay' | 'search' | 'discount' | 'close' | 'sales' | 'receipt' | 'customer' | 'price'>(null);
+  const [customer, setCustomer] = useState<{ name: string; document: string } | null>(null);
+  const [autoPrint, setAutoPrint] = useState(readAutoPrint);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [saleKey, setSaleKey] = useState(() => crypto.randomUUID());
   const inputRef = useRef<HTMLInputElement>(null);
@@ -244,9 +296,11 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
     mutationFn: (payments: Payment[]) => api.post<ReceiptData & { duplicate: boolean }>('/pos/sales', {
       terminalId, idempotencyKey: saleKey, items: cart.map((l) => ({ productId: l.product.id, quantity: String(l.qty) })),
       discount: disc ? (disc / 100).toFixed(2) : null, discountReason: discount?.reason || null, payments,
+      customerName: customer?.name.trim() || null, customerDocument: customer?.document.replace(/\D/g, '') || null,
     }),
     onSuccess: (r) => {
-      setReceipt(r); setDialog('receipt'); setCart([]); setDiscount(null); setMsg(null); setSaleKey(crypto.randomUUID());
+      setReceipt(r); setDialog('receipt'); setCart([]); setDiscount(null); setCustomer(null); setMsg(null); setSaleKey(crypto.randomUUID());
+      if (autoPrint) printReceipt(r);
       void qc.invalidateQueries({ queryKey: ['pos'] });
     },
   });
@@ -257,6 +311,8 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
       if (e.key === 'Escape') { if (dialog && dialog !== 'receipt') { e.preventDefault(); setDialog(null); } else if (dialog === 'receipt') { setDialog(null); } return; }
       if (dialog) return;
       if (e.key === 'F2') { e.preventDefault(); setDialog('search'); }
+      if (e.key === 'F3') { e.preventDefault(); setDialog('price'); }
+      if (e.key === 'F10') { e.preventDefault(); setDialog('customer'); }
       if (e.key === 'F4' && cart.length) { e.preventDefault(); sale.reset(); setDialog('pay'); }
       if (e.key === 'F9' && cart.length) { e.preventDefault(); setDialog('discount'); }
     };
@@ -277,6 +333,7 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
         <div className="font-semibold">{st.terminal.name}</div>
         <div className="text-sm text-red-100">Sessão nº {st.session.number} · {user?.name}</div>
         <div className="ml-auto flex items-center gap-1 text-sm">
+          <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('price')}><Tag className="mr-1 inline h-4 w-4" /> Consultar preço (F3)</button>
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('sales')}><Receipt className="mr-1 inline h-4 w-4" /> Vendas</button>
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('close')}><LogOut className="mr-1 inline h-4 w-4" /> Fechar caixa</button>
           <Link to="/" className="rounded-md px-3 py-1.5 hover:bg-white/10"><ArrowLeft className="mr-1 inline h-4 w-4" /> Sistema</Link>
@@ -328,6 +385,9 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
             <div className="text-5xl font-extrabold tabular-nums text-ink-900">{brl(total)}</div>
           </div>
           <button className="btn-primary h-16 text-xl" disabled={!cart.length} onClick={() => { sale.reset(); setDialog('pay'); }}>Finalizar (F4)</button>
+          <button className={clsx('btn-secondary justify-start', customer && 'border-brand-300 text-brand-700')} onClick={() => setDialog('customer')}>
+            <UserRound className="h-4 w-4" /> {customer ? [customer.name, customer.document].filter(Boolean).join(' · ') : 'Cliente: consumidor não identificado (F10)'}
+          </button>
           <div className="grid grid-cols-2 gap-2">
             <button className="btn-secondary" disabled={!cart.length} onClick={() => setDialog('discount')}>Desconto (F9)</button>
             <button className="btn-secondary" disabled={!cart.length} onClick={() => { if (confirm('Cancelar esta venda (limpar os itens)?')) { setCart([]); setDiscount(null); setMsg(null); } }}>Limpar venda</button>
@@ -339,7 +399,8 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
               {st.summary.byMethod.map((m) => <div key={m.method_code} className="flex justify-between text-slate-500"><span>{m.method_name}</span><span>{formatMoney(m.amount)}</span></div>)}
             </div>
           )}
-          <div className="mt-auto text-center text-[11px] text-slate-400">F2 buscar · F4 finalizar · F9 desconto · Esc voltar · Cupom sem valor fiscal</div>
+          <label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={autoPrint} onChange={(e) => { setAutoPrint(e.target.checked); saveAutoPrint(e.target.checked); }} /> Imprimir o recibo automaticamente ao finalizar</label>
+          <div className="mt-auto text-center text-[11px] text-slate-400">F2 buscar · F3 preço · F4 finalizar · F9 desconto · F10 cliente · Esc voltar · Recibo sem valor fiscal</div>
         </aside>
       </div>
 
@@ -348,6 +409,12 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
       </Modal>
       <Modal open={dialog === 'search'} size="lg" title="Buscar produto" onClose={() => setDialog(null)}>
         {dialog === 'search' && <ProductSearch onPick={(p) => { addProduct(p, 1); setDialog(null); }} />}
+      </Modal>
+      <Modal open={dialog === 'price'} size="lg" title="Consultar preço" onClose={() => setDialog(null)}>
+        {dialog === 'price' && <PriceCheck />}
+      </Modal>
+      <Modal open={dialog === 'customer'} title="Cliente (opcional)" onClose={() => setDialog(null)}>
+        {dialog === 'customer' && <CustomerForm initial={customer} onSave={(c) => { setCustomer(c); setDialog(null); }} />}
       </Modal>
       <Modal open={dialog === 'discount'} title="Desconto" onClose={() => setDialog(null)}>
         {dialog === 'discount' && <DiscountForm gross={gross} owner={owner} initial={discount} onSave={(d) => { setDiscount(d); setDialog(null); }} />}
@@ -410,6 +477,48 @@ function ProductSearch({ onPick }: { onPick: (p: Product) => void }) {
   );
 }
 
+function PriceCheck() {
+  const [code, setCode] = useState('');
+  const [q, setQ] = useState('');
+  const lookup = useQuery({ queryKey: ['pos', 'price', q], queryFn: async () => {
+    try { return [await api.get<Product>(`/pos/products/lookup?code=${encodeURIComponent(q)}`)]; } catch { return api.get<Product[]>(`/pos/products/search?q=${encodeURIComponent(q)}`); }
+  }, enabled: q.trim().length >= 2 });
+  return (
+    <div className="space-y-3">
+      <form onSubmit={(e) => { e.preventDefault(); setQ(code.trim()); }}>
+        <input autoFocus className="input text-lg" placeholder="Passe o leitor ou digite código, GTIN ou descrição" value={code} onChange={(e) => setCode(e.target.value)} />
+      </form>
+      <p className="text-xs text-slate-500">Só consulta: nada é lançado na venda.</p>
+      <ul className="max-h-[50vh] divide-y divide-slate-100 overflow-auto rounded-lg border border-slate-200">
+        {lookup.data?.map((p) => (
+          <li key={p.id} className="flex items-center justify-between px-3 py-3">
+            <span><span className="font-medium">{p.name}</span><span className="block text-xs text-slate-400">{p.internal_code}{p.barcode ? ` · ${p.barcode}` : ''} · estoque {formatQty(p.stock)}</span></span>
+            <span className="text-2xl font-bold">{p.sale_price ? formatMoney(p.sale_price) : <span className="text-sm text-red-600">sem preço</span>}</span>
+          </li>
+        ))}
+        {lookup.data && !lookup.data.length && <li className="px-3 py-6 text-center text-sm text-slate-500">Nada encontrado.</li>}
+        {!q && <li className="px-3 py-6 text-center text-sm text-slate-400">Insira o código do produto para consultar.</li>}
+      </ul>
+    </div>
+  );
+}
+
+function CustomerForm({ initial, onSave }: { initial: { name: string; document: string } | null; onSave: (c: { name: string; document: string } | null) => void }) {
+  const [name, setName] = useState(initial?.name ?? '');
+  const [document, setDocument] = useState(initial?.document ?? '');
+  const digits = document.replace(/\D/g, '');
+  const invalid = digits.length > 0 && digits.length !== 11 && digits.length !== 14;
+  return (
+    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); onSave(name.trim() || digits ? { name: name.trim(), document: digits } : null); }}>
+      <p className="text-sm text-slate-600">Preencha só se o cliente pedir identificação no recibo. É dado pessoal: registre o mínimo necessário.</p>
+      <Field label="Nome"><input autoFocus className="input" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field label="CPF ou CNPJ"><input className="input" inputMode="numeric" value={document} onChange={(e) => setDocument(e.target.value)} /></Field>
+      {invalid && <Alert kind="warning">CPF tem 11 dígitos e CNPJ tem 14.</Alert>}
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => onSave(null)}>Consumidor não identificado</button><button className="btn-primary" disabled={invalid || (!!name.trim() && name.trim().length < 2)}>Salvar</button></div>
+    </form>
+  );
+}
+
 function DiscountForm({ gross, owner, initial, onSave }: { gross: number; owner: boolean; initial: { value: string; reason: string } | null; onSave: (d: { value: string; reason: string } | null) => void }) {
   const [value, setValue] = useState(initial?.value ?? '');
   const [reason, setReason] = useState(initial?.reason ?? '');
@@ -440,7 +549,7 @@ function ReceiptView({ r, onClose }: { r: ReceiptData; onClose: () => void }) {
       {change > 0 && <div className="rounded-lg bg-emerald-50 p-3 text-2xl font-bold text-emerald-700">Troco: {brl(change)}</div>}
       {r.stock_status === 'pendente' && <Alert kind="warning">Estoque não baixado automaticamente: {r.stock_pending_reason} (aparece nas Notificações).</Alert>}
       <div className="flex justify-center gap-2 pt-2">
-        <button className="btn-secondary" onClick={() => printReceipt(r)}><Printer className="h-4 w-4" /> Imprimir cupom</button>
+        <button className="btn-secondary" onClick={() => printReceipt(r)}><Printer className="h-4 w-4" /> Imprimir recibo</button>
         <button className="btn-primary" autoFocus onClick={onClose}>Nova venda (Enter)</button>
       </div>
     </div>
@@ -456,7 +565,7 @@ function SessionSales({ terminalId, owner }: { terminalId: string; owner: boolea
     mutationFn: () => api.post(`/pos/sales/${cancelId}/cancel`, { reason }),
     onSuccess: () => { setCancelId(null); setReason(''); void qc.invalidateQueries({ queryKey: ['pos'] }); },
   });
-  const reprint = async (id: string) => printReceipt(await api.get<ReceiptData>(`/pos/sales/${id}`));
+  const reprint = async (id: string) => printReceipt(await api.get<ReceiptData>(`/pos/sales/${id}`), true);
   return (
     <div className="space-y-3">
       {cancel.error && <Alert>{errorMessage(cancel.error)}</Alert>}
@@ -476,7 +585,7 @@ function SessionSales({ terminalId, owner }: { terminalId: string; owner: boolea
                 <td className="px-3 py-2">{s.number}</td><td className="px-3 py-2">{formatDateTime(s.sold_at)}</td><td className="px-3 py-2">{s.payments}</td>
                 <td className="px-3 py-2 text-right font-semibold">{formatMoney(s.net_amount)}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right no-underline">
-                  <button className="btn-ghost px-2 py-1 text-xs" onClick={() => void reprint(s.id)}>Reimprimir</button>
+                  <button className="btn-ghost px-2 py-1 text-xs" onClick={() => void reprint(s.id)}>2ª via</button>
                   {owner && s.status === 'concluida' && <button className="btn-ghost px-2 py-1 text-xs text-red-700" onClick={() => setCancelId(s.id)}>Cancelar</button>}
                 </td>
               </tr>

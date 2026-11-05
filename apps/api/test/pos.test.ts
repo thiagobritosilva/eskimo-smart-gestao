@@ -126,12 +126,21 @@ describe('frente de caixa', () => {
     expect(r).toMatchObject({ status: 'cancelada', stock_status: 'estornada', cancel_reason: 'cliente desistiu' });
   });
 
+  it('recibo: cliente opcional (CPF validado) e dados da empresa das Configurações', async () => {
+    await call(owner.cookie, { method: 'PUT' as 'POST', url: '/api/settings/company.profile', payload: { tradeName: 'Loja Teste', legalName: 'LOJA TESTE LTDA', document: '11222333000181', city: 'Brasília-DF', stateRegistration: '0700000000000', address: 'Rua Teste, 1', phone: '(61) 0000-0000', receiptMessage: 'Volte sempre' } });
+    const bad = await sell(operador.cookie, { items: [{ productId: p1, quantity: '1' }], payments: [{ methodCode: 'dinheiro', amount: '5.00' }], customerDocument: '123' });
+    expect(bad.statusCode).toBe(400);
+    const ok = await sell(operador.cookie, { items: [{ productId: p1, quantity: '1' }], payments: [{ methodCode: 'dinheiro', amount: '5.00' }], customerName: 'Maria', customerDocument: '529.982.247-25' });
+    expect(ok.statusCode, ok.body).toBe(201);
+    expect(ok.json()).toMatchObject({ customer_name: 'Maria', customer_document: '52998224725', company: { name: 'LOJA TESTE LTDA', document: '11222333000181', stateRegistration: '0700000000000', receiptMessage: 'Volte sempre' } });
+  });
+
   it('fechamento às cegas: confere o dinheiro contado com o esperado; vendas aparecem nos relatórios', async () => {
     const st = (await call(operador.cookie, { method: 'GET', url: `/api/pos/terminals/${terminalId}/state` })).json();
-    expect(st.summary).toMatchObject({ sales: 3, total: '61.50', cancelled: 1 }); // 27,50 + 25,00 + 9,00
+    expect(st.summary).toMatchObject({ sales: 4, total: '66.50', cancelled: 1 }); // 27,50 + 25,00 + 9,00 + 5,00
     const close = await call(operador.cookie, { method: 'POST', url: `/api/pos/terminals/${terminalId}/close`, payload: { counted: '140.00' } });
     expect(close.statusCode, close.body).toBe(200);
-    expect(close.json()).toMatchObject({ expected: '141.50', counted: '140.00', difference: '-1.50' }); // 100 + 27,50 + 5 + 9 (venda cancelada estornada)
+    expect(close.json()).toMatchObject({ expected: '146.50', counted: '140.00', difference: '-6.50' }); // 100 + 27,50 + 5 + 9 + 5 (venda cancelada estornada)
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
     const rep = (await call(owner.cookie, { method: 'GET', url: `/api/reports/vendas-pagamento?from=${today}&to=${today}` })).json();
     expect(rep.rows.map((x: { forma: string }) => x.forma)).toEqual(expect.arrayContaining(['Dinheiro', 'Pix']));
