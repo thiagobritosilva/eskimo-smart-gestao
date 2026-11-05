@@ -152,4 +152,7 @@ com impacto e estratégia de preservação de dados.
 - **Complemento (05/11):** na prévia, regra por categoria "o valor do PDF é preço de venda; custo = preço − X%"
   (ex.: Picolés −42%), que também grava o preço de venda; quantidade, custo e preço editáveis por item
   (quantidade no formato brasileiro). A auditoria registra a regra e cada valor alterado em relação ao PDF.
+- **Complemento (05/11):** o importador também lê o **inventário com custo e preço de venda** (CÓDIGO, PRODUTO, UND, QTD.,
+  VR. CUSTO, TOTAL CUSTO, VR. VENDA, TOTAL VENDA; rodapé "TOTAL GERAL"), gravando custo e preço de venda. Inventários com
+  a mesma base (nº + data) não podem ser importados duas vezes.
 

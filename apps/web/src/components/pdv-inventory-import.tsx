@@ -9,10 +9,11 @@ import { Alert, Field } from './ui';
 
 interface Item {
   code: string; description: string; unit: string; quantity: string; unitCost: string; total: string;
-  category: string | null; action: 'criar_e_lancar' | 'lancar' | 'ignorar' | 'sem_custo'; existingName: string | null; warnings: string[];
+  salePrice?: string | null; category: string | null; action: 'criar_e_lancar' | 'lancar' | 'ignorar' | 'sem_custo'; existingName: string | null; warnings: string[];
 }
 interface Preview {
   number: string | null; date: string | null; store: string | null; status: string | null; items: Item[];
+  layout: 'pdv' | 'custo-venda' | null; sumSale: string; declaredSaleTotal: string | null;
   sumQty: string; sumTotal: string; declaredQty: string | null; declaredTotal: string | null; totalsMatch: boolean;
   unparsed: string[]; alreadyImported: string | null; defaultLocationId: string | null;
 }
@@ -75,7 +76,7 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
     onSuccess: (p) => {
       setPreview(p);
       setLocationId(p.defaultLocationId ?? '');
-      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '', qtyText: formatQty(i.quantity), priceText: '' })));
+      setRows(p.items.map((i) => ({ ...i, include: i.action === 'criar_e_lancar' || i.action === 'lancar', costText: Number(i.unitCost) > 0 ? fromDecimal(i.unitCost) : '', qtyText: formatQty(i.quantity), priceText: i.salePrice && Number(i.salePrice) > 0 ? fromDecimal(i.salePrice) : '' })));
       setRule(null);
     },
   });
@@ -138,6 +139,12 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
           <div className="text-xs">Total do rodapé do PDF</div>
           <div className="font-semibold">{preview.declaredTotal ? `${formatQty(preview.declaredQty ?? '0')} un. · ${formatMoney(preview.declaredTotal)}` : '—'}</div>
           <div className="text-xs font-medium">{preview.totalsMatch ? '✓ confere com os itens' : '✗ não confere — confira o PDF'}</div>
+          {preview.declaredSaleTotal && (
+            <div className="mt-1 border-t border-emerald-200 pt-1 text-xs">
+              A preço de venda: {formatMoney(preview.declaredSaleTotal)}
+              {Math.abs(Number(preview.declaredSaleTotal) - Number(preview.sumSale)) >= 0.01 && <> (itens somam {formatMoney(preview.sumSale)})</>}
+            </div>
+          )}
         </div>
         <Field label="Lançar no local">
           <select className="input" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
@@ -145,7 +152,8 @@ export function PdvInventoryImport({ onDone }: { onDone: () => void }) {
           </select>
         </Field>
       </div>
-      <div className="rounded-lg border border-slate-200 p-3">
+      {preview.layout === 'custo-venda' && <Alert kind="info">Este arquivo já traz <strong>custo e preço de venda</strong> de cada produto: os dois serão gravados como estão (podem ser ajustados na tabela).</Alert>}
+      <div className={clsx('rounded-lg border border-slate-200 p-3', preview.layout === 'custo-venda' && 'hidden')}>
         <div className="text-sm font-medium text-ink-900">O valor do PDF é o <strong>preço de venda</strong> em alguma categoria?</div>
         <div className="mt-0.5 text-xs text-slate-500">Marque as categorias e informe quanto descontar do preço para chegar ao custo. O preço de venda do PDF também fica cadastrado no produto.</div>
         {rule ? (

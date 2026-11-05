@@ -101,3 +101,35 @@ describe('carga inicial pelo PDF de inventário do PDV', () => {
     expect(r.statusCode).toBe(400);
   });
 });
+
+describe('inventário com custo e preço de venda (formato "atualizado")', () => {
+  const m = String(Math.floor(100000 + Math.random() * 800000));
+  const k = (i: number) => `8${m.slice(1)}${i}`;
+  const row = (y: number, code: string, desc: string, qty: string, cost: string, tc: string, price: string, tv: string) => [
+    { x: 40, y, text: code }, { x: 100, y, text: desc }, { x: 330, y, text: 'UN' }, { x: 380, y, text: qty },
+    { x: 430, y, text: cost }, { x: 480, y, text: tc }, { x: 540, y, text: price }, { x: 600, y, text: tv },
+  ];
+  const file = () => makeInventoryPdf([[
+    { x: 40, y: 560, text: 'LOJA TESTE SORVETES' }, { x: 400, y: 560, text: `INVENTÁRIO ATUALIZADO (base: Inventário ${m})` },
+    { x: 40, y: 540, text: 'INVENTARIO 03/11/25 - Quantidades e custos conforme Posição de Estoque de 03/11/2025 15:44' },
+    ...row(470, k(1), 'PICOLE TESTE CV', '1.336', '1,16', '1.549,76', '2,00', '2.672,00'),
+    ...row(458, k(2), 'ACAI TESTE 1L', '21', '23,20', '487,20', '29,00', '609,00'),
+    { x: 40, y: 60, text: 'TOTAL GERAL — 2 produtos' }, { x: 380, y: 60, text: '1.357' }, { x: 480, y: 60, text: '2.036,96' }, { x: 600, y: 60, text: '3.281,00' },
+  ]]).toString('base64');
+
+  it('lê custo e preço de venda, confere totais e grava o preço no cadastro', async () => {
+    const r = await post(owner.cookie, '/api/stock/pdv-inventory/preview', { fileName: 'atualizado.pdf', base64: file() });
+    expect(r.statusCode, r.body).toBe(200);
+    const p = r.json();
+    expect(p).toMatchObject({ layout: 'custo-venda', number: m, date: '2025-11-03', sumQty: '1357.000', sumTotal: '2036.96', totalsMatch: true, declaredSaleTotal: '3281.00', sumSale: '3281.00' });
+    expect(p.items[0]).toMatchObject({ code: k(1), quantity: '1336', unitCost: '1.16', salePrice: '2.00', category: 'Picolés' });
+    const items = p.items.map((i: Record<string, string>) => ({ code: i.code, description: i.description, unit: i.unit, quantity: i.quantity, unitCost: i.unitCost, category: i.category, salePrice: i.salePrice }));
+    const imp = await post(owner.cookie, '/api/stock/pdv-inventory/import', { number: p.number, date: p.date, locationId: p.defaultLocationId, items });
+    expect(imp.statusCode, imp.body).toBe(200);
+    const { rows } = await getPool().query('SELECT internal_code, avg_cost::text, sale_price::text FROM products WHERE internal_code = ANY($1) ORDER BY 1', [[k(1), k(2)]]);
+    expect(rows).toEqual([
+      { internal_code: k(1), avg_cost: '1.1600', sale_price: '2.00' },
+      { internal_code: k(2), avg_cost: '23.2000', sale_price: '29.00' },
+    ]);
+  });
+});

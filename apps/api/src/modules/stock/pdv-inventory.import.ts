@@ -40,7 +40,7 @@ export async function previewPdvInventory(file: { name: string; base64: string }
   } catch {
     throw Errors.badRequest('Não foi possível ler o PDF. Confira se é o relatório de inventário do PDV (PDF com texto, não foto).');
   }
-  if (!inv.items.length) throw Errors.badRequest('Nenhum item reconhecido. Este leitor aceita o relatório "INVENTÁRIO" do sistema do PDV.');
+  if (!inv.items.length) throw Errors.badRequest('Nenhum item reconhecido. Este leitor aceita o relatório "INVENTÁRIO" do PDV e o inventário com custo e preço de venda.');
   const db = getPool();
   const codes = inv.items.map((i) => i.code);
   const prods = new Map((await db.query<{ internal_code: string; id: string; name: string; stock: string }>(
@@ -60,6 +60,7 @@ export async function previewPdvInventory(file: { name: string; base64: string }
     if (zeroCost) warnings.push('Sem custo no PDF: informe o custo para lançar (ou deixe de fora).');
     else if (Number(i.unitCost) < 0.1) warnings.push(`Custo unitário muito baixo (R$ ${i.unitCost.replace('.', ',')}): confira.`);
     if (Math.abs(Math.round(Number(i.quantity) * Number(i.unitCost) * 100) - cents(i.total)) > 2) warnings.push('Quantidade × custo não bate com o total da linha.');
+    if (i.salePrice != null && Number(i.salePrice) > 0 && Number(i.salePrice) < Number(i.unitCost)) warnings.push('Preço de venda menor que o custo: confira.');
     if (p && Number(p.stock) > 0) warnings.push(`Produto já tem ${Number(p.stock)} em estoque no sistema: não será alterado (use Inventário para corrigir).`);
     return {
       ...i,
@@ -74,7 +75,9 @@ export async function previewPdvInventory(file: { name: string; base64: string }
   const sumQty = inv.items.reduce((s, i) => s + Math.round(Number(i.quantity) * 1000), 0) / 1000;
   const sumTotal = inv.items.reduce((s, i) => s + cents(i.total), 0) / 100;
   return {
-    number: inv.number, date: inv.date, store: inv.store, status: inv.status,
+    number: inv.number, date: inv.date, store: inv.store, status: inv.status, layout: inv.layout,
+    declaredSaleTotal: inv.declaredSaleTotal ?? null,
+    sumSale: (inv.items.reduce((s, i) => s + Math.round(Number(i.quantity) * Number(i.salePrice ?? 0) * 100), 0) / 100).toFixed(2),
     items,
     sumQty: sumQty.toFixed(3), sumTotal: sumTotal.toFixed(2),
     declaredQty: inv.declaredQty, declaredTotal: inv.declaredTotal,
