@@ -19,6 +19,7 @@ const gtin = (base: string) => { // gera GTIN-13 válido
 const G1 = gtin(`789${tag}0001`);
 const G2 = gtin(`789${tag}0002`);
 let p1: string, p2: string, p3: string;
+let companyBefore: unknown;
 interface Req { method: 'GET' | 'POST' | 'PATCH'; url: string; payload?: unknown }
 const call = (cookie: string, r: Req) => app.inject({ method: r.method, url: r.url, payload: r.payload as Record<string, unknown>, headers: { cookie } });
 const stockOf = async (id: string) => Number((await getPool().query('SELECT coalesce(sum(quantity),0) AS q FROM stock_balances WHERE product_id = $1', [id])).rows[0].q);
@@ -27,6 +28,7 @@ const sell = (cookie: string, body: Record<string, unknown>) => call(cookie, { m
 
 beforeAll(async () => {
   app = await setupApp();
+  companyBefore = (await getPool().query(`SELECT value FROM app_settings WHERE key = 'company.profile'`)).rows[0]?.value ?? null;
   owner = await asRole(app, 'PROPRIETARIO');
   operador = await asRole(app, 'FUNCIONARIO');
   central = (await getPool().query(`SELECT id FROM locations WHERE kind = 'central'`)).rows[0].id;
@@ -44,6 +46,8 @@ beforeAll(async () => {
   p3 = await mk('C', {}, '5'); // sem preço de venda
 });
 afterAll(async () => {
+  // não deixa dados da empresa de teste para os outros arquivos (ex.: PDV exige CNPJ não configurado)
+  await getPool().query(`UPDATE app_settings SET value = $1 WHERE key = 'company.profile'`, [JSON.stringify(companyBefore)]);
   await app.close();
   await closePool();
 });

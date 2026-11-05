@@ -1,9 +1,18 @@
+import { BaseSequencer, type TestSpecification } from 'vitest/node';
 import { defineConfig } from 'vitest/config';
+
+/** Ordem fixa (alfabética): os arquivos compartilham o mesmo banco, então a ordem não pode variar entre execuções. */
+class StableSequencer extends BaseSequencer {
+  override async sort(files: TestSpecification[]) {
+    return [...files].sort((a, b) => a.moduleId.localeCompare(b.moduleId));
+  }
+}
 
 export default defineConfig({
   test: {
     environment: 'node',
     fileParallelism: false,
+    sequence: { sequencer: StableSequencer },
     globalSetup: ['./test/global-setup.ts'],
     env: {
       NODE_ENV: 'test',
