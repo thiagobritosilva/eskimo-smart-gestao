@@ -197,3 +197,11 @@ com impacto e estratégia de preservação de dados.
 - **Garantias:** lançamentos imutáveis (trigger) — só o cancelamento com motivo é permitido, uma vez; sem DELETE
   em sócios e lançamentos; idempotência por chave única; tudo auditado (`partners.*`); sócio com lançamentos
   ativos não pode ser desativado.
+
+## Caixa por operador (2026-11-05, sem migration)
+- **Cadastro do caixa:** código e nome automáticos (CX01/Caixa 1, CX02/Caixa 2…); estoque das vendas = estoque geral
+  (outro local só como opção avançada). Basta informar o fundo de troco.
+- **Sessão por operador:** só quem abriu o caixa vende e fecha; um operador não abre dois caixas ao mesmo tempo;
+  gerente/proprietário pode fechar o caixa esquecido de outro, com motivo (registrado no fechamento e na auditoria).
+- **Tela:** nome do operador logado no topo; caixa aberto por outra pessoa fica bloqueado com aviso; após fechar e
+  conferir, opção "Sair (próximo operador)" para o próximo fazer login e abrir o próprio caixa.

@@ -145,4 +145,32 @@ describe('frente de caixa', () => {
     const rep = (await call(owner.cookie, { method: 'GET', url: `/api/reports/vendas-pagamento?from=${today}&to=${today}` })).json();
     expect(rep.rows.map((x: { forma: string }) => x.forma)).toEqual(expect.arrayContaining(['Dinheiro', 'Pix']));
   });
+
+  it('caixa por operador: código/nome automáticos, estoque geral; só quem abriu vende e fecha', async () => {
+    const auto = await call(owner.cookie, { method: 'POST', url: '/api/pos/terminals', payload: { openingCash: '50.00' } });
+    expect(auto.statusCode, auto.body).toBe(201);
+    expect(auto.json().code).toMatch(/^CX\d{2}$/);
+    expect(auto.json().name).toMatch(/^Caixa \d+$/);
+    const t2 = auto.json().id as string;
+    const row = (await getPool().query('SELECT location_ids FROM pos_terminals WHERE id = $1', [t2])).rows[0];
+    expect(row.location_ids).toEqual([central]); // estoque geral
+
+    const outro = await asRole(app, 'FUNCIONARIO');
+    expect((await call(operador.cookie, { method: 'POST', url: `/api/pos/terminals/${t2}/open`, payload: { counted: '50.00' } })).statusCode).toBe(201);
+    const st = (await call(outro.cookie, { method: 'GET', url: `/api/pos/terminals/${t2}/state` })).json();
+    expect(st.session.opened_by_name).toBeTruthy();
+    // outro funcionário não vende nem fecha o caixa aberto por outra pessoa
+    const v = await call(outro.cookie, { method: 'POST', url: '/api/pos/sales', payload: { terminalId: t2, idempotencyKey: randomUUID(), items: [{ productId: p1, quantity: '1' }], payments: [{ methodCode: 'dinheiro', amount: '5.00' }] } });
+    expect(v.statusCode).toBe(422);
+    expect(v.json().error.message ?? v.body).toMatch(/aberto por/);
+    expect((await call(outro.cookie, { method: 'POST', url: `/api/pos/terminals/${t2}/close`, payload: { counted: '50.00' } })).statusCode).toBe(403);
+    // o mesmo operador não abre dois caixas ao mesmo tempo
+    const again = await call(operador.cookie, { method: 'POST', url: `/api/pos/terminals/${terminalId}/open`, payload: { counted: '140.00' } });
+    expect(again.statusCode).toBe(422);
+    // proprietário fecha o caixa esquecido de outro só com motivo
+    expect((await call(owner.cookie, { method: 'POST', url: `/api/pos/terminals/${t2}/close`, payload: { counted: '50.00' } })).statusCode).toBe(400);
+    const c = await call(owner.cookie, { method: 'POST', url: `/api/pos/terminals/${t2}/close`, payload: { counted: '50.00', notes: 'operador esqueceu de fechar' } });
+    expect(c.statusCode, c.body).toBe(200);
+    await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${t2}`, payload: { isActive: false } });
+  });
 });

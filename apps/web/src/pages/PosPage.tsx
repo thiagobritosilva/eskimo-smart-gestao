@@ -11,7 +11,7 @@ import { Alert, Field, Logo, Modal, Spinner } from '../components/ui';
 
 // ------------------------------------------------------------------ tipos
 interface Terminal { id: string; code: string; name: string; is_active: boolean; location_codes: string[] | null; open_session: { id: string; number: string; opened_at: string; opened_by: string } | null }
-interface State { terminal: Terminal; session: { id: string; number: string; opened_at: string } | null; summary: { sales: number; total: string; cancelled: number; byMethod: { method_code: string; method_name: string; amount: string; count: number }[] } | null }
+interface State { terminal: Terminal; session: { id: string; number: string; opened_at: string; opened_by: string; opened_by_name: string | null } | null; summary: { sales: number; total: string; cancelled: number; byMethod: { method_code: string; method_name: string; amount: string; count: number }[] } | null }
 interface Product { id: string; internal_code: string; barcode: string | null; name: string; unit_code: string; sale_price: string | null; is_active: boolean; stock: string }
 interface CartLine { product: Product; qty: number }
 interface Payment { methodCode: string; amount: string }
@@ -111,38 +111,40 @@ export function printReceipt(r: ReceiptData, copy = false) {
 }
 
 // ------------------------------------------------------------------ configuração dos caixas
-function TerminalSetup({ onDone }: { onDone: () => void }) {
+function TerminalSetup({ onDone, count }: { onDone: () => void; count: number }) {
   const qc = useQueryClient();
   const locations = useLocations();
-  const [f, setF] = useState({ code: '', name: '', openingCash: '', locationIds: [] as string[] });
+  const [openingCash, setOpeningCash] = useState('');
+  const [advanced, setAdvanced] = useState(false);
+  const [locationIds, setLocationIds] = useState<string[]>([]);
   const m = useMutation({
-    mutationFn: () => api.post('/pos/terminals', { code: f.code, name: f.name, openingCash: toDecimal(f.openingCash) || '0', locationIds: f.locationIds }),
+    mutationFn: () => api.post('/pos/terminals', { openingCash: toDecimal(openingCash) || '0', locationIds: advanced && locationIds.length ? locationIds : null }),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['pos'] }); onDone(); },
   });
-  const toggle = (id: string) => setF((x) => ({ ...x, locationIds: x.locationIds.includes(id) ? x.locationIds.filter((i) => i !== id) : [...x.locationIds, id] }));
+  const toggle = (id: string) => setLocationIds((x) => (x.includes(id) ? x.filter((i) => i !== id) : [...x, id]));
   return (
     <form className="space-y-4" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>
       {m.error && <Alert>{errorMessage(m.error)}</Alert>}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Código *" hint="Ex.: CX01"><input className="input uppercase" required pattern="[A-Za-z0-9-]{2,12}" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} /></Field>
-        <Field label="Nome *"><input className="input" required minLength={2} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Caixa 1" /></Field>
-        <Field label="Fundo de troco (R$) *" hint="Dinheiro na gaveta hoje."><input className="input" inputMode="decimal" required value={f.openingCash} onChange={(e) => setF({ ...f, openingCash: e.target.value })} /></Field>
-      </div>
-      <Field label="De onde sai o estoque das vendas (em ordem) *" hint="Clique na ordem de prioridade. Regras por produto/categoria (PDV Connector) têm precedência.">
-        <div className="flex max-h-48 flex-wrap gap-1.5 overflow-auto rounded-lg border border-slate-200 p-2">
-          {locations.data?.map((l) => {
-            const pos = f.locationIds.indexOf(l.id);
-            return (
-              <button type="button" key={l.id} onClick={() => toggle(l.id)} className={clsx('rounded-md border px-2 py-1 text-xs', pos >= 0 ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600')}>
-                {pos >= 0 && <strong>{pos + 1}º </strong>}{l.kind === 'central' ? 'Estoque central' : l.code}
-              </button>
-            );
-          })}
-        </div>
-      </Field>
+      <Alert kind="info">Código e nome são gerados automaticamente (próximo: <strong>Caixa {count + 1}</strong>). As vendas baixam do <strong>estoque geral</strong>.</Alert>
+      <Field label="Fundo de troco inicial (R$)" hint="Dinheiro que fica na gaveta deste caixa. Em branco = R$ 0,00."><input className="input" inputMode="decimal" autoFocus value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="0,00" /></Field>
+      <button type="button" className="text-xs text-slate-500 underline" onClick={() => setAdvanced(!advanced)}>{advanced ? 'Usar o estoque geral' : 'Opção avançada: baixar de outro local (freezer/carrinho)'}</button>
+      {advanced && (
+        <Field label="De onde sai o estoque das vendas (em ordem)" hint="Clique na ordem de prioridade. Sem seleção = estoque geral.">
+          <div className="flex max-h-48 flex-wrap gap-1.5 overflow-auto rounded-lg border border-slate-200 p-2">
+            {locations.data?.map((l) => {
+              const pos = locationIds.indexOf(l.id);
+              return (
+                <button type="button" key={l.id} onClick={() => toggle(l.id)} className={clsx('rounded-md border px-2 py-1 text-xs', pos >= 0 ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600')}>
+                  {pos >= 0 && <strong>{pos + 1}º </strong>}{l.kind === 'central' ? 'Estoque geral' : l.code}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+      )}
       <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
         <button type="button" className="btn-secondary" onClick={onDone}>Cancelar</button>
-        <button className="btn-primary" disabled={m.isPending || !f.locationIds.length}>Cadastrar caixa</button>
+        <button className="btn-primary" disabled={m.isPending}>Cadastrar caixa</button>
       </div>
     </form>
   );
@@ -150,14 +152,14 @@ function TerminalSetup({ onDone }: { onDone: () => void }) {
 
 // ------------------------------------------------------------------ escolha do caixa
 function TerminalPicker({ onPick }: { onPick: (id: string) => void }) {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const list = useQuery({ queryKey: ['pos', 'terminals'], queryFn: () => api.get<Terminal[]>('/pos/terminals') });
   const [setup, setSetup] = useState(false);
   return (
     <div className="mx-auto max-w-2xl p-6">
       <div className="mb-6 flex items-center justify-between"><Logo /><Link to="/" className="btn-ghost"><ArrowLeft className="h-4 w-4" /> Voltar ao sistema</Link></div>
       <h1 className="mb-1 text-2xl font-bold text-ink-900">Frente de caixa</h1>
-      <p className="mb-5 text-sm text-slate-500">Escolha qual caixa é este computador. A escolha fica salva neste navegador.</p>
+      <p className="mb-5 text-sm text-slate-500">Operador: <strong className="text-ink-900">{user?.name}</strong> · escolha qual caixa é este computador (fica salvo neste navegador).</p>
       {list.isLoading && <Spinner />}
       <div className="grid gap-3 sm:grid-cols-2">
         {list.data?.filter((t) => t.is_active).map((t) => (
@@ -170,7 +172,7 @@ function TerminalPicker({ onPick }: { onPick: (id: string) => void }) {
       </div>
       {list.data && !list.data.length && <Alert kind="info">Nenhum caixa cadastrado ainda.{can('pos.manage') ? ' Cadastre os caixas da loja abaixo.' : ' Peça ao gerente ou proprietário para cadastrar.'}</Alert>}
       {can('pos.manage') && <button className="btn-secondary mt-5" onClick={() => setSetup(true)}><Settings2 className="h-4 w-4" /> Cadastrar caixa</button>}
-      <Modal open={setup} size="lg" title="Cadastrar caixa" onClose={() => setSetup(false)}>{setup && <TerminalSetup onDone={() => setSetup(false)} />}</Modal>
+      <Modal open={setup} size="lg" title="Cadastrar caixa" onClose={() => setSetup(false)}>{setup && <TerminalSetup count={list.data?.length ?? 0} onDone={() => setSetup(false)} />}</Modal>
     </div>
   );
 }
@@ -325,13 +327,15 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
   const st = state.data!;
 
   if (!st.session) return <OpenRegister state={st} onChangeTerminal={onChangeTerminal} />;
+  if (user && st.session.opened_by !== user.id) return <BusyRegister state={st} onChangeTerminal={onChangeTerminal} />;
 
   return (
     <div className="flex h-screen flex-col bg-slate-100">
       <header className="flex items-center gap-3 bg-brand-600 px-4 py-2 text-white">
         <Logo compact dark />
         <div className="font-semibold">{st.terminal.name}</div>
-        <div className="text-sm text-red-100">Sessão nº {st.session.number} · {user?.name}</div>
+        <div className="flex items-center gap-1 rounded-md bg-white/15 px-2 py-0.5 text-sm"><UserRound className="h-4 w-4" /> Operador: <strong>{user?.name}</strong></div>
+        <div className="text-xs text-red-100">Sessão nº {st.session.number} · aberta {formatDateTime(st.session.opened_at)}</div>
         <div className="ml-auto flex items-center gap-1 text-sm">
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('price')}><Tag className="mr-1 inline h-4 w-4" /> Consultar preço (F3)</button>
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('sales')}><Receipt className="mr-1 inline h-4 w-4" /> Vendas</button>
@@ -432,8 +436,32 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
   );
 }
 
+function BusyRegister({ state, onChangeTerminal }: { state: State; onChangeTerminal: () => void }) {
+  const { can, logout } = useAuth();
+  const [closing, setClosing] = useState(false);
+  const qc = useQueryClient();
+  const s = state.session!;
+  const who = s.opened_by_name ?? 'outro operador';
+  return (
+    <div className="mx-auto max-w-md p-6">
+      <div className="mb-6 flex items-center justify-between"><Logo /><Link to="/" className="btn-ghost"><ArrowLeft className="h-4 w-4" /> Sistema</Link></div>
+      <div className="card space-y-3 p-6">
+        <h1 className="text-xl font-bold text-ink-900">{state.terminal.name}</h1>
+        <Alert kind="warning">Este caixa está aberto por <strong>{who}</strong> desde {formatDateTime(s.opened_at)}. Cada operador trabalha no próprio caixa: <strong>{who}</strong> precisa entrar, fechar e conferir o caixa antes de você abrir o seu.</Alert>
+        <button className="btn-primary w-full" onClick={() => void logout()}><LogOut className="h-4 w-4" /> Sair e entrar como {who}</button>
+        {can('pos.manage') && <button className="btn-secondary w-full" onClick={() => setClosing(true)}>Fechar o caixa de {who} (gerência)</button>}
+        <button className="btn-ghost w-full text-xs" onClick={onChangeTerminal}>Este computador é outro caixa</button>
+      </div>
+      <Modal open={closing} title={`Fechar caixa aberto por ${who}`} onClose={() => setClosing(false)}>
+        {closing && <CloseRegister terminalId={state.terminal.id} hasCart={false} otherName={who} onDone={() => { setClosing(false); void qc.invalidateQueries({ queryKey: ['pos'] }); }} />}
+      </Modal>
+    </div>
+  );
+}
+
 function OpenRegister({ state, onChangeTerminal }: { state: State; onChangeTerminal: () => void }) {
   const qc = useQueryClient();
+  const { user, logout } = useAuth();
   const [counted, setCounted] = useState('');
   const m = useMutation({
     mutationFn: () => api.post(`/pos/terminals/${state.terminal.id}/open`, { counted: toDecimal(counted) || '0' }),
@@ -444,7 +472,11 @@ function OpenRegister({ state, onChangeTerminal }: { state: State; onChangeTermi
       <div className="mb-6 flex items-center justify-between"><Logo /><Link to="/" className="btn-ghost"><ArrowLeft className="h-4 w-4" /> Sistema</Link></div>
       <div className="card p-6">
         <h1 className="text-xl font-bold text-ink-900">{state.terminal.name}</h1>
-        <p className="mb-4 text-sm text-slate-500">Caixa fechado. Conte o dinheiro da gaveta para abrir.</p>
+        <p className="mb-2 text-sm text-slate-500">Caixa fechado. Conte o dinheiro da gaveta para abrir o <strong>seu</strong> caixa.</p>
+        <div className="mb-4 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
+          <span><UserRound className="mr-1 inline h-4 w-4" /> Operador: <strong>{user?.name}</strong></span>
+          <button type="button" className="text-xs text-brand-700 underline" onClick={() => void logout()}>Não é você? Sair</button>
+        </div>
         {m.error && <div className="mb-3"><Alert>{errorMessage(m.error)}</Alert></div>}
         <form onSubmit={(e) => { e.preventDefault(); m.mutate(); }} className="space-y-3">
           <Field label="Dinheiro na gaveta (R$)"><input autoFocus className="input text-xl" inputMode="decimal" required value={counted} onChange={(e) => setCounted(e.target.value)} /></Field>
@@ -599,11 +631,13 @@ function SessionSales({ terminalId, owner }: { terminalId: string; owner: boolea
   );
 }
 
-function CloseRegister({ terminalId, hasCart, onDone }: { terminalId: string; hasCart: boolean; onDone: () => void }) {
+function CloseRegister({ terminalId, hasCart, onDone, otherName }: { terminalId: string; hasCart: boolean; onDone: () => void; otherName?: string }) {
+  const { logout } = useAuth();
   const [counted, setCounted] = useState('');
+  const [notes, setNotes] = useState('');
   const [result, setResult] = useState<{ expected: string; counted: string; difference: string; sessionNumber: string } | null>(null);
   const m = useMutation({
-    mutationFn: () => api.post<{ expected: string; counted: string; difference: string; sessionNumber: string }>(`/pos/terminals/${terminalId}/close`, { counted: toDecimal(counted) || '0' }),
+    mutationFn: () => api.post<{ expected: string; counted: string; difference: string; sessionNumber: string }>(`/pos/terminals/${terminalId}/close`, { counted: toDecimal(counted) || '0', notes: notes.trim() || null }),
     onSuccess: setResult,
   });
   if (result) {
@@ -614,7 +648,12 @@ function CloseRegister({ terminalId, hasCart, onDone }: { terminalId: string; ha
           Sessão nº {result.sessionNumber} fechada. Esperado {formatMoney(result.expected)} · contado {formatMoney(result.counted)} ·{' '}
           <strong>{diff === 0 ? 'sem diferença' : diff > 0 ? `sobra de ${formatMoney(result.difference)}` : `falta de ${formatMoney(String(-diff))}`}</strong>
         </Alert>
-        <div className="flex justify-end"><button className="btn-primary" onClick={onDone}>OK</button></div>
+        {otherName
+          ? <div className="flex justify-end"><button className="btn-primary" onClick={onDone}>OK</button></div>
+          : <div className="flex justify-end gap-2">
+              <button className="btn-secondary" onClick={onDone}>Abrir novo caixa</button>
+              <button className="btn-primary" onClick={() => void logout()}><LogOut className="h-4 w-4" /> Sair (próximo operador)</button>
+            </div>}
       </div>
     );
   }
@@ -624,6 +663,7 @@ function CloseRegister({ terminalId, hasCart, onDone }: { terminalId: string; ha
       <p className="text-sm text-slate-600">Conte todo o dinheiro da gaveta e informe o valor. O sistema compara com o esperado e registra a diferença (quebra ou sobra).</p>
       {m.error && <Alert>{errorMessage(m.error)}</Alert>}
       <Field label="Dinheiro contado (R$) *"><input autoFocus className="input text-xl" inputMode="decimal" required value={counted} onChange={(e) => setCounted(e.target.value)} /></Field>
+      <Field label={otherName ? `Motivo (caixa de ${otherName}) *` : 'Observação'}><input className="input" required={!!otherName} minLength={otherName ? 3 : undefined} maxLength={300} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={otherName ? 'Ex.: operador esqueceu de fechar' : ''} /></Field>
       <div className="flex justify-end"><button className="btn-primary" disabled={m.isPending || hasCart}>Fechar caixa</button></div>
     </form>
   );

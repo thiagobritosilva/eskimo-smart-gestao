@@ -51,32 +51,45 @@ export async function listTerminals() {
   return rows;
 }
 
-export interface TerminalInput { code: string; name: string; locationIds: string[]; cashAccountId?: string | null; openingCash?: string | null }
+export interface TerminalInput { code?: string | null; name?: string | null; locationIds?: string[] | null; cashAccountId?: string | null; openingCash?: string | null }
 
 export async function createTerminal(actor: Actor, input: TerminalInput) {
   need(actor, 'pos.manage');
-  const code = input.code.trim().toUpperCase();
+  // código e nome automáticos: CX01/Caixa 1, CX02/Caixa 2… (o próximo número livre)
+  const used = (await getPool().query<{ code: string; name: string }>('SELECT code, name FROM pos_terminals')).rows;
+  let n = 1;
+  while (used.some((t) => t.code === `CX${String(n).padStart(2, '0')}` || t.name.toLowerCase() === `caixa ${n}`)) n++;
+  const code = input.code?.trim().toUpperCase() || `CX${String(n).padStart(2, '0')}`;
+  const name = input.name?.trim() || `Caixa ${n}`;
+  if (used.some((t) => t.code === code)) throw Errors.conflict(`Já existe o caixa ${code}.`);
+  // estoque das vendas: padrão = estoque geral (central)
+  let locationIds = input.locationIds?.length ? input.locationIds : null;
+  if (!locationIds) {
+    const central = (await getPool().query<{ id: string }>(`SELECT id FROM locations WHERE kind = 'central' ORDER BY sort_order LIMIT 1`)).rows[0];
+    if (!central) throw Errors.businessRule('Estoque central não encontrado.');
+    locationIds = [central.id];
+  }
   let accountId = input.cashAccountId ?? null;
   if (!accountId) {
     // cria a conta "caixa" deste terminal com o fundo de troco informado
     if (input.openingCash == null) throw Errors.badRequest('Informe o fundo de troco (dinheiro na gaveta) para criar o caixa.');
     const acc = await createAccount(elevate(actor, 'finance.manage'), {
-      kind: 'caixa', name: `Caixa ${code}`, openingBalance: input.openingCash, openingDate: todaySP(), allowNegative: false,
+      kind: 'caixa', name: `${name} (${code})`, openingBalance: input.openingCash, openingDate: todaySP(), allowNegative: false,
     });
     accountId = acc.id;
   }
   return withTransaction(async (db) => {
     const acc = (await db.query<{ kind: string }>('SELECT kind FROM financial_accounts WHERE id = $1', [accountId])).rows[0];
     if (!acc || acc.kind !== 'caixa') throw Errors.badRequest('A conta do terminal deve ser do tipo caixa.');
-    const locs = await db.query('SELECT 1 FROM locations WHERE id = ANY($1::uuid[])', [input.locationIds]);
-    if (locs.rowCount !== new Set(input.locationIds).size) throw Errors.badRequest('Local de estoque inválido.');
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO pos_terminals (code, name, cash_account_id, location_ids, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [code, input.name.trim(), accountId, input.locationIds, actor.userId],
+    const locs = await db.query('SELECT 1 FROM locations WHERE id = ANY($1::uuid[])', [locationIds]);
+    if (locs.rowCount !== new Set(locationIds).size) throw Errors.badRequest('Local de estoque inválido.');
+    const { rows } = await db.query<{ id: string; code: string; name: string }>(
+      `INSERT INTO pos_terminals (code, name, cash_account_id, location_ids, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id, code, name`,
+      [code, name, accountId, locationIds, actor.userId],
     );
     // com um caixa cadastrado, as vendas do caixa passam a contar como fonte de vendas (dashboard/relatórios)
     await db.query(`UPDATE pdv_connectors SET is_enabled = true WHERE provider = 'eskimo' AND mode = 'caixa' AND NOT is_enabled`);
-    await writeAudit(db, actor.audit, { action: 'pos.terminal_created', entity: 'pos_terminal', entityId: rows[0]!.id, after: { ...input, code, cashAccountId: accountId } });
+    await writeAudit(db, actor.audit, { action: 'pos.terminal_created', entity: 'pos_terminal', entityId: rows[0]!.id, after: { ...input, code, name, locationIds, cashAccountId: accountId } });
     return rows[0]!;
   });
 }
@@ -105,8 +118,9 @@ async function terminalWithSession(db: Parameters<typeof allocateSale>[0] | Retu
     `SELECT id, code, name, cash_account_id, location_ids, is_active FROM pos_terminals WHERE id = $1 ${lock ? 'FOR SHARE' : ''}`, [id],
   )).rows[0];
   if (!t) throw Errors.notFound('Caixa não encontrado.');
-  const s = (await db.query<{ id: string; number: string; opened_by: string; opened_at: string }>(
-    `SELECT id, number::text, opened_by, opened_at FROM cash_sessions WHERE account_id = $1 AND status = 'aberta'`, [t.cash_account_id],
+  const s = (await db.query<{ id: string; number: string; opened_by: string; opened_by_name: string | null; opened_at: string }>(
+    `SELECT s.id, s.number::text, s.opened_by, u.name AS opened_by_name, s.opened_at
+     FROM cash_sessions s LEFT JOIN users u ON u.id = s.opened_by WHERE s.account_id = $1 AND s.status = 'aberta'`, [t.cash_account_id],
   )).rows[0] ?? null;
   return { terminal: t, session: s };
 }
@@ -137,6 +151,11 @@ export async function openSession(actor: Actor, terminalId: string, counted: str
   need(actor, 'pos.operate');
   const { terminal } = await terminalWithSession(getPool(), terminalId);
   if (!terminal.is_active) throw Errors.businessRule('Caixa inativo.');
+  // um operador só pode ter um caixa aberto por vez (a conferência é por pessoa)
+  const mine = (await getPool().query<{ name: string }>(
+    `SELECT t.name FROM cash_sessions s JOIN pos_terminals t ON t.cash_account_id = s.account_id WHERE s.status = 'aberta' AND s.opened_by = $1`, [actor.userId],
+  )).rows[0];
+  if (mine) throw Errors.businessRule(`Você já tem o ${mine.name} aberto. Feche e confira aquele caixa antes de abrir outro.`);
   return openCashSession(elevate(actor, 'finance.cash'), terminal.cash_account_id, counted, `Abertura do ${terminal.name}`);
 }
 
@@ -145,7 +164,12 @@ export async function closeSession(actor: Actor, terminalId: string, counted: st
   need(actor, 'pos.operate');
   const { terminal, session } = await terminalWithSession(getPool(), terminalId);
   if (!session) throw Errors.businessRule('O caixa já está fechado.');
-  const r = await closeCashSession(elevate(actor, 'finance.cash'), session.id, counted, notes ?? `Fechamento do ${terminal.name}`);
+  // fecha quem abriu; gerente/proprietário pode fechar o caixa de outro (ex.: operador esqueceu), com motivo
+  const other = session.opened_by !== actor.userId;
+  if (other && !actor.permissions.includes('pos.manage')) throw Errors.forbidden(`Este caixa foi aberto por ${session.opened_by_name ?? 'outro operador'}. Somente quem abriu, o gerente ou o proprietário pode fechá-lo.`);
+  if (other && !notes?.trim()) throw Errors.badRequest(`Informe o motivo para fechar o caixa aberto por ${session.opened_by_name ?? 'outro operador'}.`);
+  const r = await closeCashSession(elevate(actor, 'finance.cash'), session.id, counted,
+    other ? `Fechado por outro usuário (caixa de ${session.opened_by_name}): ${notes}` : notes ?? `Fechamento do ${terminal.name}`);
   return { ...r, sessionNumber: session.number };
 }
 
@@ -197,6 +221,7 @@ export async function createSale(actor: Actor, input: SaleInput) {
     const { terminal, session } = await terminalWithSession(db, input.terminalId, true);
     if (!terminal.is_active) throw Errors.businessRule('Caixa inativo.');
     if (!session) throw Errors.businessRule('Abra o caixa antes de vender.');
+    if (session.opened_by !== actor.userId) throw Errors.businessRule(`Este caixa está aberto por ${session.opened_by_name ?? 'outro operador'}. Para vender, ele precisa fechar o caixa e você abrir o seu.`);
 
     // preços SEMPRE do cadastro
     const ids = [...new Set(input.items.map((i) => i.productId))];

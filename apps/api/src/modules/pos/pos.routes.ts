@@ -15,9 +15,9 @@ export async function posRoutes(app: FastifyInstance) {
   app.get('/pos/terminals', { preHandler: operate }, async () => svc.listTerminals());
   app.post('/pos/terminals', { preHandler: manage }, async (req, reply) => {
     const b = parse(z.object({
-      code: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{2,12}$/, 'Código do caixa: 2 a 12 letras/números (ex.: CX01).'),
-      name: z.string().trim().min(2).max(60),
-      locationIds: z.array(uuidSchema).min(1).max(40),
+      code: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{2,12}$/, 'Código do caixa: 2 a 12 letras/números (ex.: CX01).').nullable().optional(),
+      name: z.string().trim().min(2).max(60).nullable().optional(),
+      locationIds: z.array(uuidSchema).min(1).max(40).nullable().optional(),
       cashAccountId: uuidSchema.nullable().optional(),
       openingCash: money.nullable().optional(),
     }), req.body);
