@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { useAuth } from '../lib/auth';
 import { NAV_ITEMS, type NavItem } from '../lib/navigation';
 import { useAlerts } from '../lib/alerts';
+import { UpdateBanner, useVersionWatcher } from '../lib/version';
 import { Logo, Modal } from '../components/ui';
 
 function useVisibleNav(): NavItem[] {
@@ -93,6 +94,7 @@ function QuickSearch({ open, onClose }: { open: boolean; onClose: () => void }) 
 
 export function AppLayout() {
   const { user, logout } = useAuth();
+  const outdated = useVersionWatcher();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -113,6 +115,8 @@ export function AppLayout() {
   }, []);
 
   return (
+    <>
+    <UpdateBanner show={outdated} />
     <div className="min-h-screen lg:pl-64">
       {/* Sidebar desktop */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-brand-600 lg:flex">
@@ -179,5 +183,6 @@ export function AppLayout() {
       </main>
       <QuickSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
+    </>
   );
 }

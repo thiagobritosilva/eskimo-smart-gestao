@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
@@ -88,6 +88,17 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.status(500).send({ error: { code: 'INTERNAL', message: 'Erro interno. A equipe técnica foi notificada.' } });
   });
 
+  // Versão do front-end publicada (hash do index.html, que referencia os arquivos do build).
+  // As abas abertas consultam e se atualizam sozinhas quando muda.
+  const indexFile = e.WEB_DIST_DIR ? path.join(path.resolve(e.WEB_DIST_DIR), 'index.html') : null;
+  const webVersion = indexFile && existsSync(indexFile)
+    ? createHash('sha256').update(readFileSync(indexFile)).digest('hex').slice(0, 12)
+    : 'dev';
+  app.get('/api/version', async (_req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return { web: webVersion };
+  });
+
   app.get('/api/health', async (_req, reply) => {
     try {
       await getPool().query('SELECT 1');
@@ -116,7 +127,17 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Produção: a API também serve o build do front-end (SPA).
   if (e.WEB_DIST_DIR && existsSync(e.WEB_DIST_DIR)) {
-    await app.register(fastifyStatic, { root: path.resolve(e.WEB_DIST_DIR), wildcard: false });
+    await app.register(fastifyStatic, {
+      root: path.resolve(e.WEB_DIST_DIR),
+      wildcard: false,
+      cacheControl: false,
+      setHeaders(res, filePath) {
+        // index.html sempre revalidado (traz a versão nova); arquivos do build têm nome com hash: cache longo
+        if (filePath.endsWith('index.html')) res.header('Cache-Control', 'no-cache');
+        else if (filePath.includes(`${path.sep}assets${path.sep}`)) res.header('Cache-Control', 'public, max-age=31536000, immutable');
+        else res.header('Cache-Control', 'public, max-age=3600');
+      },
+    });
     app.setNotFoundHandler((req, reply) => {
       // Fallback SPA apenas para rotas de navegação (sem extensão de arquivo).
       const pathname = req.url.split('?')[0]!;

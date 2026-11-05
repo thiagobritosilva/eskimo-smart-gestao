@@ -91,3 +91,10 @@ O servidor apenas **lê** o GitHub (chave de implantação somente leitura) — 
 ```bash
 cd /opt/eskimo/app && git fetch origin producao && git checkout -B producao origin/producao && install -m 755 deploy/eskimo.sh /usr/local/bin/eskimo && (grep -q '^DEPLOY_BRANCH=' /opt/eskimo/config.env || echo 'DEPLOY_BRANCH=producao' >> /opt/eskimo/config.env) && eskimo update && eskimo autoupdate on
 ```
+
+### Abas do navegador já abertas
+O servidor se atualiza sozinho; uma aba que já estava aberta, porém, continuaria com a versão antiga até ser recarregada.
+Por isso o sistema consulta `/api/version` a cada minuto e, quando há versão nova, **recarrega sozinho** ao trocar de
+tela ou ao voltar para a aba (momentos em que nada está sendo digitado), além de mostrar o aviso "Atualizar agora".
+O `index.html` é servido sem cache e os arquivos do build (com hash no nome) com cache longo.
+

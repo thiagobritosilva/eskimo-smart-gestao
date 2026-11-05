@@ -315,3 +315,15 @@ describe('rate limit', () => {
     expect(res.headers['x-ratelimit-limit']).toBe('1000');
   });
 });
+
+describe('versão publicada', () => {
+  it('expõe a versão do front-end sem cache, para as abas abertas se atualizarem sozinhas', async () => {
+    const { setupApp } = await import('./helpers.js');
+    const a = await setupApp();
+    const r = await a.inject({ method: 'GET', url: '/api/version' });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['cache-control']).toBe('no-store');
+    expect(typeof r.json().web).toBe('string');
+    await a.close();
+  });
+});
