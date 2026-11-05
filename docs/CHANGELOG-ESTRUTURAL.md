@@ -141,3 +141,12 @@ com impacto e estratégia de preservação de dados.
 - **Permissões:** `reports.view` + a permissão da área (ex.: financeiro exige `finance.view`; DRE exige também
   `dashboard.financial`; custo só com `products.view_cost`).
 
+## Carga inicial pelo PDF de inventário do PDV — sem mudança de banco (2026-11-05)
+- **Estoque → Importar inventário do PDV (PDF):** lê o relatório "INVENTÁRIO" do sistema do PDV (código, descrição,
+  unidade, quantidade, custo unitário e total), confere com os totais do rodapé e mostra prévia editável.
+- **Ao confirmar:** cadastra os produtos que faltam (código interno = código do PDV; categoria sugerida pela descrição),
+  vincula o código ao conector do PDV e lança um único "Estoque inicial" no local escolhido com o custo do PDF.
+  Idempotente por nº + data do inventário. Produto que já tem estoque não é alterado. Item sem custo só entra com custo
+  informado. Preço de venda não vem no PDF (fica para cadastro).
+- **Dependência nova:** `pdfjs-dist` (leitura de texto do PDF, no servidor).
+

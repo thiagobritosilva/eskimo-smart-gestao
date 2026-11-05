@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, RotateCcw } from 'lucide-react';
+import { FileText, Plus, RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage, qs } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -8,6 +8,7 @@ import { formatDate, formatDateTime, formatMoneyOrDash, formatQty, MOVEMENT_LABE
 import type { Category, MovementDetail, MovementListItem, ProductStock } from '../lib/types';
 import { invalidateStock, MovementForm, useLocations } from '../components/stock';
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
+import { PdvInventoryImport } from '../components/pdv-inventory-import';
 
 const IN_TYPES = new Set(['entrada_inicial', 'entrada_compra', 'devolucao_cliente']);
 const OUT_TYPES = new Set(['saida_venda', 'perda', 'avaria', 'vencido', 'devolucao_fornecedor']);
@@ -228,6 +229,7 @@ export function StockPage() {
   const { can } = useAuth();
   const [tab, setTab] = useState<'produtos' | 'movimentacoes' | 'validades'>('produtos');
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   useLocations();
   const canMove = can('stock.move') || can('stock.loss') || can('stock.adjust');
   return (
@@ -235,7 +237,12 @@ export function StockPage() {
       <PageHeader
         title="Estoque"
         subtitle="Visão consolidada de todas as localizações. Toda movimentação fica registrada e é corrigida apenas por estorno."
-        actions={canMove && <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nova movimentação</button>}
+        actions={
+          <>
+            {can('products.manage') && can('stock.adjust') && <button className="btn-secondary" onClick={() => setImporting(true)}><FileText className="h-4 w-4" /> Importar inventário do PDV (PDF)</button>}
+            {canMove && <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nova movimentação</button>}
+          </>
+        }
       />
       <div className="mb-4 flex gap-1 overflow-x-auto border-b border-slate-200">
         {([['produtos', 'Por produto'], ['movimentacoes', 'Movimentações'], ['validades', 'Validades']] as const).map(([k, label]) => (
@@ -245,6 +252,9 @@ export function StockPage() {
       {tab === 'produtos' && <ProductStockTable />}
       {tab === 'movimentacoes' && <MovementsTable />}
       {tab === 'validades' && <ExpiringTable />}
+      <Modal open={importing} size="xl" title="Importar inventário do PDV (PDF)" onClose={() => setImporting(false)}>
+        {importing && <PdvInventoryImport onDone={() => setImporting(false)} />}
+      </Modal>
       <Modal open={creating} title="Nova movimentação" onClose={() => setCreating(false)} size="lg">
         {creating && <MovementForm onDone={() => setCreating(false)} />}
       </Modal>

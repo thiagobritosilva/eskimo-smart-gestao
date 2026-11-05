@@ -7,6 +7,7 @@ import { decimalSchema, optionalDecimal, parse, uuidSchema } from '../../lib/val
 import * as carts from './carts.service.js';
 import * as freezers from './freezers.service.js';
 import * as inventory from './inventory.service.js';
+import * as pdvInventory from './pdv-inventory.import.js';
 import * as q from './stock.queries.js';
 import { createMovement, MOVEMENT_TYPES, reverseMovement, TYPE_RULES } from './stock.service.js';
 
@@ -62,6 +63,32 @@ export async function stockRoutes(app: FastifyInstance) {
     );
     reply.code(201);
     return freezers.createFreezer(body.ownership, body, auditCtx(req));
+  });
+
+  // ----- Carga inicial a partir do PDF de inventário do PDV -----
+  const pdvInvPerm = requirePermission('products.manage', 'stock.adjust');
+  app.post('/stock/pdv-inventory/preview', { preHandler: pdvInvPerm, bodyLimit: 16 * 1024 * 1024 }, async (req) => {
+    const b = parse(z.object({ fileName: z.string().max(200), base64: z.string().max(15 * 1024 * 1024) }), req.body);
+    return pdvInventory.previewPdvInventory({ name: b.fileName, base64: b.base64 });
+  });
+  app.post('/stock/pdv-inventory/import', { preHandler: pdvInvPerm, bodyLimit: 4 * 1024 * 1024 }, async (req) => {
+    const b = parse(
+      z.object({
+        number: z.string().regex(/^\d{1,12}$/),
+        date: dateStr,
+        locationId: uuidSchema,
+        items: z.array(z.object({
+          code: z.string().regex(/^\d{1,12}$/),
+          description: z.string().trim().min(2).max(120),
+          unit: z.string().max(6),
+          quantity: decimalSchema(3, 'Quantidade inválida.'),
+          unitCost: z.string().regex(/^\d{1,10}(\.\d{1,4})?$/, 'Custo inválido.'),
+          category: z.string().trim().max(60).nullable(),
+        })).min(1).max(500),
+      }),
+      req.body,
+    );
+    return pdvInventory.commitPdvInventory(actorOf(req), b);
   });
 
   // ----- Carrinhos de picolé (aluguel) -----
