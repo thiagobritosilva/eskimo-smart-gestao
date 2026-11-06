@@ -102,6 +102,12 @@ export function PartnersTab() {
                   </li>
                 ))}
               </ul>
+              <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+                <div className="mb-1 font-medium text-slate-700">Como o valor é calculado</div>
+                Total investido {formatMoney(d.totalInvested)} → cota de cada um: {active.map((p) => `${p.name} ${pct(p.share)} = ${formatMoney(p.quota)}`).join(' · ')}.
+                {' '}Depois do acerto, cada sócio terá colocado exatamente a sua cota: quem recebe o acerto fica com {active.length === 2 ? 'o mesmo valor investido que o outro' : 'a sua parte'}.
+                {' '}(Pagar a diferença inteira dos investimentos ao outro sócio inverteria o desequilíbrio; ela só vale se o dinheiro for colocado <b>na empresa</b> — aí lance como investimento.)
+              </div>
               <p className="mt-2 text-xs text-slate-500">Pode ser pago em partes: o saldo continua negativo até quitar. Se o sócio colocar o dinheiro na empresa (e não para o outro sócio), lance como investimento — nesse caso o total investido e as cotas aumentam.</p>
             </div>
           )}
