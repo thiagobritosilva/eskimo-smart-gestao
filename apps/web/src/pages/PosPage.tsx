@@ -114,19 +114,17 @@ export function printReceipt(r: ReceiptData, copy = false) {
 function TerminalSetup({ onDone, count }: { onDone: () => void; count: number }) {
   const qc = useQueryClient();
   const locations = useLocations();
-  const [openingCash, setOpeningCash] = useState('');
   const [advanced, setAdvanced] = useState(false);
   const [locationIds, setLocationIds] = useState<string[]>([]);
   const m = useMutation({
-    mutationFn: () => api.post('/pos/terminals', { openingCash: toDecimal(openingCash) || '0', locationIds: advanced && locationIds.length ? locationIds : null }),
+    mutationFn: () => api.post('/pos/terminals', { locationIds: advanced && locationIds.length ? locationIds : null }),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['pos'] }); onDone(); },
   });
   const toggle = (id: string) => setLocationIds((x) => (x.includes(id) ? x.filter((i) => i !== id) : [...x, id]));
   return (
     <form className="space-y-4" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>
       {m.error && <Alert>{errorMessage(m.error)}</Alert>}
-      <Alert kind="info">Código e nome são gerados automaticamente (próximo: <strong>Caixa {count + 1}</strong>). As vendas baixam do <strong>estoque geral</strong>.</Alert>
-      <Field label="Fundo de troco inicial (R$)" hint="Dinheiro que fica na gaveta deste caixa. Em branco = R$ 0,00."><input className="input" inputMode="decimal" autoFocus value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="0,00" /></Field>
+      <Alert kind="info">Código e nome são gerados automaticamente (próximo: <strong>Caixa {count + 1}</strong>). As vendas baixam do <strong>estoque geral</strong>. O dinheiro da gaveta (fundo de troco) é informado por quem abrir o caixa, a cada turno.</Alert>
       <button type="button" className="text-xs text-slate-500 underline" onClick={() => setAdvanced(!advanced)}>{advanced ? 'Usar o estoque geral' : 'Opção avançada: baixar de outro local (freezer/carrinho)'}</button>
       {advanced && (
         <Field label="De onde sai o estoque das vendas (em ordem)" hint="Clique na ordem de prioridade. Sem seleção = estoque geral.">
@@ -472,14 +470,14 @@ function OpenRegister({ state, onChangeTerminal }: { state: State; onChangeTermi
       <div className="mb-6 flex items-center justify-between"><Logo /><Link to="/" className="btn-ghost"><ArrowLeft className="h-4 w-4" /> Sistema</Link></div>
       <div className="card p-6">
         <h1 className="text-xl font-bold text-ink-900">{state.terminal.name}</h1>
-        <p className="mb-2 text-sm text-slate-500">Caixa fechado. Conte o dinheiro da gaveta para abrir o <strong>seu</strong> caixa.</p>
+        <p className="mb-2 text-sm text-slate-500">Caixa fechado. Conte o dinheiro que está na gaveta (fundo de troco) e informe para abrir o <strong>seu</strong> caixa. No fechamento, o esperado será esse valor + as vendas em dinheiro.</p>
         <div className="mb-4 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
           <span><UserRound className="mr-1 inline h-4 w-4" /> Operador: <strong>{user?.name}</strong></span>
           <button type="button" className="text-xs text-brand-700 underline" onClick={() => void logout()}>Não é você? Sair</button>
         </div>
         {m.error && <div className="mb-3"><Alert>{errorMessage(m.error)}</Alert></div>}
         <form onSubmit={(e) => { e.preventDefault(); m.mutate(); }} className="space-y-3">
-          <Field label="Dinheiro na gaveta (R$)"><input autoFocus className="input text-xl" inputMode="decimal" required value={counted} onChange={(e) => setCounted(e.target.value)} /></Field>
+          <Field label="Dinheiro na gaveta / fundo de troco (R$) *"><input autoFocus className="input text-xl" inputMode="decimal" required value={counted} onChange={(e) => setCounted(e.target.value)} /></Field>
           <button className="btn-primary w-full" disabled={m.isPending}>Abrir caixa</button>
         </form>
         <button className="btn-ghost mt-3 w-full text-xs" onClick={onChangeTerminal}>Este computador é outro caixa</button>

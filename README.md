@@ -30,7 +30,7 @@ O `create-owner` só funciona enquanto não houver um proprietário ativo. Depoi
 
 ## Testes
 ```bash
-npm test        # 148 testes de API contra PostgreSQL real (banco eskimo_test, recriado a cada execução)
+npm test        # 149 testes de API contra PostgreSQL real (banco eskimo_test, recriado a cada execução)
 npm run typecheck
 ```
 

@@ -205,3 +205,11 @@ com impacto e estratégia de preservação de dados.
   gerente/proprietário pode fechar o caixa esquecido de outro, com motivo (registrado no fechamento e na auditoria).
 - **Tela:** nome do operador logado no topo; caixa aberto por outra pessoa fica bloqueado com aviso; após fechar e
   conferir, opção "Sair (próximo operador)" para o próximo fazer login e abrir o próprio caixa.
+
+## Fundo de troco na abertura do caixa (2026-11-06, sem migration)
+- O cadastro do caixa não pede mais fundo de troco (gaveta criada com saldo 0).
+- Na abertura, o dinheiro contado pelo operador passa a ser o fundo do turno: a diferença para o saldo anterior da
+  gaveta é lançada como **suprimento** (conta da loja → gaveta) ou **retirada/sangria** (gaveta → conta da loja), na
+  sessão aberta — movimentação entre contas próprias, sem efeito na DRE. O fechamento confere fundo + vendas em dinheiro.
+- Lançamentos sem conta escolhida ignoram as gavetas dos caixas (vão para a conta da loja), evitando o erro
+  "Escolha a conta" depois de cadastrar caixas.

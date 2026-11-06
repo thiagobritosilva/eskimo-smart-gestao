@@ -177,4 +177,29 @@ describe('frente de caixa', () => {
     expect(c.statusCode, c.body).toBe(200);
     await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${t2}`, payload: { isActive: false } });
   });
+
+  it('abertura: o dinheiro informado é o fundo de troco do turno; fechamento confere fundo + vendas; sem efeito na DRE', async () => {
+    const t = await call(owner.cookie, { method: 'POST', url: '/api/pos/terminals', payload: {} }); // sem fundo no cadastro
+    expect(t.statusCode, t.body).toBe(201);
+    const tid = t.json().id as string;
+    const acc = (await getPool().query('SELECT cash_account_id FROM pos_terminals WHERE id = $1', [tid])).rows[0].cash_account_id;
+    const bal = async () => (await getPool().query('SELECT balance::text FROM financial_account_balances WHERE account_id = $1', [acc])).rows[0].balance;
+    const op = await asRole(app, 'FUNCIONARIO');
+    const o = await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${tid}/open`, payload: { counted: '150.00' } });
+    expect(o.statusCode, o.body).toBe(201);
+    expect(o.json().fundMove).toMatchObject({ kind: 'suprimento', amount: '150.00' });
+    expect(await bal()).toBe('150.00');
+    const v = await call(op.cookie, { method: 'POST', url: '/api/pos/sales', payload: { terminalId: tid, idempotencyKey: randomUUID(), items: [{ productId: p1, quantity: '1' }], payments: [{ methodCode: 'dinheiro', amount: '5.00' }] } });
+    expect(v.statusCode, v.body).toBe(201);
+    const c = await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${tid}/close`, payload: { counted: '155.00' } });
+    expect(c.json()).toMatchObject({ expected: '155.00', difference: '0.00' });
+    // próximo turno: o dono levou o dinheiro das vendas e deixou R$ 100 de troco → retirada, não é quebra
+    const o2 = await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${tid}/open`, payload: { counted: '100.00' } });
+    expect(o2.json().fundMove).toMatchObject({ kind: 'sangria', amount: '55.00' });
+    expect(await bal()).toBe('100.00');
+    const kinds = (await getPool().query(`SELECT DISTINCT kind FROM financial_transactions WHERE account_id = $1 AND kind <> 'liquidacao'`, [acc])).rows.map((r) => r.kind).sort();
+    expect(kinds).toEqual(['sangria', 'suprimento']); // movimentação entre contas próprias, não receita/despesa
+    await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${tid}/close`, payload: { counted: '100.00' } });
+    await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${tid}`, payload: { isActive: false } });
+  });
 });

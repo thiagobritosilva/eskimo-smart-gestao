@@ -72,9 +72,9 @@ export async function createTerminal(actor: Actor, input: TerminalInput) {
   let accountId = input.cashAccountId ?? null;
   if (!accountId) {
     // cria a conta "caixa" deste terminal com o fundo de troco informado
-    if (input.openingCash == null) throw Errors.badRequest('Informe o fundo de troco (dinheiro na gaveta) para criar o caixa.');
+    // a gaveta começa vazia: o dinheiro é informado por quem abre o caixa (fundo de troco do turno)
     const acc = await createAccount(elevate(actor, 'finance.manage'), {
-      kind: 'caixa', name: `${name} (${code})`, openingBalance: input.openingCash, openingDate: todaySP(), allowNegative: false,
+      kind: 'caixa', name: `${name} (${code})`, openingBalance: input.openingCash ?? '0.00', openingDate: todaySP(), allowNegative: false,
     });
     accountId = acc.id;
   }
@@ -156,7 +156,7 @@ export async function openSession(actor: Actor, terminalId: string, counted: str
     `SELECT t.name FROM cash_sessions s JOIN pos_terminals t ON t.cash_account_id = s.account_id WHERE s.status = 'aberta' AND s.opened_by = $1`, [actor.userId],
   )).rows[0];
   if (mine) throw Errors.businessRule(`Você já tem o ${mine.name} aberto. Feche e confira aquele caixa antes de abrir outro.`);
-  return openCashSession(elevate(actor, 'finance.cash'), terminal.cash_account_id, counted, `Abertura do ${terminal.name}`);
+  return openCashSession(elevate(actor, 'finance.cash'), terminal.cash_account_id, counted, `Abertura do ${terminal.name}`, { adoptCounted: true });
 }
 
 /** Fechamento "às cegas": o operador informa o dinheiro contado; o sistema calcula a diferença e registra quebra/sobra. */

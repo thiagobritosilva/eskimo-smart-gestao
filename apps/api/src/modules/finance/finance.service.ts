@@ -157,7 +157,9 @@ function assertDate(account: AccountRow, occurredAt: string | null | undefined) 
 export async function resolveAccountId(db: Db, actor: Actor, accountId: string | null | undefined, occurredAt?: string | null): Promise<string> {
   if (accountId) return accountId;
   await db.query('LOCK TABLE financial_accounts IN SHARE ROW EXCLUSIVE MODE');
-  const { rows } = await db.query<{ id: string }>(`SELECT id FROM financial_accounts WHERE is_active ORDER BY created_at`);
+  // as gavetas dos caixas (frente de caixa) não contam: o pagamento sem conta vai para a conta da loja
+  const { rows } = await db.query<{ id: string }>(
+    `SELECT id FROM financial_accounts WHERE is_active AND id NOT IN (SELECT cash_account_id FROM pos_terminals) ORDER BY created_at`);
   if (rows.length === 1) return rows[0]!.id;
   if (rows.length > 1) throw Errors.badRequest('Escolha a conta do pagamento.');
   const day = occurredAt
@@ -657,7 +659,22 @@ export async function reverseTransactionInDb(db: Db, actor: Actor, id: string, r
 // =====================================================================
 // Sessões de caixa
 // =====================================================================
-export async function openCashSession(actor: Actor, accountId: string, openingCounted: string, notes: string | null) {
+/**
+ * Conta da loja para onde vai/de onde vem o dinheiro da gaveta entre turnos: a única conta que não é gaveta de caixa;
+ * havendo várias, a "Conta principal" ou a primeira conta bancária; se não houver nenhuma, cria a "Conta principal".
+ */
+async function storeAccountId(db: Db, actor: Actor): Promise<string> {
+  const { rows } = await db.query<{ id: string; name: string; kind: string }>(
+    `SELECT id, name, kind FROM financial_accounts WHERE is_active AND id NOT IN (SELECT cash_account_id FROM pos_terminals) ORDER BY created_at`);
+  if (rows.length === 1) return rows[0]!.id;
+  const pick = rows.find((r) => r.name.toLowerCase() === 'conta principal') ?? rows.find((r) => r.kind === 'banco') ?? rows[0];
+  return pick ? pick.id : resolveAccountId(db, actor, null);
+}
+
+export async function openCashSession(
+  actor: Actor, accountId: string, openingCounted: string, notes: string | null,
+  opts: { adoptCounted?: boolean } = {},
+) {
   require(actor, 'finance.cash');
   return withTransaction(async (db) => {
     const acc = await lockAccount(db, accountId);
@@ -671,8 +688,28 @@ export async function openCashSession(actor: Actor, accountId: string, openingCo
       [accountId, actor.userId, fromCents(counted), acc.balance, notes],
     );
     const diff = counted - toCentsSigned(acc.balance);
-    await writeAudit(db, actor.audit, { action: 'finance.cash_opened', entity: 'cash_session', entityId: rows[0]!.id, metadata: { counted: fromCents(counted), system: acc.balance, difference: fromCents(diff) } });
-    return { ...rows[0]!, openingDifference: fromCents(diff) };
+    /*
+     * Frente de caixa: o dinheiro contado na abertura é o fundo de troco do turno. A diferença para o saldo anterior
+     * da gaveta é dinheiro que entrou (suprimento) ou saiu (retirada/sangria) entre os turnos, movimentado com a conta
+     * da loja — não é receita nem despesa (não afeta a DRE). Assim o fechamento confere: fundo + vendas em dinheiro.
+     */
+    let fundMove: { kind: 'suprimento' | 'sangria'; amount: string; storeAccountId: string } | null = null;
+    if (opts.adoptCounted && diff !== 0) {
+      const store = await storeAccountId(db, actor);
+      await lockAccount(db, store);
+      const kind = diff > 0 ? 'suprimento' : 'sangria';
+      const cents = Math.abs(diff);
+      const desc = diff > 0
+        ? `Fundo de troco na abertura do ${acc.name} (sessão nº ${rows[0]!.number})`
+        : `Retirada da gaveta antes da abertura do ${acc.name} (sessão nº ${rows[0]!.number})`;
+      const group = (await db.query<{ g: string }>('SELECT gen_random_uuid()::text AS g')).rows[0]!.g;
+      const [fromId, toId] = diff > 0 ? [store, acc.id] : [acc.id, store];
+      await insertTx(db, actor, { accountId: fromId, direction: 'saida', amountCents: cents, kind, description: desc, transferGroup: group, cashSessionId: fromId === acc.id ? rows[0]!.id : null });
+      await insertTx(db, actor, { accountId: toId, direction: 'entrada', amountCents: cents, kind, description: desc, transferGroup: group, cashSessionId: toId === acc.id ? rows[0]!.id : null });
+      fundMove = { kind, amount: fromCents(cents), storeAccountId: store };
+    }
+    await writeAudit(db, actor.audit, { action: 'finance.cash_opened', entity: 'cash_session', entityId: rows[0]!.id, metadata: { counted: fromCents(counted), system: acc.balance, difference: fromCents(diff), fundMove } });
+    return { ...rows[0]!, openingDifference: fromCents(diff), fundMove };
   });
 }
 
