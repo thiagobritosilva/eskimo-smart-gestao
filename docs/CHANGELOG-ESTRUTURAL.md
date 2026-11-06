@@ -228,3 +228,12 @@ com impacto e estratégia de preservação de dados.
   pedidos de compra (nº), usuários e sócios (só Proprietário). Cada grupo respeita a permissão do perfil.
 - Campo de pesquisa no topo do Dashboard e no "Pesquisar… (Ctrl K)"; o resultado abre direto o produto, o título
   financeiro, o freezer/carrinho ou o pedido.
+
+## 0015_cancelar_caixa — cancelar abertura e excluir caixa (2026-11-06)
+- **O quê:** `cash_sessions.status` ganha `cancelada` (+ `cancel_reason`, `cancelled_by`, `cancelled_at`);
+  `pos_terminals` ganha `deleted_at`, `deleted_by`, `delete_reason`.
+- **Cancelar abertura (somente Proprietário, com motivo):** só sem nenhuma venda/movimentação na sessão; o fundo de
+  troco lançado na abertura é desfeito por estorno; a sessão fica "cancelada" (não é apagada).
+- **Excluir caixa (somente Proprietário, com motivo):** só com o caixa fechado; o caixa some da lista e não pode mais
+  ser usado; saldo restante da gaveta volta para a conta da loja (transferência); vendas e fechamentos antigos permanecem.
+- **Impacto:** colunas novas e ampliação de CHECK; nenhum dado existente alterado. Tudo auditado.

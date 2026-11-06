@@ -37,6 +37,16 @@ export async function posRoutes(app: FastifyInstance) {
     reply.code(201);
     return svc.openSession(actorOf(req), id, b.counted);
   });
+  app.post('/pos/terminals/:id/cancel-opening', { preHandler: operate }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const b = parse(z.object({ reason: z.string().trim().min(3, 'Informe o motivo.').max(300) }), req.body);
+    return svc.cancelOpening(actorOf(req), id, b.reason);
+  });
+  app.post('/pos/terminals/:id/delete', { preHandler: manage }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const b = parse(z.object({ reason: z.string().trim().min(3, 'Informe o motivo.').max(300) }), req.body);
+    return svc.deleteTerminal(actorOf(req), id, b.reason);
+  });
   app.post('/pos/terminals/:id/close', { preHandler: operate }, async (req) => {
     const { id } = parse(idParams, req.params);
     const b = parse(z.object({ counted: money, notes: z.string().trim().max(300).nullable().optional() }), req.body);

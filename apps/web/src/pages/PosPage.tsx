@@ -148,9 +148,28 @@ function TerminalSetup({ onDone, count }: { onDone: () => void; count: number })
   );
 }
 
+/** Confirmação com motivo obrigatório (vai para a auditoria). */
+function ReasonAction({ title, text, confirm, run, onDone, onClose }: { title: string; text: string; confirm: string; run: (reason: string) => Promise<unknown>; onDone: () => void; onClose: () => void }) {
+  const [reason, setReason] = useState('');
+  const m = useMutation({ mutationFn: () => run(reason.trim()), onSuccess: () => { onDone(); onClose(); } });
+  return (
+    <Modal open title={title} onClose={onClose}>
+      <form className="space-y-3" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>
+        <p className="text-sm text-slate-600">{text}</p>
+        {m.error && <Alert>{errorMessage(m.error)}</Alert>}
+        <Field label="Motivo *" hint="Fica registrado na auditoria."><input autoFocus className="input" required minLength={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Voltar</button><button className="btn-primary bg-red-600 hover:bg-red-700" disabled={m.isPending}>{confirm}</button></div>
+      </form>
+    </Modal>
+  );
+}
+
 // ------------------------------------------------------------------ escolha do caixa
 function TerminalPicker({ onPick }: { onPick: (id: string) => void }) {
   const { can, user } = useAuth();
+  const owner = useIsOwner();
+  const qc = useQueryClient();
+  const [removing, setRemoving] = useState<Terminal | null>(null);
   const list = useQuery({ queryKey: ['pos', 'terminals'], queryFn: () => api.get<Terminal[]>('/pos/terminals') });
   const [setup, setSetup] = useState(false);
   return (
@@ -161,15 +180,26 @@ function TerminalPicker({ onPick }: { onPick: (id: string) => void }) {
       {list.isLoading && <Spinner />}
       <div className="grid gap-3 sm:grid-cols-2">
         {list.data?.filter((t) => t.is_active).map((t) => (
-          <button key={t.id} onClick={() => onPick(t.id)} className="card p-4 text-left transition hover:border-brand-300 hover:shadow-md">
-            <div className="flex items-center gap-2 text-lg font-bold text-ink-900"><ScanBarcode className="h-5 w-5 text-brand-600" /> {t.name}</div>
-            <div className="text-xs text-slate-500">{t.code} · estoque: {t.location_codes?.join(' → ') ?? '—'}</div>
-            <div className={clsx('mt-2 text-sm font-medium', t.open_session ? 'text-emerald-700' : 'text-slate-500')}>{t.open_session ? `Aberto por ${t.open_session.opened_by}` : 'Fechado'}</div>
-          </button>
+          <div key={t.id} className="card relative p-4 transition hover:border-brand-300 hover:shadow-md">
+            <button onClick={() => onPick(t.id)} className="block w-full text-left">
+              <div className="flex items-center gap-2 text-lg font-bold text-ink-900"><ScanBarcode className="h-5 w-5 text-brand-600" /> {t.name}</div>
+              <div className="text-xs text-slate-500">{t.code} · estoque: {t.location_codes?.join(' → ') ?? '—'}</div>
+              <div className={clsx('mt-2 text-sm font-medium', t.open_session ? 'text-emerald-700' : 'text-slate-500')}>{t.open_session ? `Aberto por ${t.open_session.opened_by}` : 'Fechado'}</div>
+            </button>
+            {owner && <button className="absolute right-3 top-3 rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir caixa" aria-label={`Excluir ${t.name}`} onClick={() => setRemoving(t)}><Trash2 className="h-4 w-4" /></button>}
+          </div>
         ))}
       </div>
       {list.data && !list.data.length && <Alert kind="info">Nenhum caixa cadastrado ainda.{can('pos.manage') ? ' Cadastre os caixas da loja abaixo.' : ' Peça ao gerente ou proprietário para cadastrar.'}</Alert>}
       {can('pos.manage') && <button className="btn-secondary mt-5" onClick={() => setSetup(true)}><Settings2 className="h-4 w-4" /> Cadastrar caixa</button>}
+      {removing && (
+        <ReasonAction title={`Excluir ${removing.name}`} confirm="Excluir caixa" onClose={() => setRemoving(null)}
+          text={removing.open_session
+            ? `Este caixa está aberto por ${removing.open_session.opened_by}. Feche ou cancele a abertura antes de excluir.`
+            : 'O caixa sai da lista e não pode mais ser usado. Vendas e fechamentos antigos continuam nos relatórios; se ainda houver dinheiro registrado na gaveta, ele volta para a conta da loja.'}
+          run={(reason) => api.post(`/pos/terminals/${removing.id}/delete`, { reason })}
+          onDone={() => void qc.invalidateQueries({ queryKey: ['pos'] })} />
+      )}
       <Modal open={setup} size="lg" title="Cadastrar caixa" onClose={() => setSetup(false)}>{setup && <TerminalSetup count={list.data?.length ?? 0} onDone={() => setSetup(false)} />}</Modal>
     </div>
   );
@@ -253,7 +283,7 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState<{ kind: 'error' | 'warning'; text: string } | null>(null);
   const [discount, setDiscount] = useState<{ value: string; reason: string } | null>(null);
-  const [dialog, setDialog] = useState<null | 'pay' | 'search' | 'discount' | 'close' | 'sales' | 'receipt' | 'customer' | 'price'>(null);
+  const [dialog, setDialog] = useState<null | 'pay' | 'search' | 'discount' | 'close' | 'sales' | 'receipt' | 'customer' | 'price' | 'cancelOpening'>(null);
   const [customer, setCustomer] = useState<{ name: string; document: string } | null>(null);
   const [autoPrint, setAutoPrint] = useState(readAutoPrint);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
@@ -337,6 +367,7 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
         <div className="ml-auto flex items-center gap-1 text-sm">
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('price')}><Tag className="mr-1 inline h-4 w-4" /> Consultar preço (F3)</button>
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('sales')}><Receipt className="mr-1 inline h-4 w-4" /> Vendas</button>
+          {owner && !st.summary?.sales && !st.summary?.cancelled && <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('cancelOpening')}><X className="mr-1 inline h-4 w-4" /> Cancelar abertura</button>}
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('close')}><LogOut className="mr-1 inline h-4 w-4" /> Fechar caixa</button>
           <Link to="/" className="rounded-md px-3 py-1.5 hover:bg-white/10"><ArrowLeft className="mr-1 inline h-4 w-4" /> Sistema</Link>
         </div>
@@ -427,6 +458,12 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
       <Modal open={dialog === 'sales'} size="lg" title="Vendas desta sessão" onClose={() => setDialog(null)}>
         {dialog === 'sales' && <SessionSales terminalId={terminalId} owner={owner} />}
       </Modal>
+      {dialog === 'cancelOpening' && (
+        <ReasonAction title="Cancelar abertura do caixa" confirm="Cancelar abertura" onClose={() => setDialog(null)}
+          text="Use quando o caixa foi aberto por engano. Só é possível enquanto não houver nenhuma venda. O fundo de troco informado na abertura é estornado e a sessão fica registrada como cancelada."
+          run={(reason) => api.post(`/pos/terminals/${terminalId}/cancel-opening`, { reason })}
+          onDone={() => void state.refetch()} />
+      )}
       <Modal open={dialog === 'close'} title={`Fechar ${st.terminal.name}`} onClose={() => setDialog(null)}>
         {dialog === 'close' && <CloseRegister terminalId={terminalId} hasCart={cart.length > 0} onDone={() => { setDialog(null); void state.refetch(); }} />}
       </Modal>
@@ -436,7 +473,9 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
 
 function BusyRegister({ state, onChangeTerminal }: { state: State; onChangeTerminal: () => void }) {
   const { can, logout } = useAuth();
+  const owner = useIsOwner();
   const [closing, setClosing] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const qc = useQueryClient();
   const s = state.session!;
   const who = s.opened_by_name ?? 'outro operador';
@@ -448,8 +487,15 @@ function BusyRegister({ state, onChangeTerminal }: { state: State; onChangeTermi
         <Alert kind="warning">Este caixa está aberto por <strong>{who}</strong> desde {formatDateTime(s.opened_at)}. Cada operador trabalha no próprio caixa: <strong>{who}</strong> precisa entrar, fechar e conferir o caixa antes de você abrir o seu.</Alert>
         <button className="btn-primary w-full" onClick={() => void logout()}><LogOut className="h-4 w-4" /> Sair e entrar como {who}</button>
         {can('pos.manage') && <button className="btn-secondary w-full" onClick={() => setClosing(true)}>Fechar o caixa de {who} (gerência)</button>}
+        {owner && !state.summary?.sales && !state.summary?.cancelled && <button className="btn-ghost w-full text-red-600" onClick={() => setCancelling(true)}>Cancelar abertura feita por engano</button>}
         <button className="btn-ghost w-full text-xs" onClick={onChangeTerminal}>Este computador é outro caixa</button>
       </div>
+      {cancelling && (
+        <ReasonAction title={`Cancelar abertura de ${who}`} confirm="Cancelar abertura" onClose={() => setCancelling(false)}
+          text="O caixa foi aberto por engano e não tem vendas. O fundo de troco da abertura é estornado e a sessão fica registrada como cancelada."
+          run={(reason) => api.post(`/pos/terminals/${state.terminal.id}/cancel-opening`, { reason })}
+          onDone={() => void qc.invalidateQueries({ queryKey: ['pos'] })} />
+      )}
       <Modal open={closing} title={`Fechar caixa aberto por ${who}`} onClose={() => setClosing(false)}>
         {closing && <CloseRegister terminalId={state.terminal.id} hasCart={false} otherName={who} onDone={() => { setClosing(false); void qc.invalidateQueries({ queryKey: ['pos'] }); }} />}
       </Modal>

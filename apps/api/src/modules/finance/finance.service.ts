@@ -769,3 +769,47 @@ export async function setReconciled(actor: Actor, transactionId: string, reconci
 }
 
 export { todaySP };
+
+/**
+ * Cancela uma sessão de caixa aberta por engano. Só sem nenhuma venda/movimentação além do fundo de troco da abertura,
+ * que é desfeito por estorno. A sessão não é apagada: fica "cancelada" com quem, quando e motivo.
+ * Permissão (Proprietário) e regras de vendas são verificadas por quem chama.
+ */
+export async function cancelCashSessionInDb(db: Db, actor: Actor, sessionId: string, reason: string) {
+  const s = (await db.query(`SELECT * FROM cash_sessions WHERE id = $1 FOR UPDATE`, [sessionId])).rows[0];
+  if (!s) throw Errors.notFound('Sessão de caixa não encontrada.');
+  if (s.status !== 'aberta') throw Errors.conflict('Só é possível cancelar um caixa que está aberto.');
+  const txs = (await db.query<{ id: string; kind: string; transfer_group: string | null; reversed: boolean }>(
+    `SELECT t.id, t.kind, t.transfer_group, EXISTS (SELECT 1 FROM financial_transactions r WHERE r.reverses_id = t.id) AS reversed
+     FROM financial_transactions t WHERE t.cash_session_id = $1 AND t.kind <> 'estorno' ORDER BY t.number`, [sessionId],
+  )).rows;
+  const openingFund = (t: { kind: string }) => t.kind === 'suprimento' || t.kind === 'sangria';
+  // só o fundo da abertura (1ª movimentação) pode existir; qualquer outra coisa exige o fechamento normal
+  if (txs.some((t, i) => !(i === 0 && openingFund(t)) && !t.reversed)) {
+    throw Errors.businessRule('Este caixa já tem movimentações (vendas, sangrias ou suprimentos). Feche o caixa normalmente; vendas erradas são canceladas uma a uma.');
+  }
+  if (txs[0] && openingFund(txs[0]) && !txs[0].reversed) await reverseTransactionInDb(db, actor, txs[0].id, `Abertura do caixa cancelada: ${reason}`);
+  await db.query(
+    `UPDATE cash_sessions SET status = 'cancelada', cancel_reason = $2, cancelled_by = $3, cancelled_at = now(), closed_at = now(), closed_by = $3 WHERE id = $1`,
+    [sessionId, reason, actor.userId],
+  );
+  await writeAudit(db, actor.audit, { action: 'finance.cash_session_cancelled', entity: 'cash_session', entityId: sessionId, before: s, metadata: { reason, fundReversed: !!txs[0] } });
+}
+
+/** Ao excluir um caixa: o dinheiro que ainda estiver na gaveta volta para a conta da loja e a gaveta é desativada. */
+export async function retireCashAccountInDb(db: Db, actor: Actor, accountId: string, label: string) {
+  const acc = await lockAccount(db, accountId);
+  const cents = toCentsSigned(acc.balance);
+  let moved: string | null = null;
+  if (cents > 0) {
+    const store = await storeAccountId(db, actor);
+    await lockAccount(db, store);
+    const group = (await db.query<{ g: string }>('SELECT gen_random_uuid()::text AS g')).rows[0]!.g;
+    const desc = `Saldo da gaveta do ${label} (caixa excluído) devolvido à conta da loja`;
+    await insertTx(db, actor, { accountId: acc.id, direction: 'saida', amountCents: cents, kind: 'transferencia', description: desc, transferGroup: group });
+    await insertTx(db, actor, { accountId: store, direction: 'entrada', amountCents: cents, kind: 'transferencia', description: desc, transferGroup: group });
+    moved = fromCents(cents);
+  }
+  await db.query('UPDATE financial_accounts SET is_active = false WHERE id = $1', [accountId]);
+  return { moved };
+}

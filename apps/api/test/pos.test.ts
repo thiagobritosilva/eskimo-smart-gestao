@@ -202,4 +202,44 @@ describe('frente de caixa', () => {
     await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${tid}/close`, payload: { counted: '100.00' } });
     await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${tid}`, payload: { isActive: false } });
   });
+
+  it('Proprietário cancela abertura feita por engano (sem vendas) e exclui caixa; tudo com motivo e auditoria', async () => {
+    const t = (await call(owner.cookie, { method: 'POST', url: '/api/pos/terminals', payload: {} })).json();
+    const acc = (await getPool().query('SELECT cash_account_id FROM pos_terminals WHERE id = $1', [t.id])).rows[0].cash_account_id;
+    const bal = async () => (await getPool().query('SELECT balance::text FROM financial_account_balances WHERE account_id = $1', [acc])).rows[0].balance;
+    const op = await asRole(app, 'FUNCIONARIO');
+    expect((await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/open`, payload: { counted: '80.00' } })).statusCode).toBe(201);
+    expect(await bal()).toBe('80.00');
+    // funcionário não cancela; sem motivo não cancela
+    expect((await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/cancel-opening`, payload: { reason: 'engano' } })).statusCode).toBe(403);
+    expect((await call(owner.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/cancel-opening`, payload: { reason: '' } })).statusCode).toBe(400);
+    const c = await call(owner.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/cancel-opening`, payload: { reason: 'abriu no caixa errado' } });
+    expect(c.statusCode, c.body).toBe(200);
+    expect(await bal()).toBe('0.00'); // fundo estornado
+    const s = (await getPool().query(`SELECT status, cancel_reason FROM cash_sessions WHERE account_id = $1`, [acc])).rows[0];
+    expect(s).toEqual({ status: 'cancelada', cancel_reason: 'abriu no caixa errado' });
+    expect((await call(op.cookie, { method: 'GET', url: `/api/pos/terminals/${t.id}/state` })).json().session).toBeNull();
+
+    // com venda não cancela: precisa fechar normalmente
+    await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/open`, payload: { counted: '50.00' } });
+    const v = await call(op.cookie, { method: 'POST', url: '/api/pos/sales', payload: { terminalId: t.id, idempotencyKey: randomUUID(), items: [{ productId: p1, quantity: '1' }], payments: [{ methodCode: 'dinheiro', amount: '5.00' }] } });
+    expect(v.statusCode, v.body).toBe(201);
+    expect((await call(owner.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/cancel-opening`, payload: { reason: 'tentativa' } })).statusCode).toBe(422);
+    // caixa aberto não pode ser excluído
+    expect((await call(owner.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/delete`, payload: { reason: 'teste' } })).statusCode).toBe(422);
+    await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/close`, payload: { counted: '55.00' } });
+
+    // gerente não exclui; Proprietário exclui: some da lista, gaveta volta para a conta da loja, venda continua registrada
+    const ger = await asRole(app, 'GERENTE');
+    expect((await call(ger.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/delete`, payload: { reason: 'teste' } })).statusCode).toBe(403);
+    const d = await call(owner.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/delete`, payload: { reason: 'cadastrado por engano' } });
+    expect(d.statusCode, d.body).toBe(200);
+    expect(d.json().cashMovedToStore).toBe('55.00');
+    expect(await bal()).toBe('0.00');
+    const list = (await call(owner.cookie, { method: 'GET', url: '/api/pos/terminals' })).json();
+    expect(list.some((x: { id: string }) => x.id === t.id)).toBe(false);
+    expect((await getPool().query('SELECT status FROM sales WHERE id = $1', [v.json().id])).rows[0].status).toBe('concluida');
+    const audit = await getPool().query(`SELECT metadata FROM audit_log WHERE action = 'pos.terminal_deleted' AND entity_id = $1`, [t.id]);
+    expect(audit.rows[0].metadata.reason).toBe('cadastrado por engano');
+  });
 });

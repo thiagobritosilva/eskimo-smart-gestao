@@ -6,7 +6,7 @@ import { Errors } from '../../lib/errors.js';
 import { fromCents, toCents, todaySP } from '../../lib/money.js';
 import { OWNER_ROLE } from '../auth/permissions.js';
 import {
-  cancelTitleInDb, closeCashSession, createAccount, createTitleInDb, openCashSession, reverseTransactionInDb,
+  cancelCashSessionInDb, cancelTitleInDb, closeCashSession, createAccount, createTitleInDb, openCashSession, retireCashAccountInDb, reverseTransactionInDb,
 } from '../finance/finance.service.js';
 import { allocateSale } from '../pdv/pdv.service.js';
 import { reverseMovement, type Actor } from '../stock/stock.service.js';
@@ -46,6 +46,7 @@ export async function listTerminals() {
             (SELECT jsonb_build_object('id', s.id, 'number', s.number, 'opened_at', s.opened_at, 'opened_by', u.name)
                FROM cash_sessions s LEFT JOIN users u ON u.id = s.opened_by WHERE s.account_id = t.cash_account_id AND s.status = 'aberta') AS open_session
      FROM pos_terminals t JOIN financial_accounts a ON a.id = t.cash_account_id
+     WHERE t.deleted_at IS NULL
      ORDER BY t.code`,
   );
   return rows;
@@ -171,6 +172,35 @@ export async function closeSession(actor: Actor, terminalId: string, counted: st
   const r = await closeCashSession(elevate(actor, 'finance.cash'), session.id, counted,
     other ? `Fechado por outro usuário (caixa de ${session.opened_by_name}): ${notes}` : notes ?? `Fechamento do ${terminal.name}`);
   return { ...r, sessionNumber: session.number };
+}
+
+/** Proprietário: cancela a abertura feita por engano (sem nenhuma venda). O fundo de troco lançado é estornado. */
+export async function cancelOpening(actor: Actor, terminalId: string, reason: string) {
+  requireOwnerActor(actor, 'Somente o Proprietário pode cancelar a abertura de um caixa.');
+  return withTransaction(async (db) => {
+    const { terminal, session } = await terminalWithSession(db, terminalId, true);
+    if (!session) throw Errors.businessRule('Este caixa não está aberto.');
+    const sales = await db.query('SELECT 1 FROM sales WHERE cash_session_id = $1 LIMIT 1', [session.id]);
+    if (sales.rowCount) throw Errors.businessRule('Este caixa já tem vendas: feche o caixa normalmente (vendas erradas são canceladas uma a uma).');
+    await cancelCashSessionInDb(db, elevate(actor, 'finance.cash'), session.id, reason);
+    await writeAudit(db, actor.audit, { action: 'pos.opening_cancelled', entity: 'pos_terminal', entityId: terminal.id, metadata: { session: session.number, openedBy: session.opened_by_name, reason } });
+    return { cancelled: true, sessionNumber: session.number };
+  });
+}
+
+/** Proprietário: exclui (oculta) um caixa. Nada é apagado: vendas e sessões antigas continuam nos relatórios. */
+export async function deleteTerminal(actor: Actor, terminalId: string, reason: string) {
+  requireOwnerActor(actor, 'Somente o Proprietário pode excluir um caixa.');
+  return withTransaction(async (db) => {
+    const before = (await db.query('SELECT * FROM pos_terminals WHERE id = $1 FOR UPDATE', [terminalId])).rows[0];
+    if (!before || before.deleted_at) throw Errors.notFound('Caixa não encontrado.');
+    const { session } = await terminalWithSession(db, terminalId);
+    if (session) throw Errors.businessRule(`O caixa está aberto por ${session.opened_by_name ?? 'um operador'}. Feche ou cancele a abertura antes de excluir.`);
+    const r = await retireCashAccountInDb(db, elevate(actor, 'finance.cash'), before.cash_account_id, before.name);
+    await db.query('UPDATE pos_terminals SET is_active = false, deleted_at = now(), deleted_by = $2, delete_reason = $3 WHERE id = $1', [terminalId, actor.userId, reason]);
+    await writeAudit(db, actor.audit, { action: 'pos.terminal_deleted', entity: 'pos_terminal', entityId: terminalId, before, metadata: { reason, cashMovedToStore: r.moved } });
+    return { deleted: true, cashMovedToStore: r.moved };
+  });
 }
 
 // ------------------------------------------------------------------ produtos
