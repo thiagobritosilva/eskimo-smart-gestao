@@ -200,6 +200,22 @@ async function stockAlerts(db: Queryable, p: AlertParams): Promise<AlertGroup[]>
   return groups;
 }
 
+async function productsNeedGtin(db: Queryable): Promise<AlertGroup[]> {
+  const { rows } = await db.query<{ id: string; internal_code: string; name: string }>(
+    `SELECT id, internal_code, name FROM products WHERE needs_gtin AND barcode IS NULL AND is_active ORDER BY created_at DESC`,
+  );
+  if (!rows.length) return [];
+  return [{
+    key: 'products_need_gtin', title: 'Produtos sem código de barras (GTIN)', severity: 'atencao',
+    description: 'Cadastrados pela nota fiscal do fornecedor, que veio sem GTIN. Informe o código de barras para o leitor do caixa reconhecer o produto.',
+    count: rows.length, link: '/produtos',
+    rows: rows.slice(0, LIMIT).map((r) => ({
+      id: r.id, label: `${r.internal_code} · ${r.name}`, detail: 'Abra o produto e preencha o "Código de barras".',
+      link: `/produtos?busca=${encodeURIComponent(r.internal_code)}&id=${r.id}`, severity: 'atencao' as Severity,
+    })),
+  }];
+}
+
 async function cartsLate(db: Queryable): Promise<AlertGroup[]> {
   const { rows } = await db.query<{ id: string; code: string; renter_name: string; expected_return: string; days: number }>(
     `SELECT r.id, l.code, r.renter_name, r.expected_return::text, ($1::date - r.expected_return)::int AS days
@@ -263,6 +279,7 @@ export async function listAlerts(db: Queryable, permissions: string[]) {
     groups.push(...(await payables(db, params)), ...(await receivablesOverdue(db)), ...(await recurringPending(db)));
   }
   if (can('stock.view')) groups.push(...(await stockAlerts(db, params)), ...(await cartsLate(db)));
+  if (can('products.view')) groups.push(...(await productsNeedGtin(db)));
   if (can('sales.view')) groups.push(...(await pdvIssues(db)));
   groups.sort((a, b) => ORDER[a.severity] - ORDER[b.severity]);
   const actionable = groups.filter((g) => g.severity !== 'info');

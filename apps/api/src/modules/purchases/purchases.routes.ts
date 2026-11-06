@@ -5,6 +5,7 @@ import { hasPermission, requirePermission } from '../../lib/http.js';
 import { decimalSchema, parse, uuidSchema } from '../../lib/validation.js';
 import { maskCosts } from '../stock/stock.queries.js';
 import * as svc from './purchases.service.js';
+import { commitNfe, previewNfe } from './nfe.import.js';
 
 const money = z
   .union([z.string(), z.number()])
@@ -156,6 +157,27 @@ export async function purchasesRoutes(app: FastifyInstance) {
   });
 
   // ----- Apoio à decisão -----
+  // entrada de mercadoria pelo XML da NF-e do fornecedor
+  const nfeMan = requirePermission('purchases.manage');
+  app.post('/purchases/nfe/preview', { preHandler: nfeMan, bodyLimit: 10 * 1024 * 1024 }, async (req) => {
+    const b = parse(z.object({ xml: z.string().min(50, 'Arquivo vazio.') }), req.body);
+    return previewNfe(actorOf(req), b.xml);
+  });
+  app.post('/purchases/nfe/commit', { preHandler: nfeMan, bodyLimit: 10 * 1024 * 1024 }, async (req, reply) => {
+    const b = parse(z.object({
+      xml: z.string().min(50),
+      toLocationId: uuidSchema.nullable().optional(),
+      lines: z.array(z.object({
+        line: z.number().int().positive(), productId: uuidSchema.nullable().optional(),
+        factor: z.number().positive().max(10000).nullable().optional(), name: z.string().trim().max(200).nullable().optional(),
+        salePrice: z.string().regex(/^\d{1,9}(\.\d{1,2})?$/, 'Preço inválido.').nullable().optional(),
+      })).max(2000).default([]),
+      payable: z.union([z.object({ generate: z.literal(true) }), z.object({ generate: z.literal(false), reason: z.string().trim().min(3, 'Informe o motivo.') })]),
+    }), req.body);
+    const r = await commitNfe(actorOf(req), b);
+    reply.code(r.duplicate ? 200 : 201);
+    return r;
+  });
   app.get('/purchases/suggestions', { preHandler: view }, async (req) => maskCosts(await svc.purchaseSuggestions(), cost(req)));
   app.get('/products/:id/purchase-history', { preHandler: requirePermission('purchases.view', 'products.view_cost') }, async (req) =>
     svc.productPurchaseHistory(parse(idParams, req.params).id),

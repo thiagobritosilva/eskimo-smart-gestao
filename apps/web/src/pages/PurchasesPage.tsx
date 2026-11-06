@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { FileCode2, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage, qs } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -9,6 +9,7 @@ import { formatDate, formatDateTime, formatMoney, formatMoneyOrDash, formatQty, 
 import { formatDocument, ORDER_STATUS, type OrderListItem, type Suggestion, type Supplier } from '../lib/purchases';
 import { ProductPicker, useActiveProducts } from '../components/stock';
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
+import { NfeImport } from '../components/nfe-import';
 
 type Tab = 'pedidos' | 'notas' | 'fornecedores' | 'sugestao';
 
@@ -325,9 +326,13 @@ export function PurchasesPage() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get('aba') as Tab) || 'pedidos';
   const TABS: [Tab, string][] = [['pedidos', 'Pedidos'], ['notas', 'Notas recebidas'], ['fornecedores', 'Fornecedores'], ['sugestao', 'Sugestão de compra']];
+  const { can } = useAuth();
+  const [nfe, setNfe] = useState(params.get('importar') === 'nfe');
   return (
     <>
-      <PageHeader title="Compras e fornecedores" subtitle="O recebimento da nota dá entrada no estoque e gera a conta a pagar numa só operação, sem duplicidade." />
+      <PageHeader title="Compras e fornecedores" subtitle="O recebimento da nota dá entrada no estoque e gera a conta a pagar numa só operação, sem duplicidade."
+        actions={can('purchases.manage') ? <button className="btn-primary" onClick={() => setNfe(true)}><FileCode2 className="h-4 w-4" /> Entrada por NF-e (XML)</button> : undefined} />
+      <Modal open={nfe} size="xl" title="Entrada de mercadoria pela NF-e" onClose={() => setNfe(false)}>{nfe && <NfeImport onClose={() => setNfe(false)} />}</Modal>
       <div className="mb-5 flex gap-1 overflow-x-auto border-b border-slate-200">
         {TABS.map(([k, label]) => (
           <button key={k} onClick={() => setParams({ aba: k })} className={clsx('-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium', tab === k ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700')}>{label}</button>

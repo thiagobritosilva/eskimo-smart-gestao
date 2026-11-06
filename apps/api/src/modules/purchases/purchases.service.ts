@@ -374,7 +374,12 @@ function spDate(iso?: string | null): string {
 
 export async function receive(actor: Actor, orderId: string, input: ReceiptInput) {
   need(actor, 'purchases.manage');
-  return withTransaction(async (db) => {
+  return withTransaction((db) => receiveInDb(db, actor, orderId, input));
+}
+
+/** Recebimento dentro de uma transação já aberta (usado também pela importação da NF-e). Permissão verificada por quem chama. */
+export async function receiveInDb(db: Db, actor: Actor, orderId: string, input: ReceiptInput) {
+  {
     // 0) Repetição da mesma operação
     const ex = await db.query<{ id: string; number: string }>('SELECT id, number::text FROM purchase_receipts WHERE idempotency_key = $1', [input.idempotencyKey]);
     if (ex.rows[0]) return { ...ex.rows[0], duplicate: true };
@@ -526,7 +531,7 @@ export async function receive(actor: Actor, orderId: string, input: ReceiptInput
       metadata: { orderId, invoiceNumber, invoiceAmount: fromCents(invoice), stockMovementId: mv.id, titleId },
     });
     return { id: receiptId, number: rec[0]!.number, stockMovementId: mv.id, titleId, duplicate: false };
-  });
+  }
 }
 
 export async function reverseReceipt(actor: Actor, receiptId: string, reason: string) {

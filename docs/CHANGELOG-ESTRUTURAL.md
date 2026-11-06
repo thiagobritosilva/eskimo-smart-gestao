@@ -237,3 +237,16 @@ com impacto e estratégia de preservação de dados.
 - **Excluir caixa (somente Proprietário, com motivo):** só com o caixa fechado; o caixa some da lista e não pode mais
   ser usado; saldo restante da gaveta volta para a conta da loja (transferência); vendas e fechamentos antigos permanecem.
 - **Impacto:** colunas novas e ampliação de CHECK; nenhum dado existente alterado. Tudo auditado.
+
+## 0016_nfe_entrada — entrada de mercadoria pelo XML da NF-e (2026-11-06)
+- **O quê:** tabela `supplier_product_codes` (código do produto no fornecedor → produto); `products.needs_gtin`
+  (produto cadastrado pela nota sem GTIN; trigger zera o aviso quando o código de barras é informado);
+  `purchase_orders.source` ('manual' | 'nfe').
+- **Fluxo:** Compras/Estoque › "Entrada por NF-e (XML)": prévia → confirmação numa única transação:
+  fornecedor reconhecido pelo CNPJ (ou cadastrado), produtos reconhecidos pelo GTIN (não alterados) ou pelo código
+  do fornecedor; novos com GTIN cadastrados; sem GTIN cadastrados com aviso em Notificações; conversão de
+  embalagem (caixa → unidades); pedido gerado pela nota + recebimento (estoque, custo médio com rateio de frete/
+  impostos/desconto, conta a pagar pelas duplicatas).
+- **Garantias:** só nota autorizada (protocolo 100/150); a mesma chave não entra duas vezes; aviso se o destinatário
+  não é o CNPJ da loja; tudo auditado (`purchase.nfe_imported`); estorno pelo recebimento, como as demais compras.
+- **Impacto:** tabela/colunas novas; nenhum dado existente alterado. `receive` passou a ter a versão `receiveInDb`.

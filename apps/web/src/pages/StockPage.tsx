@@ -1,6 +1,7 @@
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Plus, RotateCcw } from 'lucide-react';
+import { FileCode2, FileText, Plus, RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage, qs } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -239,6 +240,7 @@ export function StockPage() {
         subtitle="Visão consolidada de todas as localizações. Toda movimentação fica registrada e é corrigida apenas por estorno."
         actions={
           <>
+            {can('purchases.manage') && <Link to="/compras?importar=nfe" className="btn-secondary"><FileCode2 className="h-4 w-4" /> Chegou mercadoria: NF-e (XML)</Link>}
             {can('products.manage') && can('stock.adjust') && <button className="btn-secondary" onClick={() => setImporting(true)}><FileText className="h-4 w-4" /> Importar inventário (PDF/planilha)</button>}
             {canMove && <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nova movimentação</button>}
           </>
