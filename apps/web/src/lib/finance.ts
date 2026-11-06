@@ -3,6 +3,7 @@ import { api } from './api';
 
 export interface FinAccount {
   id: string;
+  pos_terminal_id?: string | null;
   kind: 'caixa' | 'banco' | 'carteira_digital';
   name: string;
   bank_name: string | null;
@@ -91,10 +92,11 @@ export interface FinTransaction {
 
 export interface CashSession {
   id: string;
+  cancel_reason?: string | null;
   number: string;
   account_id: string;
   account_name: string;
-  status: 'aberta' | 'fechada';
+  status: 'aberta' | 'fechada' | 'cancelada';
   opened_at: string;
   opened_by_name: string;
   opening_counted: string;

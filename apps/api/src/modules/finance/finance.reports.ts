@@ -146,7 +146,7 @@ export async function listCashSessions(accountId?: string) {
   const { rows } = await getPool().query(
     `SELECT s.id, s.number::text, s.account_id, a.name AS account_name, s.status, s.opened_at, ou.name AS opened_by_name,
             s.opening_counted::text, s.opening_system::text, s.closed_at, cu.name AS closed_by_name,
-            s.closing_counted::text, s.closing_expected::text, s.difference::text, s.notes,
+            s.closing_counted::text, s.closing_expected::text, s.difference::text, s.notes, s.cancel_reason,
             (SELECT coalesce(sum(CASE WHEN t.direction = 'entrada' THEN t.amount ELSE 0 END), 0)::text FROM financial_transactions t WHERE t.cash_session_id = s.id AND t.kind <> 'ajuste_caixa') AS entries,
             (SELECT coalesce(sum(CASE WHEN t.direction = 'saida' THEN t.amount ELSE 0 END), 0)::text FROM financial_transactions t WHERE t.cash_session_id = s.id AND t.kind <> 'ajuste_caixa') AS exits
      FROM cash_sessions s JOIN financial_accounts a ON a.id = s.account_id

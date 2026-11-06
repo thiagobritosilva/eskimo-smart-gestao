@@ -31,7 +31,8 @@ export async function listAccounts(db: Queryable = getPool()) {
     `SELECT a.id, a.kind, a.name, a.bank_name, a.agency, a.account_number, a.opening_balance::text,
             a.opening_date::text, a.allow_negative, a.is_active, b.balance::text, b.opening_known,
             (SELECT count(*)::int FROM financial_transactions t WHERE t.account_id = a.id) AS transactions_count,
-            (SELECT s.id FROM cash_sessions s WHERE s.account_id = a.id AND s.status = 'aberta') AS open_session_id
+            (SELECT s.id FROM cash_sessions s WHERE s.account_id = a.id AND s.status = 'aberta') AS open_session_id,
+            (SELECT t.id FROM pos_terminals t WHERE t.cash_account_id = a.id AND t.deleted_at IS NULL) AS pos_terminal_id
      FROM financial_accounts a JOIN financial_account_balances b ON b.account_id = a.id
      ORDER BY a.is_active DESC, CASE a.kind WHEN 'caixa' THEN 0 WHEN 'banco' THEN 1 ELSE 2 END, a.name`,
   );

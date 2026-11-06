@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CheckCircle2, Circle, Landmark, Lock, Plus, RotateCcw, Unlock, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CheckCircle2, Circle, Landmark, Lock, Plus, RotateCcw, Trash2, Unlock, Wallet, X } from 'lucide-react';
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import clsx from 'clsx';
 import { api, errorMessage, qs } from '../lib/api';
@@ -181,8 +181,33 @@ function Titles({ direction }: { direction: 'pagar' | 'receber' }) {
 // =====================================================================
 // Caixa: sessões, sangria e suprimento
 // =====================================================================
+/** Proprietário: excluir caixa da frente de caixa / cancelar abertura feita por engano (com motivo, auditado). */
+function CashOwnerAction({ action, onClose, onDone }: { action: { kind: 'delete' | 'cancel'; account: FinAccount }; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('');
+  const del = action.kind === 'delete';
+  const m = useMutation({
+    mutationFn: () => api.post(`/pos/terminals/${action.account.pos_terminal_id}/${del ? 'delete' : 'cancel-opening'}`, { reason: reason.trim() }),
+    onSuccess: () => { onDone(); onClose(); },
+  });
+  return (
+    <Modal open title={del ? `Excluir ${action.account.name}` : `Cancelar abertura — ${action.account.name}`} onClose={onClose}
+      footer={<><button className="btn-secondary" onClick={onClose}>Voltar</button><button className="btn-primary bg-red-600 hover:bg-red-700" form="cxo" disabled={m.isPending}>{del ? 'Excluir caixa' : 'Cancelar abertura'}</button></>}>
+      <form id="cxo" className="space-y-3" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>
+        <p className="text-sm text-slate-600">{del
+          ? 'O caixa sai da lista e da frente de caixa e não pode mais ser usado. Vendas e fechamentos antigos continuam nos relatórios; o dinheiro que ainda estiver registrado na gaveta volta para a conta da loja.'
+          : 'Use quando o caixa foi aberto por engano. Só é possível enquanto não houver nenhuma venda. O fundo de troco da abertura é estornado e a sessão fica registrada como cancelada.'}</p>
+        {del && Number(action.account.balance) > 0 && <Alert kind="warning">Saldo registrado na gaveta: {formatMoney(action.account.balance)} — será transferido para a conta da loja.</Alert>}
+        {m.error && <Alert>{errorMessage(m.error)}</Alert>}
+        <Field label="Motivo *" hint="Fica registrado na auditoria."><input autoFocus className="input" required minLength={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+      </form>
+    </Modal>
+  );
+}
+
 function CashTab() {
   const { can } = useAuth();
+  const owner = useIsOwner();
+  const [ownerAction, setOwnerAction] = useState<{ kind: 'delete' | 'cancel'; account: FinAccount } | null>(null);
   const qc = useQueryClient();
   const accounts = useFinAccounts();
   const sessions = useQuery({ queryKey: ['fin', 'sessions'], queryFn: () => api.get<CashSession[]>('/finance/cash-sessions') });
@@ -200,7 +225,7 @@ function CashTab() {
   if (accounts.isLoading) return <Spinner />;
   return (
     <div className="space-y-6">
-      {!caixas.length && <Alert kind="info">Nenhum caixa cadastrado. Cadastre em Configurações → Contas (tipo "Caixa").</Alert>}
+      {!caixas.length && <Alert kind="info">Nenhum caixa cadastrado. Cadastre os caixas da loja em Caixa (PDV) → Cadastrar caixa.</Alert>}
       <div className="grid gap-4 md:grid-cols-2">
         {caixas.map((a) => (
           <div key={a.id} className="card p-4">
@@ -210,7 +235,12 @@ function CashTab() {
                 <div className="text-sm text-slate-500">Saldo no sistema</div>
                 <div className="text-2xl font-bold tabular-nums">{formatMoney(a.balance)}</div>
               </div>
-              <span className={clsx('badge', a.open_session_id ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>{a.open_session_id ? 'Aberto' : 'Fechado'}</span>
+              <div className="flex items-center gap-1">
+                <span className={clsx('badge', a.open_session_id ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>{a.open_session_id ? 'Aberto' : 'Fechado'}</span>
+                {owner && a.pos_terminal_id && !a.open_session_id && (
+                  <button className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir caixa" aria-label={`Excluir ${a.name}`} onClick={() => setOwnerAction({ kind: 'delete', account: a })}><Trash2 className="h-4 w-4" /></button>
+                )}
+              </div>
             </div>
             {canCash && (
               <div className="mt-4 flex flex-wrap gap-2">
@@ -219,6 +249,7 @@ function CashTab() {
                     <button className="btn-secondary" onClick={() => setDialog({ kind: 'sangria', account: a })}><ArrowUpRight className="h-4 w-4" /> Sangria</button>
                     <button className="btn-secondary" onClick={() => setDialog({ kind: 'suprimento', account: a })}><ArrowDownLeft className="h-4 w-4" /> Suprimento</button>
                     <button className="btn-primary" onClick={() => setDialog({ kind: 'close', account: a })}><Lock className="h-4 w-4" /> Fechar caixa</button>
+                    {owner && a.pos_terminal_id && <button className="btn-ghost text-red-600" onClick={() => setOwnerAction({ kind: 'cancel', account: a })}><X className="h-4 w-4" /> Cancelar abertura</button>}
                   </>
                 ) : (
                   <button className="btn-primary" onClick={() => setDialog({ kind: 'open', account: a })}><Unlock className="h-4 w-4" /> Abrir caixa</button>
@@ -228,6 +259,7 @@ function CashTab() {
           </div>
         ))}
       </div>
+      {ownerAction && <CashOwnerAction action={ownerAction} onClose={() => setOwnerAction(null)} onDone={() => invalidateFinance(qc)} />}
       <section>
         <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Histórico de sessões</h3>
         {!sessions.data?.length ? <div className="card px-6 py-8 text-center text-sm text-slate-500">Nenhuma sessão registrada.</div> : (
@@ -240,7 +272,9 @@ function CashTab() {
                     <td className="td font-mono">#{s.number}</td>
                     <td className="td">{s.account_name}</td>
                     <td className="td whitespace-nowrap">{formatDateTime(s.opened_at)}<div className="text-xs text-slate-500">{s.opened_by_name} · {formatMoney(s.opening_counted)}</div></td>
-                    <td className="td whitespace-nowrap">{s.closed_at ? <>{formatDateTime(s.closed_at)}<div className="text-xs text-slate-500">{s.closed_by_name}</div></> : <span className="badge bg-emerald-100 text-emerald-800">aberta</span>}</td>
+                    <td className="td whitespace-nowrap">{s.status === 'cancelada'
+                      ? <><span className="badge bg-red-100 text-red-700">abertura cancelada</span><div className="text-xs text-slate-500">{s.closed_by_name}{s.cancel_reason ? ` · ${s.cancel_reason}` : ''}</div></>
+                      : s.closed_at ? <>{formatDateTime(s.closed_at)}<div className="text-xs text-slate-500">{s.closed_by_name}</div></> : <span className="badge bg-emerald-100 text-emerald-800">aberta</span>}</td>
                     <td className="td text-right tabular-nums">{formatMoney(s.entries)}</td>
                     <td className="td text-right tabular-nums">{formatMoney(s.exits)}</td>
                     <td className="td text-right tabular-nums">{s.closing_expected ? formatMoney(s.closing_expected) : '—'}</td>
