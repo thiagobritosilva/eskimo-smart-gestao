@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ChevronDown, LogOut, Menu, Search, UserCircle2, X } from 'lucide-react';
 import clsx from 'clsx';
@@ -7,6 +7,7 @@ import { NAV_ITEMS, type NavItem } from '../lib/navigation';
 import { useAlerts } from '../lib/alerts';
 import { UpdateBanner, useVersionWatcher } from '../lib/version';
 import { Logo, Modal } from '../components/ui';
+import { GlobalSearch } from '../components/global-search';
 
 function useVisibleNav(): NavItem[] {
   const { can } = useAuth();
@@ -58,36 +59,10 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function QuickSearch({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const items = useVisibleNav();
-  const [q, setQ] = useState('');
-  const navigate = useNavigate();
-  const results = useMemo(() => {
-    const norm = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-    return items.filter((i) => norm(i.label).includes(norm(q)));
-  }, [items, q]);
-  useEffect(() => { if (open) setQ(''); }, [open]);
-  const go = (to: string) => { navigate(to); onClose(); };
   return (
-    <Modal open={open} title="Pesquisa rápida" onClose={onClose}>
-      <input
-        autoFocus
-        className="input"
-        placeholder="Ir para módulo…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && results[0] && go(results[0].to)}
-      />
-      <ul className="mt-3 divide-y divide-slate-100">
-        {results.map((r) => (
-          <li key={r.to}>
-            <button className="flex w-full items-center gap-3 px-2 py-2.5 text-left text-sm hover:bg-slate-50" onClick={() => go(r.to)}>
-              <r.icon className="h-4 w-4 text-slate-500" /> {r.label}
-            </button>
-          </li>
-        ))}
-        {!results.length && <li className="py-3 text-sm text-slate-500">Nenhum módulo encontrado.</li>}
-      </ul>
-      <p className="mt-3 text-xs text-slate-400">A busca por produtos, freezers e lançamentos será incluída junto com cada módulo.</p>
+    <Modal open={open} title="Pesquisar no sistema" onClose={onClose} size="lg">
+      {open && <GlobalSearch autoFocus compact onNavigate={onClose} />}
+      <p className="mt-3 text-xs text-slate-400">↑ ↓ para escolher · Enter para abrir · Ctrl K abre esta pesquisa em qualquer tela.</p>
     </Modal>
   );
 }

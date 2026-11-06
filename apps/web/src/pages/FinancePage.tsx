@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CheckCircle2, Circle, Landmark, Lock, Plus, RotateCcw, Unlock, Wallet } from 'lucide-react';
@@ -111,7 +111,14 @@ function Titles({ direction }: { direction: 'pagar' | 'receber' }) {
   const [dueTo, setDueTo] = useState('');
   const [creating, setCreating] = useState(false);
   const [settling, setSettling] = useState<InstallmentRow | null>(null);
-  const [detail, setDetail] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const [detail, setDetail] = useState<string | null>(() => params.get('titulo'));
+  const fromSearch = params.get('titulo');
+  useEffect(() => {
+    if (!fromSearch) return;
+    setDetail(fromSearch); // vindo da pesquisa geral
+    setParams((prev) => { prev.delete('titulo'); return prev; }, { replace: true });
+  }, [fromSearch, setParams]);
   const { data, isLoading } = useQuery({
     queryKey: ['fin', 'inst', direction, status, search, dueFrom, dueTo],
     queryFn: () => api.get<{ totals: { open: string; overdue: string }; items: InstallmentRow[] }>(`/finance/installments${qs({ direction, status, search, dueFrom, dueTo })}`),

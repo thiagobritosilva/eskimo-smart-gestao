@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, FileUp, Pencil, Plus, Tags } from 'lucide-react';
 import clsx from 'clsx';
@@ -246,7 +247,8 @@ export function ProductsPage() {
   const { can } = useAuth();
   const manage = can('products.manage');
   const canCost = can('products.view_cost');
-  const [search, setSearch] = useState('');
+  const [params, setParams] = useSearchParams();
+  const [search, setSearch] = useState(() => params.get('busca') ?? '');
   const [categoryId, setCategoryId] = useState('');
   const [status, setStatus] = useState('ativos');
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -256,6 +258,16 @@ export function ProductsPage() {
     queryFn: () => api.get<Product[]>(`/products${qs({ status, categoryId, search })}`),
   });
   const close = () => setDialog(null);
+  // vindo da pesquisa geral: abre o produto direto
+  const openId = params.get('id');
+  const busca = params.get('busca');
+  useEffect(() => { if (busca !== null) { setSearch(busca); setStatus('todos'); } }, [busca]);
+  useEffect(() => {
+    if (!openId || !products.data) return;
+    const p = products.data.find((x) => x.id === openId);
+    if (p && manage) setDialog({ kind: 'edit', product: p });
+    setParams((prev) => { prev.delete('id'); return prev; }, { replace: true });
+  }, [openId, products.data, manage, setParams]);
 
   return (
     <>

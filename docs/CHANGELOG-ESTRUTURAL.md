@@ -221,3 +221,10 @@ com impacto e estratégia de preservação de dados.
   Ex.: 110.000 × 35.000 (50-50) → meta 220.000 → o segundo sócio deve investir 75.000.
 - A tela sugere "Fulano deve investir R$ X na empresa" com o botão que já abre o lançamento de investimento.
   Acertos diretos entre sócios lançados antes continuam válidos (contam para quem pagou e saem de quem recebeu).
+
+## Pesquisa geral (2026-11-06, sem migration)
+- Rota `GET /api/search?q=` (somente leitura): produtos (nome sem acento, código interno, GTIN, marca — com estoque
+  e preço), freezers/carrinhos, contas a pagar/receber (descrição, favorecido, nº), fornecedores (nome/CNPJ),
+  pedidos de compra (nº), usuários e sócios (só Proprietário). Cada grupo respeita a permissão do perfil.
+- Campo de pesquisa no topo do Dashboard e no "Pesquisar… (Ctrl K)"; o resultado abre direto o produto, o título
+  financeiro, o freezer/carrinho ou o pedido.

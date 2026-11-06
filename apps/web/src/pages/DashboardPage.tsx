@@ -42,6 +42,8 @@ function KpiCard({ i }: { i: Indicator }) {
   );
 }
 
+import { GlobalSearch } from '../components/global-search';
+
 export function DashboardPage() {
   const { can } = useAuth();
   const [from, setFrom] = useState(firstDayOfMonthYMD());
@@ -67,6 +69,7 @@ export function DashboardPage() {
           </div>
         }
       />
+      <div className="mb-6"><GlobalSearch /></div>
 
       {isLoading && <div className="flex justify-center py-20"><Spinner className="h-8 w-8" /></div>}
       {error && <Alert>Não foi possível carregar o dashboard.</Alert>}
