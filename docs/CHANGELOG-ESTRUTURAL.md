@@ -213,3 +213,11 @@ com impacto e estratégia de preservação de dados.
   sessão aberta — movimentação entre contas próprias, sem efeito na DRE. O fechamento confere fundo + vendas em dinheiro.
 - Lançamentos sem conta escolhida ignoram as gavetas dos caixas (vão para a conta da loja), evitando o erro
   "Escolha a conta" depois de cadastrar caixas.
+
+## Sócios — regra de divisão (2026-11-06, sem migration)
+- Definição do proprietário: o dinheiro dos sócios vai todo para a empresa. Para ficar na proporção, quem investiu menos
+  **completa investindo a diferença na empresa** (não paga ao outro sócio).
+- Cálculo: meta total = maior (investido ÷ % do sócio); cota = meta × %; saldo = investido − cota (negativo = falta investir).
+  Ex.: 110.000 × 35.000 (50-50) → meta 220.000 → o segundo sócio deve investir 75.000.
+- A tela sugere "Fulano deve investir R$ X na empresa" com o botão que já abre o lançamento de investimento.
+  Acertos diretos entre sócios lançados antes continuam válidos (contam para quem pagou e saem de quem recebeu).

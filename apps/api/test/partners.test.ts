@@ -32,50 +32,50 @@ afterAll(async () => {
   await closePool();
 });
 
-describe('sócios: investimentos e acerto 50-50 (somente Proprietário)', () => {
-  it('cadastra sócios, calcula a média 50-50 e o acerto zera o negativo', async () => {
+describe('sócios: investimentos na empresa e divisão 50-50 (somente Proprietário)', () => {
+  it('dinheiro vai para a empresa: quem investiu menos completa até ficar 50-50', async () => {
     for (const n of ['A', 'B']) {
       const r = await call(owner.cookie, 'POST', '/finance/partners', { name: `Sócio ${n} ${tag}` });
       expect(r.statusCode, r.body).toBe(201);
       ids.push(r.json().id);
     }
     const [a, b] = ids as [string, string];
-    expect((await entry(owner.cookie, { kind: 'aporte', partnerId: a, amount: '100000.00', description: 'Reforma e equipamentos' })).statusCode).toBe(201);
+    await entry(owner.cookie, { kind: 'aporte', partnerId: a, amount: '65000', description: 'Veículo 1' });
+    await entry(owner.cookie, { kind: 'aporte', partnerId: a, amount: '45000', description: 'Veículo 2' });
     const key = randomUUID();
-    expect((await entry(owner.cookie, { kind: 'aporte', partnerId: b, amount: '40000', description: 'Estoque inicial', idempotencyKey: key })).statusCode).toBe(201);
-    // idempotente: reenviar não duplica
-    expect((await entry(owner.cookie, { kind: 'aporte', partnerId: b, amount: '40000', description: 'Estoque inicial', idempotencyKey: key })).json().duplicate).toBe(true);
+    expect((await entry(owner.cookie, { kind: 'aporte', partnerId: b, amount: '35000', description: 'Veículo 3', idempotencyKey: key })).statusCode).toBe(201);
+    expect((await entry(owner.cookie, { kind: 'aporte', partnerId: b, amount: '35000', description: 'Veículo 3', idempotencyKey: key })).json().duplicate).toBe(true);
 
     const ov = (await call(owner.cookie, 'GET', '/finance/partners')).json();
-    expect(ov.totalInvested).toBe('140000.00');
-    expect(ov.equalSplit).toBe(true);
-    expect(await row(a)).toMatchObject({ share: 50, contributed: '100000.00', quota: '70000.00', balance: '30000.00' });
-    expect(await row(b)).toMatchObject({ share: 50, contributed: '40000.00', quota: '70000.00', balance: '-30000.00' });
-    expect(ov.suggestions).toEqual([{ fromId: b, from: `Sócio B ${tag}`, toId: a, to: `Sócio A ${tag}`, amount: '30000.00' }]);
+    expect(ov).toMatchObject({ totalInvested: '145000.00', targetTotal: '220000.00', pendingTotal: '75000.00', equalSplit: true });
+    expect(await row(a)).toMatchObject({ share: 50, contributed: '110000.00', quota: '110000.00', balance: '0.00' });
+    expect(await row(b)).toMatchObject({ share: 50, contributed: '35000.00', quota: '110000.00', balance: '-75000.00' });
+    expect(ov.suggestions).toEqual([{ partnerId: b, partner: `Sócio B ${tag}`, amount: '75000.00' }]);
 
-    // B paga parte a A: continua negativo até quitar
-    const p1 = await entry(owner.cookie, { kind: 'acerto', partnerId: b, toPartnerId: a, amount: '10000', description: 'Pix parcial ao sócio A' });
-    expect(p1.statusCode, p1.body).toBe(201);
-    expect((await row(b)).balance).toBe('-20000.00');
-    await entry(owner.cookie, { kind: 'acerto', partnerId: b, toPartnerId: a, amount: '20000', description: 'Quitação do acerto' });
+    // B coloca parte na empresa: continua devendo o restante
+    await entry(owner.cookie, { kind: 'aporte', partnerId: b, amount: '30000', description: 'Depósito na conta da empresa' });
+    expect((await row(b)).balance).toBe('-45000.00');
+    await entry(owner.cookie, { kind: 'aporte', partnerId: b, amount: '45000', description: 'Quitação: depósito na empresa' });
     expect((await row(a)).balance).toBe('0.00');
     expect((await row(b)).balance).toBe('0.00');
-    expect((await call(owner.cookie, 'GET', '/finance/partners')).json().suggestions).toEqual([]);
-    expect((await call(owner.cookie, 'GET', '/finance/partners')).json().totalInvested).toBe('140000.00'); // acerto não muda o investido
+    const done = (await call(owner.cookie, 'GET', '/finance/partners')).json();
+    expect(done).toMatchObject({ totalInvested: '220000.00', pendingTotal: '0.00', suggestions: [] });
+
+    // A investe mais depois: B precisa completar o mesmo valor
+    await entry(owner.cookie, { kind: 'aporte', partnerId: a, amount: '10000', description: 'Freezer' });
+    expect((await row(b)).balance).toBe('-10000.00');
 
     // cancelamento: volta o saldo, auditado, não pode repetir nem apagar
     const list = (await call(owner.cookie, 'GET', `/finance/partners/entries?partnerId=${b}`)).json();
-    const quit = list.find((e: { description: string }) => e.description === 'Quitação do acerto');
+    const quit = list.find((e: { description: string }) => e.description === 'Quitação: depósito na empresa');
     const c = await call(owner.cookie, 'POST', `/finance/partners/entries/${quit.id}/cancel`, { reason: 'lançado em duplicidade' });
     expect(c.statusCode, c.body).toBe(200);
-    expect((await row(b)).balance).toBe('-20000.00');
+    expect((await row(b)).balance).toBe('-55000.00');
     expect((await call(owner.cookie, 'POST', `/finance/partners/entries/${quit.id}/cancel`, { reason: 'de novo' })).statusCode).toBe(409);
     const audit = await getPool().query(`SELECT metadata FROM audit_log WHERE action = 'partners.entry_cancelled' AND entity_id = $1`, [quit.id]);
     expect(audit.rows[0].metadata.reason).toBe('lançado em duplicidade');
     await expect(getPool().query('DELETE FROM partner_entries WHERE id = $1', [quit.id])).rejects.toThrow(/não pode ser apagado/);
     await expect(getPool().query('UPDATE partner_entries SET amount = 1 WHERE id = $1', [quit.id])).rejects.toThrow(/imutável/);
-
-    // sócio com lançamentos não pode ser desativado
     expect((await call(owner.cookie, 'PATCH', `/finance/partners/${b}`, { isActive: false, reason: 'teste' })).statusCode).toBe(422);
   });
 
@@ -85,11 +85,11 @@ describe('sócios: investimentos e acerto 50-50 (somente Proprietário)', () => 
     expect(bad.statusCode).toBe(422);
     const ok = await call(owner.cookie, 'PUT', '/finance/partners/shares', { shares: [{ id: a, percent: '60' }, { id: b, percent: '40' }], reason: 'contrato social' });
     expect(ok.statusCode, ok.body).toBe(200);
-    // total 140.000 → A 84.000, B 56.000; B aportou 40.000 + acerto 10.000 pago → −6.000
-    expect(await row(a)).toMatchObject({ share: 60, quota: '84000.00', balance: '6000.00' });
-    expect(await row(b)).toMatchObject({ share: 40, quota: '56000.00', balance: '-6000.00' });
+    // A 120.000 (60%) e B 65.000 (40%): meta = 120.000 ÷ 60% = 200.000 → B deve ter 80.000 → falta 15.000
+    expect(await row(a)).toMatchObject({ share: 60, quota: '120000.00', balance: '0.00' });
+    expect(await row(b)).toMatchObject({ share: 40, quota: '80000.00', balance: '-15000.00' });
     await call(owner.cookie, 'PUT', '/finance/partners/shares', { shares: null, reason: 'volta 50-50' });
-    expect((await row(b)).balance).toBe('-20000.00');
+    expect((await row(b)).balance).toBe('-55000.00');
   });
 
   it('gerente (mesmo com todo o financeiro liberado) não acessa nada de sócios', async () => {

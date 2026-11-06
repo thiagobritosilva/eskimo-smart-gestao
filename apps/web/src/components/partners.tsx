@@ -11,8 +11,8 @@ interface Partner {
   contributed: string; quota: string; settlementsPaid: string; settlementsReceived: string; balance: string;
 }
 interface Overview {
-  partners: Partner[]; totalInvested: string; sharesOk: boolean; equalSplit: boolean;
-  suggestions: { fromId: string; from: string; toId: string; to: string; amount: string }[];
+  partners: Partner[]; totalInvested: string; targetTotal: string; pendingTotal: string; sharesOk: boolean; equalSplit: boolean;
+  suggestions: { partnerId: string; partner: string; amount: string }[];
 }
 interface Entry {
   id: string; number: string; kind: 'aporte' | 'acerto'; partner_id: string; partner_name: string; to_partner_id: string | null; to_partner_name: string | null;
@@ -51,15 +51,14 @@ export function PartnersTab() {
   return (
     <div className="space-y-5">
       <Alert kind="info">
-        <strong>Área restrita ao Proprietário.</strong> <b>Aporte</b> = valor que o sócio investiu ou gastou pela empresa (entra no total investido).
-        {' '}<b>Acerto</b> = pagamento de um sócio para o outro para equilibrar a divisão (não muda o total investido).
-        {' '}Saldo negativo = quanto o sócio ainda deve para ficar na proporção {d.equalSplit ? 'igual (50-50 com dois sócios)' : 'combinada'}. Lançamentos não são editados nem apagados: correção por cancelamento com motivo, registrado na auditoria.
+        <strong>Área restrita ao Proprietário.</strong> Cada investimento é dinheiro (ou bem) que o sócio colocou <b>na empresa</b>.
+        {' '}Para ficar {d.equalSplit ? '50-50' : 'na proporção combinada'}, quem investiu menos completa colocando a diferença na empresa:
+        {' '}saldo negativo = quanto o sócio ainda deve investir. Lançamentos não são editados nem apagados: correção por cancelamento com motivo, registrado na auditoria.
       </Alert>
 
       <div className="flex flex-wrap gap-2">
         <button className="btn-primary" onClick={() => setNewPartner(true)}><Plus className="h-4 w-4" /> Cadastrar sócio</button>
         <button className="btn-secondary" disabled={!active.length} onClick={() => setDraft({ kind: 'aporte' })}><HandCoins className="h-4 w-4" /> Lançar investimento</button>
-        <button className="btn-secondary" disabled={active.length < 2} onClick={() => setDraft({ kind: 'acerto' })}><ArrowRight className="h-4 w-4" /> Registrar acerto entre sócios</button>
         <button className="btn-ghost" disabled={active.length < 2} onClick={() => setShares(true)}>Participação: {d.equalSplit ? 'partes iguais' : 'personalizada'}</button>
       </div>
       {!d.sharesOk && <Alert kind="warning">As participações dos sócios ativos não somam 100%. Ajuste em “Participação”.</Alert>}
@@ -80,12 +79,14 @@ export function PartnersTab() {
                 <div className={clsx('mt-1 text-2xl font-semibold tabular-nums', neg(p.balance) ? 'text-red-600' : Number(p.balance) > 0 ? 'text-emerald-600' : 'text-slate-700')}>
                   {neg(p.balance) ? '−' : ''}{formatMoney(abs(p.balance))}
                 </div>
-                <div className="text-xs font-medium">{neg(p.balance) ? 'deve aos sócios' : Number(p.balance) > 0 ? 'tem a receber' : 'quite'}</div>
+                <div className="text-xs font-medium">{neg(p.balance) ? 'falta investir na empresa' : 'em dia'}</div>
                 <dl className="mt-2 grid grid-cols-2 gap-x-2 text-xs text-slate-600">
                   <dt>Investiu</dt><dd className="text-right tabular-nums">{formatMoney(p.contributed)}</dd>
-                  <dt>Cota ({pct(p.share)})</dt><dd className="text-right tabular-nums">{formatMoney(p.quota)}</dd>
-                  <dt>Acertos pagos</dt><dd className="text-right tabular-nums">{formatMoney(p.settlementsPaid)}</dd>
-                  <dt>Acertos recebidos</dt><dd className="text-right tabular-nums">{formatMoney(p.settlementsReceived)}</dd>
+                  <dt>Deve ter investido ({pct(p.share)})</dt><dd className="text-right tabular-nums">{formatMoney(p.quota)}</dd>
+                  {(Number(p.settlementsPaid) > 0 || Number(p.settlementsReceived) > 0) && <>
+                    <dt>Acertos pagos</dt><dd className="text-right tabular-nums">{formatMoney(p.settlementsPaid)}</dd>
+                    <dt>Acertos recebidos</dt><dd className="text-right tabular-nums">{formatMoney(p.settlementsReceived)}</dd>
+                  </>}
                 </dl>
               </div>
             ))}
@@ -93,22 +94,21 @@ export function PartnersTab() {
 
           {d.suggestions.length > 0 && (
             <div className="card p-4">
-              <div className="mb-2 text-sm font-semibold">Para zerar (ficar {d.equalSplit ? '50-50' : 'na proporção'}):</div>
+              <div className="mb-2 text-sm font-semibold">Para ficar {d.equalSplit ? '50-50' : 'na proporção'}, falta colocar na empresa:</div>
               <ul className="space-y-2">
                 {d.suggestions.map((s) => (
-                  <li key={`${s.fromId}-${s.toId}`} className="flex flex-wrap items-center gap-2 text-sm">
-                    <b>{s.from}</b> paga <b className="tabular-nums">{formatMoney(s.amount)}</b> a <b>{s.to}</b>
-                    <button className="btn-secondary py-1 text-xs" onClick={() => setDraft({ kind: 'acerto', partnerId: s.fromId, toPartnerId: s.toId, amount: s.amount, description: `Acerto entre sócios: ${s.from} → ${s.to}` })}>Registrar pagamento</button>
+                  <li key={s.partnerId} className="flex flex-wrap items-center gap-2 text-sm">
+                    <b>{s.partner}</b> deve investir <b className="tabular-nums text-red-600">{formatMoney(s.amount)}</b> na empresa
+                    <button className="btn-secondary py-1 text-xs" onClick={() => setDraft({ kind: 'aporte', partnerId: s.partnerId, amount: s.amount, description: 'Complemento do investimento (igualar sócios)' })}>Registrar investimento</button>
                   </li>
                 ))}
               </ul>
               <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
                 <div className="mb-1 font-medium text-slate-700">Como o valor é calculado</div>
-                Total investido {formatMoney(d.totalInvested)} → cota de cada um: {active.map((p) => `${p.name} ${pct(p.share)} = ${formatMoney(p.quota)}`).join(' · ')}.
-                {' '}Depois do acerto, cada sócio terá colocado exatamente a sua cota: quem recebe o acerto fica com {active.length === 2 ? 'o mesmo valor investido que o outro' : 'a sua parte'}.
-                {' '}(Pagar a diferença inteira dos investimentos ao outro sócio inverteria o desequilíbrio; ela só vale se o dinheiro for colocado <b>na empresa</b> — aí lance como investimento.)
+                Investido até agora: {formatMoney(d.totalInvested)}. Para ninguém precisar retirar dinheiro, o total da empresa precisa chegar a <b>{formatMoney(d.targetTotal)}</b>
+                {' '}({active.map((p) => `${p.name} ${pct(p.share)} = ${formatMoney(p.quota)}`).join(' · ')}). Falta {formatMoney(d.pendingTotal)} no total.
+                {' '}Pode ser pago em partes: o saldo continua negativo até completar.
               </div>
-              <p className="mt-2 text-xs text-slate-500">Pode ser pago em partes: o saldo continua negativo até quitar. Se o sócio colocar o dinheiro na empresa (e não para o outro sócio), lance como investimento — nesse caso o total investido e as cotas aumentam.</p>
             </div>
           )}
         </>

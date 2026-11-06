@@ -33,43 +33,48 @@ export async function overview(actor: Actor) {
   const shareSum = active.reduce((s, p) => s + shareOf(p.id), 0);
   const total = entries.filter((e) => e.kind === 'aporte').reduce((s, e) => s + toCents(e.amount), 0);
 
-  // cotas em centavos, com a sobra de arredondamento no último sócio ativo
-  const quota = new Map<string, number>();
-  let assigned = 0;
-  active.forEach((p, i) => {
-    const q = i === active.length - 1 ? total - assigned : Math.round((total * shareOf(p.id)) / 100);
-    quota.set(p.id, q); assigned += q;
-  });
+  /*
+   * O dinheiro dos sócios vai para a EMPRESA. Para ficar na proporção (ex.: 50-50), quem investiu menos completa,
+   * colocando a diferença na empresa: a meta é o investimento que deixa todos na proporção sem ninguém retirar nada
+   *   meta total = maior (investido do sócio ÷ % do sócio)      cota do sócio = meta total × % do sócio
+   *   saldo = investido − cota  (0 = em dia; negativo = quanto falta colocar na empresa)
+   * Ex.: A 110.000, B 35.000 (50-50) → meta 220.000, cota 110.000 cada → B deve 75.000 à empresa.
+   * Acertos antigos (pagamento direto entre sócios) contam como investimento de quem pagou e saem de quem recebeu.
+   */
+  const eff = new Map<string, number>();
+  for (const p of partners) {
+    const aportes = entries.filter((e) => e.kind === 'aporte' && e.partner_id === p.id).reduce((s, e) => s + toCents(e.amount), 0);
+    const paid = entries.filter((e) => e.kind === 'acerto' && e.partner_id === p.id).reduce((s, e) => s + toCents(e.amount), 0);
+    const received = entries.filter((e) => e.kind === 'acerto' && e.to_partner_id === p.id).reduce((s, e) => s + toCents(e.amount), 0);
+    eff.set(p.id, aportes + paid - received);
+  }
+  const target = active.reduce((m, p) => (shareOf(p.id) > 0 ? Math.max(m, Math.ceil((eff.get(p.id)! * 100) / shareOf(p.id))) : m), 0);
+  const quota = new Map(active.map((p) => [p.id, Math.round((target * shareOf(p.id)) / 100)]));
   const rows = partners.map((p) => {
     const aportes = entries.filter((e) => e.kind === 'aporte' && e.partner_id === p.id).reduce((s, e) => s + toCents(e.amount), 0);
     const paid = entries.filter((e) => e.kind === 'acerto' && e.partner_id === p.id).reduce((s, e) => s + toCents(e.amount), 0);
     const received = entries.filter((e) => e.kind === 'acerto' && e.to_partner_id === p.id).reduce((s, e) => s + toCents(e.amount), 0);
     const q = quota.get(p.id) ?? 0;
-    const balance = aportes - q + paid - received;
+    // arredondamento de centavos não gera dívida
+    let balance = p.is_active ? eff.get(p.id)! - q : 0;
+    if (Math.abs(balance) <= 1) balance = 0;
     return {
       ...p, share: Math.round(shareOf(p.id) * 100) / 100,
       contributed: fromCents(aportes), quota: fromCents(q), settlementsPaid: fromCents(paid), settlementsReceived: fromCents(received),
-      balance: fromCents(balance),
+      balance: balance < 0 ? `-${fromCents(-balance)}` : fromCents(balance),
     };
   });
 
-  // sugestão de acertos (quem deve paga a quem tem a receber, do maior para o menor)
-  const debt = rows.filter((r) => toCentsSigned(r.balance) < 0).map((r) => ({ id: r.id, name: r.name, v: -toCentsSigned(r.balance) })).sort((a, b) => b.v - a.v);
-  const cred = rows.filter((r) => toCentsSigned(r.balance) > 0).map((r) => ({ id: r.id, name: r.name, v: toCentsSigned(r.balance) })).sort((a, b) => b.v - a.v);
-  const suggestions: { fromId: string; from: string; toId: string; to: string; amount: string }[] = [];
-  for (const d of debt) {
-    for (const c of cred) {
-      if (!d.v) break;
-      const x = Math.min(d.v, c.v);
-      if (x > 0) { suggestions.push({ fromId: d.id, from: d.name, toId: c.id, to: c.name, amount: fromCents(x) }); d.v -= x; c.v -= x; }
-    }
-  }
+  // quanto cada sócio ainda precisa colocar na empresa
+  const suggestions = rows.filter((r) => r.is_active && r.balance.startsWith('-'))
+    .map((r) => ({ partnerId: r.id, partner: r.name, amount: r.balance.slice(1) }))
+    .sort((a, b) => toCents(b.amount) - toCents(a.amount));
+  const pending = suggestions.reduce((s, x) => s + toCents(x.amount), 0);
   return {
-    partners: rows, totalInvested: fromCents(total), sharesOk: active.length === 0 || Math.abs(shareSum - 100) < 0.01,
-    equalSplit: !defined.length, suggestions,
+    partners: rows, totalInvested: fromCents(total), targetTotal: fromCents(target), pendingTotal: fromCents(pending),
+    sharesOk: active.length === 0 || Math.abs(shareSum - 100) < 0.01, equalSplit: !defined.length, suggestions,
   };
 }
-const toCentsSigned = (v: string) => (v.startsWith('-') ? -toCents(v.slice(1)) : toCents(v));
 
 export async function listEntries(actor: Actor, f: { partnerId?: string; includeCancelled?: boolean }) {
   owner(actor);
