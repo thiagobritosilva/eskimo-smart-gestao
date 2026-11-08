@@ -2,7 +2,7 @@ import { getPool, withTransaction } from '../../db/pool.js';
 import { writeAudit } from '../../lib/audit.js';
 import { Errors } from '../../lib/errors.js';
 import { insertProduct } from '../products/products.service.js';
-import { parseInventoryXlsx, validGtin } from './inventory-xlsx.parser.js';
+import { parseInventoryXlsx, splitGtinFromDescription, validGtin } from './inventory-xlsx.parser.js';
 import { parsePdvInventory, type PdvInventory } from './pdv-inventory.parser.js';
 import { createMovement, type Actor } from './stock.service.js';
 
@@ -44,6 +44,11 @@ export async function previewPdvInventory(file: { name: string; base64: string }
     throw Errors.badRequest(isXlsx
       ? 'Não foi possível ler a planilha. Ela precisa das colunas Código, Produto, Qtd. e Vr. Custo (GTIN e Vr. Venda opcionais).'
       : 'Não foi possível ler o PDF. Confira se é o relatório de inventário do PDV (PDF com texto, não foto).');
+  }
+  // GTIN escrito no início da descrição (ex.: "7898125167608 REV - CASCAO P"): vira o GTIN do item
+  for (const it of inv.items) {
+    const sp = splitGtinFromDescription(it.description);
+    if (sp.gtin && (!it.gtin || it.gtin === sp.gtin)) { it.gtin = sp.gtin; it.description = sp.description; }
   }
   if (!inv.items.length) throw Errors.badRequest('Nenhum item reconhecido. Este leitor aceita o relatório "INVENTÁRIO" do PDV e o inventário com custo e preço de venda.');
   const db = getPool();
@@ -161,7 +166,10 @@ export async function commitPdvInventory(actor: Actor, input: { number: string; 
         const price = !p.sale_price && it.salePrice && Number(it.salePrice) > 0 ? it.salePrice : null;
         if (gtin || price) {
           const before = { barcode: p.barcode, sale_price: p.sale_price };
-          await db.query('UPDATE products SET barcode = coalesce(barcode, $2), sale_price = coalesce(sale_price, $3) WHERE id = $1', [p.id, gtin, price]);
+          await db.query(
+            `UPDATE products SET barcode = coalesce(barcode, $2), sale_price = coalesce(sale_price, $3),
+                    name = CASE WHEN $2::text IS NOT NULL AND name ~ ('^\\s*' || $2::text || '\\s*[-–:|]?\\s+') THEN regexp_replace(name, '^\\s*\\d+\\s*[-–:|]?\\s*', '') ELSE name END
+             WHERE id = $1`, [p.id, gtin, price]);
           await writeAudit(db, actor.audit, { action: 'product.updated', entity: 'product', entityId: p.id, before, after: { barcode: gtin ?? p.barcode, sale_price: price ?? p.sale_price }, metadata: { origem: `importação do inventário ${input.number}` } });
           result.completed++;
         }

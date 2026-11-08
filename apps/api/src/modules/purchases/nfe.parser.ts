@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import { validGtin } from '../stock/inventory-xlsx.parser.js';
+import { splitGtinFromDescription, validGtin } from '../stock/inventory-xlsx.parser.js';
 
 /** Leitura do XML da NF-e (modelo 55) do fornecedor — somente os campos usados na entrada de mercadoria. */
 export interface NfeItem {
@@ -71,13 +71,14 @@ export function parseNfeXml(xml: string): NfeDoc {
     const pick = (v: string | null) => (v && /^\d{8,14}$/.test(v) && validGtin(v) ? v : null);
     const ean = str(prod.cEAN);
     const eanTrib = str(prod.cEANTrib);
-    const gtin = pick(ean) ?? pick(eanTrib);
+    const split = splitGtinFromDescription((str(prod.xProd) ?? '').replace(/\s+/g, ' ').trim());
+    const gtin = pick(ean) ?? pick(eanTrib) ?? split.gtin;
     const raw = [ean, eanTrib].find((v) => v && !/^sem gtin$/i.test(v)) ?? null;
     return {
       line: Number(str(det['@nItem']) ?? idx + 1),
       supplierCode: str(prod.cProd) ?? String(idx + 1),
       gtin, gtinRaw: raw,
-      description: (str(prod.xProd) ?? '').replace(/\s+/g, ' ').trim(),
+      description: split.description,
       ncm: str(prod.NCM),
       unit: (str(prod.uCom) ?? 'UN').toUpperCase(),
       quantity: dec(prod.qCom, 3),

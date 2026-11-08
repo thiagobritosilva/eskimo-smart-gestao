@@ -79,3 +79,13 @@ export function validGtin(g: string): boolean {
   const sum = digits.reverse().reduce((s, d, i) => s + d * (i % 2 === 0 ? 3 : 1), 0);
   return (10 - (sum % 10)) % 10 === check;
 }
+
+/**
+ * Alguns PDVs exportam o código de barras no começo da descrição ("7898125167608 REV - CASCAO P").
+ * Se o número inicial for um GTIN válido, separa: { gtin, description sem o número }.
+ */
+export function splitGtinFromDescription(description: string): { gtin: string | null; description: string } {
+  const m = /^\s*(\d{8}|\d{12,14})(?:\s*[-–:|]\s*|\s+)(.+)$/.exec(description);
+  if (m && validGtin(m[1]!)) return { gtin: m[1]!, description: m[2]!.trim() };
+  return { gtin: null, description };
+}

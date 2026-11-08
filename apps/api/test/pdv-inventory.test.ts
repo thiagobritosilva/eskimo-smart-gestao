@@ -173,4 +173,23 @@ describe('planilha de estoque (.xlsx) com GTIN', () => {
     const after = (await getPool().query('SELECT barcode, sale_price::text, (SELECT sum(quantity) FROM stock_balances b WHERE b.product_id = p.id)::text AS q FROM products p WHERE internal_code = $1', [`7${z}1`])).rows[0];
     expect(after).toEqual({ barcode: G, sale_price: '2.00', q: '10.000' });
   });
+
+  it('GTIN escrito no início da descrição (como exporta o PDV) é reconhecido e sai do nome', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const z = String(Math.floor(100000 + Math.random() * 800000));
+    const g = (base: string) => { const d = base.padStart(12, '0').slice(-12).split('').map(Number); const s = d.reduce((a, x, i) => a + x * (i % 2 === 0 ? 1 : 3), 0); return d.join('') + ((10 - (s % 10)) % 10); };
+    const G = g(`79${z}55`);
+    const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Estoque');
+    ws.addRow(['Código', 'Produto', 'Und', 'Qtd.', 'Vr. Custo', 'Total Custo']);
+    ws.addRow([`8${z}1`, `${G} REV - CASCAO P (UN)`, 'UN', 25, 6.8, 170]);
+    ws.addRow([`8${z}2`, '12345 SEM GTIN VALIDO', 'UN', 1, 1, 1]);
+    const base64 = Buffer.from(await wb.xlsx.writeBuffer()).toString('base64');
+    const p = (await post(owner.cookie, '/api/stock/pdv-inventory/preview', { fileName: 'Estoque_Desc_04-11-2025.xlsx', base64 })).json();
+    expect(p.items[0]).toMatchObject({ gtin: G, description: 'REV - CASCAO P (UN)' });
+    expect(p.items[1]).toMatchObject({ gtin: null, description: '12345 SEM GTIN VALIDO' });
+
+    // correção dos já cadastrados (migration 0017): mesma regra no banco
+    const v = (await getPool().query('SELECT gtin_valido($1) AS a, gtin_valido($2) AS b', [G, '7898125167609'])).rows[0];
+    expect(v).toEqual({ a: true, b: false });
+  });
 });
