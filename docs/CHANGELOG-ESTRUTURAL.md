@@ -264,3 +264,12 @@ com impacto e estratégia de preservação de dados.
 - **Garantias:** nº do pedido não entra duas vezes; sem percentuais configurados o pedido exige taxas informadas
   (nada é estimado); cancelamento só antes do repasse, devolve o estoque; tudo auditado.
 - **Próximo passo:** importar o relatório do Portal do Parceiro para esta mesma estrutura, quando houver o 1º arquivo.
+
+## Conciliação do período (2026-11-08, sem migration)
+- **Financeiro › Conciliação** e relatório **"Conciliação do período"** (Excel/PDF): por dia, semana (seg–dom),
+  quinzena (1–15 / 16–fim) ou mês. Somente leitura.
+- **Confere:** vendas por canal (Caixa, PDV, iFood); cada sessão de caixa (esperado × contado; caixa esquecido aberto);
+  cartão/Pix (vendido × lançado em contas a receber × recebido; dias não consolidados; recebíveis vencidos sem baixa);
+  iFood (pedidos × repasse, atraso pelo prazo do contrato; diferenças dos repasses); contas (movimentos não conferidos
+  com o extrato); estoque (vendas sem baixa, pendências do PDV); parcelas a pagar vencidas sem pagamento.
+- Cada item: OK / Atenção / Pendente, com explicação e link "Resolver".

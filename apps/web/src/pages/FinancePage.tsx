@@ -15,10 +15,11 @@ import { SettleForm, TitleDetailView, TitleForm, TransferForm } from '../compone
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
 import { RecurringTab } from '../components/recurring';
 import { PartnersTab } from '../components/partners';
+import { ConciliationTab } from '../components/conciliation';
 
-type Tab = 'geral' | 'pagar' | 'receber' | 'fixas' | 'caixa' | 'extrato' | 'fluxo' | 'dre' | 'socios' | 'config';
+type Tab = 'geral' | 'pagar' | 'receber' | 'fixas' | 'caixa' | 'conciliacao' | 'extrato' | 'fluxo' | 'dre' | 'socios' | 'config';
 const TABS: [Tab, string][] = [
-  ['geral', 'Visão geral'], ['pagar', 'Contas a pagar'], ['receber', 'Contas a receber'], ['fixas', 'Despesas fixas'], ['caixa', 'Caixa'],
+  ['geral', 'Visão geral'], ['pagar', 'Contas a pagar'], ['receber', 'Contas a receber'], ['fixas', 'Despesas fixas'], ['caixa', 'Caixa'], ['conciliacao', 'Conciliação'],
   ['extrato', 'Extrato'], ['fluxo', 'Fluxo de caixa'], ['dre', 'DRE gerencial'], ['socios', 'Sócios'], ['config', 'Configurações'],
 ];
 
@@ -750,6 +751,7 @@ export function FinancePage() {
       {tab === 'receber' && <Titles key="receber" direction="receber" />}
       {tab === 'fixas' && <RecurringTab />}
       {tab === 'caixa' && <CashTab />}
+      {tab === 'conciliacao' && <ConciliationTab />}
       {tab === 'extrato' && <Statement />}
       {tab === 'fluxo' && <CashFlow />}
       {tab === 'dre' && <Dre />}

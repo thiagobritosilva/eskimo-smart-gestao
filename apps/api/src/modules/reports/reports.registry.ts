@@ -1,6 +1,7 @@
 import type { Queryable } from '../../db/pool.js';
 import { addDays, addMonths, fromCents, toCents } from '../../lib/money.js';
 import { dre, dreByMonth } from '../finance/finance.reports.js';
+import { conciliation } from '../finance/conciliation.service.js';
 import { getStockParams } from '../stock/stock.queries.js';
 
 /**
@@ -75,6 +76,27 @@ function titlesReport(direction: 'pagar' | 'receber'): ReportDef['run'] {
 }
 
 const finance: ReportDef[] = [
+  {
+    key: 'conciliacao', group: 'Financeiro', title: 'Conciliação do período',
+    description: 'Confere vendas, caixa, cartão/Pix, iFood, contas e estoque do período, com a situação de cada item.',
+    permissions: ['finance.view'], filters: ['period'],
+    run: async (db, p) => {
+      const r = await conciliation(db, p.from, p.to);
+      const ST: Record<string, string> = { ok: 'OK', atencao: 'Atenção', pendente: 'Pendente' };
+      return {
+        columns: [
+          { key: 'area', label: 'Área', type: 'text' }, { key: 'item', label: 'Item', type: 'text' },
+          { key: 'expected', label: 'Esperado/vendido', type: 'money' }, { key: 'actual', label: 'Realizado/lançado', type: 'money' },
+          { key: 'difference', label: 'Diferença', type: 'money' }, { key: 'situacao', label: 'Situação', type: 'text' }, { key: 'detail', label: 'Observação', type: 'text' },
+        ],
+        rows: [
+          ...r.sales.channels.map((ch) => ({ area: 'Vendas', item: `${ch.canal} — ${ch.vendas} venda(s)${ch.canceladas ? ` · ${ch.canceladas} cancelada(s)` : ''}`, expected: null, actual: ch.liquido, difference: null, situacao: 'Informativo', detail: `Bruto R$ ${ch.bruto} · descontos R$ ${ch.desconto}` })),
+          ...r.checks.map((x) => ({ ...x, situacao: ST[x.status] })),
+        ],
+        notes: [`Resumo: ${r.summary.ok} OK · ${r.summary.atencao} atenção · ${r.summary.pendente} pendente(s). Total vendido no período (líquido): R$ ${r.sales.total}.`],
+      };
+    },
+  },
   { key: 'contas-pagar', group: 'Financeiro', title: 'Contas a pagar', description: 'Parcelas por vencimento, com valor pago e em aberto.', permissions: ['finance.view'], filters: ['period', 'titleStatus'], run: titlesReport('pagar') },
   { key: 'contas-receber', group: 'Financeiro', title: 'Contas a receber', description: 'Parcelas por vencimento, com valor recebido e em aberto.', permissions: ['finance.view'], filters: ['period', 'titleStatus'], run: titlesReport('receber') },
   {
