@@ -273,3 +273,9 @@ com impacto e estratégia de preservação de dados.
   iFood (pedidos × repasse, atraso pelo prazo do contrato; diferenças dos repasses); contas (movimentos não conferidos
   com o extrato); estoque (vendas sem baixa, pendências do PDV); parcelas a pagar vencidas sem pagamento.
 - Cada item: OK / Atenção / Pendente, com explicação e link "Resolver".
+
+## iFood — cardápio pelos produtos (2026-11-08, sem migration)
+- O item do cardápio é definido pelos **produtos que saem do estoque**; o nome é montado automaticamente
+  ("Picolé Uva" ou "3× Picolé Uva + 1× Pote"). Nome próprio continua opcional. Código do iFood saiu da tela.
+- `ifood.params.markupPercent` (acréscimo do iFood, informado pelo Proprietário): sugere o preço do item a partir do
+  preço da loja, arredondado para o próximo final ,90.

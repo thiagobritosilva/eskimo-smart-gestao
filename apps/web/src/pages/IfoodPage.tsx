@@ -11,7 +11,7 @@ import { AccountSelect } from '../components/finance';
 import { ProductPicker, useActiveProducts } from '../components/stock';
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
 
-interface Params { commissionPercent: string | null; paymentFeePercent: string | null; repasseDays: number | null }
+interface Params { commissionPercent: string | null; paymentFeePercent: string | null; repasseDays: number | null; markupPercent?: string | null }
 interface Summary { params: Params; configured: boolean; open_count: number; open_gross: string; open_fees: string; open_net: string; oldest: string | null; pendingStock: number; expectedRepasseFrom: string | null }
 interface MenuItem { id: string; name: string; external_code: string | null; price: string | null; is_active: boolean; components: { productId: string; name: string; internalCode: string; quantity: string }[] }
 interface Order {
@@ -216,7 +216,7 @@ function Menu({ manage }: { manage: boolean }) {
           <tbody className="divide-y divide-slate-100">
             {(menu.data ?? []).map((m) => (
               <tr key={m.id} className={clsx(!m.is_active && 'opacity-50')}>
-                <td className="td"><div className="font-medium">{m.name}</div>{m.external_code && <div className="text-xs text-slate-500">cód. iFood {m.external_code}</div>}</td>
+                <td className="td"><div className="font-medium">{m.name}</div></td>
                 <td className="td text-xs">{m.components.map((c) => `${c.name} × ${c.quantity.replace(/\.?0+$/, '')}`).join(', ')}</td>
                 <td className="td text-right">{m.price ? formatMoney(m.price) : '—'}</td>
                 <td className="td text-right">{manage && <button className="btn-ghost py-1 text-xs" onClick={() => setEditing(m)}>Editar</button>}</td>
@@ -236,11 +236,28 @@ function Menu({ manage }: { manage: boolean }) {
 function MenuForm({ item, onDone }: { item: MenuItem | null; onDone: () => void }) {
   const qc = useQueryClient();
   const products = useActiveProducts();
-  const [f, setF] = useState({ name: item?.name ?? '', externalCode: item?.external_code ?? '', price: item?.price ? fromDecimal(item.price) : '', isActive: item?.is_active ?? true });
+  const params = useQuery({ queryKey: ['ifood', 'params'], queryFn: () => api.get<Params>('/ifood/params') });
+  const [name, setName] = useState(item?.name ?? '');
+  const [price, setPrice] = useState(item?.price ? fromDecimal(item.price) : '');
+  const [isActive, setIsActive] = useState(item?.is_active ?? true);
   const [comps, setComps] = useState(item?.components.map((c) => ({ productId: c.productId, quantity: fromDecimal(c.quantity) })) ?? [{ productId: '', quantity: '1' }]);
+  const chosen = comps.filter((c) => c.productId);
+  const byId = new Map((products.data ?? []).map((p) => [p.id, p]));
+  // nome automático pelos produtos (o mesmo que o sistema grava se o nome ficar em branco)
+  const qtyTxt = (q: string) => String(Number(dec(q))).replace('.', ',');
+  const autoName = chosen.length === 1 && Number(dec(chosen[0]!.quantity)) === 1
+    ? byId.get(chosen[0]!.productId)?.name ?? ''
+    : chosen.map((c) => `${qtyTxt(c.quantity)}× ${byId.get(c.productId)?.name ?? '?'}`).join(' + ');
+  // preço da loja somado e sugestão com o acréscimo do iFood
+  const store = chosen.reduce((s, c) => s + Number(byId.get(c.productId)?.sale_price ?? 0) * Number(dec(c.quantity)), 0);
+  const missingPrice = chosen.some((c) => !byId.get(c.productId)?.sale_price);
+  const markup = params.data?.markupPercent ? Number(params.data.markupPercent) : null;
+  // arredonda para cima até o próximo final ,90 (em centavos, sem erro de ponto flutuante)
+  const target = markup != null && store > 0 ? Math.round(store * (1 + markup / 100) * 100) : null;
+  const suggested = target != null ? (Math.ceil((target + 10) / 100) * 100 - 10) / 100 : null;
   const m = useMutation({
     mutationFn: () => {
-      const body = { name: f.name, externalCode: f.externalCode || null, price: f.price ? dec(f.price) : null, isActive: f.isActive, components: comps.filter((c) => c.productId).map((c) => ({ productId: c.productId, quantity: dec(c.quantity) })) };
+      const body = { name: name.trim() || null, price: price ? dec(price) : null, isActive, components: chosen.map((c) => ({ productId: c.productId, quantity: dec(c.quantity) })) };
       return item ? api.patch(`/ifood/menu/${item.id}`, body) : api.post('/ifood/menu', body);
     },
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['ifood'] }); onDone(); },
@@ -248,22 +265,27 @@ function MenuForm({ item, onDone }: { item: MenuItem | null; onDone: () => void 
   return (
     <form className="space-y-3" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>
       {m.error && <Alert>{errorMessage(m.error)}</Alert>}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="sm:col-span-2"><Field label="Nome no iFood *"><input className="input" required minLength={2} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field></div>
-        <Field label="Preço no iFood (R$)"><input className="input" inputMode="decimal" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></Field>
-      </div>
-      <Field label="Código do item no iFood" hint="Opcional. Ajuda a ler os relatórios do iFood no futuro."><input className="input" value={f.externalCode} onChange={(e) => setF({ ...f, externalCode: e.target.value })} /></Field>
       <div className="label">Produtos que saem do estoque *</div>
       {comps.map((c, k) => (
         <div key={k} className="flex items-start gap-2">
           <div className="flex-1"><ProductPicker products={products.data ?? []} value={c.productId} onChange={(id) => setComps((xs) => xs.map((x, n) => (n === k ? { ...x, productId: id } : x)))} /></div>
-          <input className="input w-24" inputMode="decimal" value={c.quantity} onChange={(e) => setComps((xs) => xs.map((x, n) => (n === k ? { ...x, quantity: e.target.value } : x)))} title="Quantidade por item vendido" />
-          <button type="button" className="btn-ghost p-2" onClick={() => setComps((xs) => xs.filter((_, n) => n !== k))}><Trash2 className="h-4 w-4" /></button>
+          <input className="input w-24" inputMode="decimal" value={c.quantity} onChange={(e) => setComps((xs) => xs.map((x, n) => (n === k ? { ...x, quantity: e.target.value } : x)))} title="Quantidade que sai do estoque a cada item vendido" />
+          <button type="button" className="btn-ghost p-2" onClick={() => setComps((xs) => xs.filter((_, n) => n !== k))} aria-label="Remover"><Trash2 className="h-4 w-4" /></button>
         </div>
       ))}
-      <button type="button" className="btn-secondary text-xs" onClick={() => setComps((xs) => [...xs, { productId: '', quantity: '1' }])}><Plus className="h-3 w-3" /> Produto</button>
-      {item && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.isActive} onChange={(e) => setF({ ...f, isActive: e.target.checked })} /> Ativo</label>}
-      <div className="flex justify-end gap-2 border-t border-slate-200 pt-3"><button type="button" className="btn-secondary" onClick={onDone}>Cancelar</button><button className="btn-primary" disabled={m.isPending}>Salvar</button></div>
+      <button type="button" className="btn-secondary text-xs" onClick={() => setComps((xs) => [...xs, { productId: '', quantity: '1' }])}><Plus className="h-3 w-3" /> Produto (para combo)</button>
+      {!!chosen.length && <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">Aparece no sistema como: <strong>{name.trim() || autoName}</strong></div>}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Preço no iFood (R$)" hint={store > 0 ? `Na loja: ${formatMoney(store.toFixed(2))}${missingPrice ? ' (algum produto sem preço)' : ''}${markup != null ? ` · +${String(markup).replace('.', ',')}%` : ''}` : undefined}>
+          <div className="flex gap-2">
+            <input className="input" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
+            {suggested != null && <button type="button" className="btn-secondary whitespace-nowrap text-xs" onClick={() => setPrice(suggested.toFixed(2).replace('.', ','))}>Usar {formatMoney(suggested.toFixed(2))}</button>}
+          </div>
+        </Field>
+        <Field label="Nome diferente (opcional)" hint="Em branco = nome dos produtos. Use só se quiser o nome do anúncio no iFood."><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={autoName} /></Field>
+      </div>
+      {item && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Ativo</label>}
+      <div className="flex justify-end gap-2 border-t border-slate-200 pt-3"><button type="button" className="btn-secondary" onClick={onDone}>Cancelar</button><button className="btn-primary" disabled={m.isPending || !chosen.length}>Salvar</button></div>
     </form>
   );
 }
@@ -326,9 +348,9 @@ function Repasses() {
 // ------------------------------------------------------------------ configurações
 function Config({ params }: { params: Params }) {
   const qc = useQueryClient();
-  const [f, setF] = useState({ c: params.commissionPercent ? fromDecimal(params.commissionPercent) : '', p: params.paymentFeePercent ? fromDecimal(params.paymentFeePercent) : '', d: params.repasseDays != null ? String(params.repasseDays) : '' });
+  const [f, setF] = useState({ c: params.commissionPercent ? fromDecimal(params.commissionPercent) : '', p: params.paymentFeePercent ? fromDecimal(params.paymentFeePercent) : '', d: params.repasseDays != null ? String(params.repasseDays) : '', mk: params.markupPercent ? fromDecimal(params.markupPercent) : '' });
   const m = useMutation({
-    mutationFn: () => api.put('/ifood/params', { commissionPercent: f.c ? dec(f.c) : null, paymentFeePercent: f.p ? dec(f.p) : null, repasseDays: f.d ? Number(f.d) : null }),
+    mutationFn: () => api.put('/ifood/params', { commissionPercent: f.c ? dec(f.c) : null, paymentFeePercent: f.p ? dec(f.p) : null, repasseDays: f.d ? Number(f.d) : null, markupPercent: f.mk ? dec(f.mk) : null }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['ifood'] }),
   });
   return (
@@ -339,6 +361,7 @@ function Config({ params }: { params: Params }) {
         <Field label="Taxa de pagamento online (%)" hint={`Atual: ${pctLabel(params.paymentFeePercent)}`}><input className="input" inputMode="decimal" value={f.p} onChange={(e) => setF({ ...f, p: e.target.value })} /></Field>
         <Field label="Prazo do repasse (dias)" hint="Só para previsão; o repasse real é registrado quando cair."><input className="input" inputMode="numeric" value={f.d} onChange={(e) => setF({ ...f, d: e.target.value.replace(/\D/g, '') })} /></Field>
       </div>
+      <Field label="Acréscimo nos preços do iFood (%)" hint="Usado só para sugerir o preço de cada item do cardápio a partir do preço da loja (arredondado para ,90)."><input className="input max-w-[12rem]" inputMode="decimal" value={f.mk} onChange={(e) => setF({ ...f, mk: e.target.value })} /></Field>
       {m.error && <Alert>{errorMessage(m.error)}</Alert>}
       {m.isSuccess && <Alert kind="success">Configuração salva.</Alert>}
       <div className="flex justify-end"><button className="btn-primary" disabled={m.isPending}>Salvar</button></div>

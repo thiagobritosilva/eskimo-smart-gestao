@@ -42,6 +42,14 @@ describe('canal iFood', () => {
     combo = c.json().id;
     single = (await req(owner.cookie, 'POST', '/ifood/menu', { name: `Picolé A ${tag}`, price: '8.00', components: [{ productId: pA, quantity: '1' }] })).json().id;
     expect((await req(func.cookie, 'POST', '/ifood/menu', { name: 'x', components: [{ productId: pA, quantity: '1' }] })).statusCode).toBe(403);
+    // sem nome: o item é identificado pelos produtos que saem do estoque
+    const auto1 = await req(owner.cookie, 'POST', '/ifood/menu', { components: [{ productId: pB, quantity: '1' }] });
+    expect(auto1.statusCode, auto1.body).toBe(201);
+    const auto2 = await req(owner.cookie, 'POST', '/ifood/menu', { components: [{ productId: pA, quantity: '3' }, { productId: pB, quantity: '1' }] });
+    const menu = (await req(owner.cookie, 'GET', '/ifood/menu')).json();
+    expect(menu.find((m: { id: string }) => m.id === auto1.json().id).name).toBe(`Produto iFood B ${tag}`);
+    expect(menu.find((m: { id: string }) => m.id === auto2.json().id).name).toBe(`3× Produto iFood A ${tag} + 1× Produto iFood B ${tag}`);
+    expect((await req(owner.cookie, 'POST', '/ifood/menu', { components: [{ productId: pB, quantity: '1' }] })).statusCode).toBe(409);
   });
 
   it('pedido baixa o estoque pelos componentes e calcula comissão/taxa pelos percentuais do contrato', async () => {

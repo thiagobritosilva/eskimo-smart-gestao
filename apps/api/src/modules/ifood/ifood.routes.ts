@@ -11,7 +11,7 @@ const pct = z.union([z.string(), z.number()]).transform((v) => String(v).trim())
 const date = z.string().date('Data inválida.');
 const idParams = z.object({ id: uuidSchema });
 const menuBody = z.object({
-  name: z.string().trim().min(2).max(120), externalCode: z.string().trim().max(60).nullable().optional(), price: money.nullable().optional(),
+  name: z.string().trim().max(120).nullable().optional(), externalCode: z.string().trim().max(60).nullable().optional(), price: money.nullable().optional(),
   isActive: z.boolean().optional(), components: z.array(z.object({ productId: uuidSchema, quantity: qty })).min(1).max(30),
 });
 
@@ -21,7 +21,7 @@ export async function ifoodRoutes(app: FastifyInstance) {
   app.get('/ifood/summary', { preHandler: view }, async () => svc.summary());
   app.get('/ifood/params', { preHandler: view }, async () => svc.getParams());
   app.put('/ifood/params', { preHandler: manage }, async (req) => {
-    const b = parse(z.object({ commissionPercent: pct.nullable(), paymentFeePercent: pct.nullable(), repasseDays: z.number().int().min(0).max(120).nullable() }), req.body);
+    const b = parse(z.object({ commissionPercent: pct.nullable(), paymentFeePercent: pct.nullable(), repasseDays: z.number().int().min(0).max(120).nullable(), markupPercent: z.union([z.string(), z.number()]).transform((v) => String(v).trim()).refine((v) => /^\d{1,3}(\.\d{1,2})?$/.test(v), 'Percentual inválido.').nullable().optional() }), req.body);
     return svc.setParams(actorOf(req), b);
   });
   app.get('/ifood/menu', { preHandler: view }, async () => svc.listMenu());

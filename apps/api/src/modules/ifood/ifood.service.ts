@@ -19,11 +19,11 @@ const elevate = (a: Actor, ...p: string[]): Actor => ({ ...a, permissions: [...n
 const TZ = 'America/Sao_Paulo';
 const spDate = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(iso));
 
-export interface IfoodParams { commissionPercent: string | null; paymentFeePercent: string | null; repasseDays: number | null }
+export interface IfoodParams { commissionPercent: string | null; paymentFeePercent: string | null; repasseDays: number | null; markupPercent?: string | null }
 
 export async function getParams(db: pg.Pool | Db = getPool()): Promise<IfoodParams> {
   const v = (await db.query<{ value: Partial<IfoodParams> }>(`SELECT value FROM app_settings WHERE key = 'ifood.params'`)).rows[0]?.value ?? {};
-  return { commissionPercent: v.commissionPercent ?? null, paymentFeePercent: v.paymentFeePercent ?? null, repasseDays: v.repasseDays ?? null };
+  return { commissionPercent: v.commissionPercent ?? null, paymentFeePercent: v.paymentFeePercent ?? null, repasseDays: v.repasseDays ?? null, markupPercent: v.markupPercent ?? null };
 }
 
 export async function setParams(actor: Actor, input: IfoodParams) {
@@ -47,7 +47,15 @@ export async function listMenu() {
   return rows;
 }
 
-export interface MenuInput { name: string; externalCode?: string | null; price?: string | null; isActive?: boolean; components: { productId: string; quantity: string }[] }
+export interface MenuInput { name?: string | null; externalCode?: string | null; price?: string | null; isActive?: boolean; components: { productId: string; quantity: string }[] }
+
+/** Nome automático pelos produtos: "Picolé Uva" ou "2× Picolé Uva + 1× Pote 1L" */
+async function autoName(db: Db, comps: MenuInput['components']) {
+  const names = new Map((await db.query<{ id: string; name: string }>('SELECT id, name FROM products WHERE id = ANY($1::uuid[])', [comps.map((c) => c.productId)])).rows.map((r) => [r.id, r.name]));
+  const qty = (q: string) => String(Number(q)).replace('.', ',');
+  if (comps.length === 1 && Number(comps[0]!.quantity) === 1) return names.get(comps[0]!.productId) ?? 'Item';
+  return comps.map((c) => `${qty(c.quantity)}× ${names.get(c.productId) ?? '?'}`).join(' + ').slice(0, 120);
+}
 
 async function saveComponents(db: Db, id: string, comps: MenuInput['components']) {
   if (!comps.length) throw Errors.badRequest('Informe ao menos um produto do estoque que sai neste item do cardápio.');
@@ -62,11 +70,12 @@ async function saveComponents(db: Db, id: string, comps: MenuInput['components']
 export async function createMenuItem(actor: Actor, input: MenuInput) {
   need(actor, 'ifood.manage');
   return withTransaction(async (db) => {
-    const dup = await db.query('SELECT 1 FROM ifood_menu_items WHERE lower(name) = lower($1)', [input.name.trim()]);
-    if (dup.rowCount) throw Errors.conflict('Já existe um item do cardápio com este nome.');
+    const name = input.name?.trim() || await autoName(db, input.components);
+    const dup = await db.query('SELECT 1 FROM ifood_menu_items WHERE lower(name) = lower($1)', [name]);
+    if (dup.rowCount) throw Errors.conflict(`Já existe no cardápio o item "${name}".`);
     const { rows } = await db.query<{ id: string }>(
       'INSERT INTO ifood_menu_items (name, external_code, price, is_active, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-      [input.name.trim(), input.externalCode?.trim() || null, input.price || null, input.isActive ?? true, actor.userId],
+      [name, input.externalCode?.trim() || null, input.price || null, input.isActive ?? true, actor.userId],
     );
     await saveComponents(db, rows[0]!.id, input.components);
     await writeAudit(db, actor.audit, { action: 'ifood.menu_created', entity: 'ifood_menu_item', entityId: rows[0]!.id, after: input });
@@ -79,10 +88,16 @@ export async function updateMenuItem(actor: Actor, id: string, input: Partial<Me
   return withTransaction(async (db) => {
     const before = (await db.query('SELECT * FROM ifood_menu_items WHERE id = $1 FOR UPDATE', [id])).rows[0];
     if (!before) throw Errors.notFound('Item do cardápio não encontrado.');
+    // sem nome informado e com nova composição: o nome acompanha os produtos
+    const newName = input.name?.trim() || (input.components ? await autoName(db, input.components) : null);
+    if (newName && newName.toLowerCase() !== String(before.name).toLowerCase()) {
+      const dup = await db.query('SELECT 1 FROM ifood_menu_items WHERE lower(name) = lower($1) AND id <> $2', [newName, id]);
+      if (dup.rowCount) throw Errors.conflict(`Já existe no cardápio o item "${newName}".`);
+    }
     await db.query(
       `UPDATE ifood_menu_items SET name = coalesce($2, name), external_code = CASE WHEN $3::boolean THEN $4 ELSE external_code END,
               price = CASE WHEN $5::boolean THEN $6::numeric ELSE price END, is_active = coalesce($7, is_active) WHERE id = $1`,
-      [id, input.name?.trim() ?? null, input.externalCode !== undefined, input.externalCode?.trim() || null, input.price !== undefined, input.price || null, input.isActive ?? null],
+      [id, newName, input.externalCode !== undefined, input.externalCode?.trim() || null, input.price !== undefined, input.price || null, input.isActive ?? null],
     );
     if (input.components) await saveComponents(db, id, input.components);
     await writeAudit(db, actor.audit, { action: 'ifood.menu_updated', entity: 'ifood_menu_item', entityId: id, before, after: input });
