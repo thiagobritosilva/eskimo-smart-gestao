@@ -25,6 +25,7 @@ import { reportsRoutes } from './modules/reports/reports.routes.js';
 import { posRoutes } from './modules/pos/pos.routes.js';
 import { partnersRoutes } from './modules/finance/partners.routes.js';
 import { searchRoutes } from './modules/search/search.routes.js';
+import { ifoodRoutes } from './modules/ifood/ifood.routes.js';
 import './types.js';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -124,6 +125,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(posRoutes);
       await api.register(partnersRoutes);
       await api.register(searchRoutes);
+      await api.register(ifoodRoutes);
       await api.register(productsRoutes);
       await api.register(stockRoutes);
       await api.register(financeRoutes);

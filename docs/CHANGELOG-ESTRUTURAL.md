@@ -250,3 +250,17 @@ com impacto e estratégia de preservação de dados.
 - **Garantias:** só nota autorizada (protocolo 100/150); a mesma chave não entra duas vezes; aviso se o destinatário
   não é o CNPJ da loja; tudo auditado (`purchase.nfe_imported`); estorno pelo recebimento, como as demais compras.
 - **Impacto:** tabela/colunas novas; nenhum dado existente alterado. `receive` passou a ter a versão `receiveInDb`.
+
+## 0018_ifood — canal iFood (2026-11-08)
+- **Contexto:** pedidos do iFood (Plano Entrega) não passam no caixa nem no PDV; ainda não há relatório real do iFood
+  para definir o layout de importação. Esta etapa cria a base que funciona desde o 1º pedido.
+- **O quê:** permissões `ifood.operate`/`ifood.manage`; conector `ifood/pedidos` (ativado no 1º pedido); categoria
+  "Comissão e taxas iFood"; `app_settings.ifood.params` (comissão %, taxa de pagamento %, prazo de repasse — em branco
+  até o Proprietário informar); tabelas `ifood_menu_items`/`ifood_menu_components` (cardápio → produtos, combos),
+  `ifood_orders` (pedido imutável; só cancelamento e vínculo ao repasse) e `ifood_repasses` (imutável).
+- **Fluxo:** pedido → venda (tabela `sales`, entra no faturamento/dashboard) → baixa do estoque pelos componentes
+  (regra por produto/categoria, local padrão ou estoque central). Repasse: compara esperado × recebido (diferença exige
+  motivo) e lança receita bruta por dia do pedido + comissão/taxas como despesa, quitadas na data do repasse.
+- **Garantias:** nº do pedido não entra duas vezes; sem percentuais configurados o pedido exige taxas informadas
+  (nada é estimado); cancelamento só antes do repasse, devolve o estoque; tudo auditado.
+- **Próximo passo:** importar o relatório do Portal do Parceiro para esta mesma estrutura, quando houver o 1º arquivo.
