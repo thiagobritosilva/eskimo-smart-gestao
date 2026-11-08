@@ -12,7 +12,7 @@ nenhum dado fictício.
 | **4 — Compras** ✅ | Fornecedores, pedidos, recebimento com rateio de frete/desconto, custo médio, geração única de estoque + conta a pagar | Recebimento repetido não duplica nada | Fases 2 e 3 |
 | **5 — PDV Connector** ◐ (NFC-e ✅ · API aguardando documentação) | Levantamento técnico com a WebSempre, adaptador oficial, sincronização idempotente, alocação por freezer, conciliação | **Testes reais** com vendas da loja e conferência com relatório do PDV | Documentação/credenciais oficiais da WebSempre |
 | 6 — IA | Gateway de ferramentas somente-leitura, chat Claude e ChatGPT, chaves por cliente, limites, auditoria | Respostas citam dados reais e admitem ausência de dados | Fases 2–4 com dados |
-| **7 — Relatórios e alertas** ✅ (alertas ✅ · 20 relatórios com Excel/PDF ✅ · envio por e-mail/WhatsApp 🔜) | 20 relatórios, exportação Excel/PDF, central de notificações, regras de alerta, preparação e-mail/WhatsApp | Relatórios batem com consultas de conferência | Fases 2–5 |
+| **7 — Relatórios e alertas** ✅ (alertas ✅ · 21 relatórios com Excel/PDF ✅ · envio por e-mail/WhatsApp 🔜) | 21 relatórios (inclui conciliação do período), exportação Excel/PDF, central de notificações, regras de alerta, preparação e-mail/WhatsApp | Relatórios batem com consultas de conferência | Fases 2–5 |
 | 8 — Homologação | Testes ponta a ponta, revisão de segurança, teste de restauração de backup, validação de cálculos, LGPD, go-live | Checklist de produção assinado | Todas |
 
 ## Checklist para a Fase 5 (a solicitar à WebSempre Tecnologia)
