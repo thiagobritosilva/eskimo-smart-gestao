@@ -289,3 +289,14 @@ com impacto e estratégia de preservação de dados.
 - **Caixa (PDV):** botão "Pedido iFood" para lançar o pedido sem sair do caixa; painel "Nesta sessão" com as 4 formas
   sempre visíveis e a linha do iFood.
 - **Relatórios:** novo "Fechamentos de caixa" (por período, uma coluna por forma de pagamento + iFood).
+
+## 0020_venda_apos_fechamento — venda lançada depois do fechamento do caixa (2026-11-10)
+- **Situação:** cliente atendido após o fechamento, venda passada só na maquininha.
+- **O quê:** `sales.late_reason/late_registered_by/late_registered_at`; `pdv_daily_consolidations.supplement`
+  (o mesmo dia/forma de pagamento pode ter consolidação complementar; a unicidade passou a incluir `supplement`).
+- **Regras:** Financeiro › Caixa › histórico › "Lançar venda" em sessão **fechada** do caixa; somente quem tem
+  `finance.manage` ou o Proprietário; motivo obrigatório (auditoria `pos.sale_late`); data/hora entre a abertura do
+  caixa e agora (pode ser de dia anterior); só Pix/débito/crédito (dinheiro não, porque a gaveta já foi conferida — vai
+  no próximo caixa aberto). Preço do cadastro; baixa de estoque normal; entra no relatório daquele caixa marcada como
+  lançada depois; conferência do dinheiro não muda. Se o dia já foi consolidado, a próxima consolidação gera um título
+  complementar em contas a receber (nada se perde).

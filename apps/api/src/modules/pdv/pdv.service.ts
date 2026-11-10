@@ -569,10 +569,15 @@ export async function consolidateDays(actor: Actor, upTo?: string) {
     for (const g of groups) {
       if (toCents(g.amount) <= 0) continue;
       const due = addDays(g.sale_date, g.settlement_days ?? 0);
+      // dia/forma já consolidado (ex.: venda lançada depois do fechamento): consolidação COMPLEMENTAR
+      const supplement = (await db.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM pdv_daily_consolidations WHERE connector_id = $1 AND sale_date = $2 AND method_code = $3',
+        [g.connector_id, g.sale_date, g.method_code],
+      )).rows[0]!.n;
       if (g.settlement_days == null && g.method_code !== 'dinheiro') warnings.push(`${g.method_name}: prazo de repasse não configurado; vencimento considerado no próprio dia.`);
       const t = await createTitleInDb(db, actor, {
         direction: 'receber',
-        description: `Vendas PDV ${g.sale_date.split('-').reverse().join('/')} — ${g.method_name} (${g.sales_count} venda(s))`,
+        description: `Vendas PDV ${g.sale_date.split('-').reverse().join('/')} — ${g.method_name} (${g.sales_count} venda(s))${supplement ? ' — complemento (venda lançada depois)' : ''}`,
         categoryId: cat.id,
         counterparty: 'Clientes — PDV',
         document: `PDV ${g.sale_date}`,
@@ -581,15 +586,15 @@ export async function consolidateDays(actor: Actor, upTo?: string) {
         issueDate: g.sale_date,
         totalAmount: fromCents(toCents(g.amount)),
         plan: { count: 1, firstDueDate: due },
-        idempotencyKey: `pdv:receb:${g.connector_id}:${g.sale_date}:${g.method_code}`,
+        idempotencyKey: `pdv:receb:${g.connector_id}:${g.sale_date}:${g.method_code}${supplement ? `:c${supplement}` : ''}`,
         sourceType: 'pdv',
-        sourceId: `${g.connector_id}:${g.sale_date}:${g.method_code}`,
+        sourceId: `${g.connector_id}:${g.sale_date}:${g.method_code}${supplement ? `:c${supplement}` : ''}`,
         notes: 'Gerado automaticamente pela consolidação diária das vendas do PDV.',
       });
       if (t.duplicate) continue;
       await db.query(
-        `INSERT INTO pdv_daily_consolidations (connector_id, sale_date, method_code, amount, sales_count, title_id, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [g.connector_id, g.sale_date, g.method_code, g.amount, g.sales_count, t.id, actor.userId],
+        `INSERT INTO pdv_daily_consolidations (connector_id, sale_date, method_code, amount, sales_count, title_id, created_by, supplement) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [g.connector_id, g.sale_date, g.method_code, g.amount, g.sales_count, t.id, actor.userId, supplement],
       );
       created.push({ date: g.sale_date, method: g.method_name, amount: g.amount, titleNumber: t.number, dueDate: due });
     }

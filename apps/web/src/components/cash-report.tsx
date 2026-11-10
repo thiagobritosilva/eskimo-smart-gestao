@@ -11,7 +11,7 @@ export interface CashReport {
     terminal_name: string | null; terminal_code: string | null; opened_by_name: string; closed_by_name: string | null;
   };
   methods: { code: string; name: string; count: number; amount: string }[];
-  sales: { sales: number; total: string; discount: string; cancelled: number; cancelled_total: string; change: string };
+  sales: { sales: number; total: string; discount: string; cancelled: number; cancelled_total: string; late?: number; late_total?: string; change: string };
   movements: { kind: string; direction: string; amount: string; description: string; occurred_at: string }[];
   ifood: { count: number; amount: string; orders: { order_code: string; sold_at: string; amount: string; items: string | null; cancelled: boolean }[] };
   grandTotal: string;
@@ -38,7 +38,8 @@ export function printCashReport(r: CashReport) {
     <table>${r.methods.map((m) => row(`${m.name} (${m.count})`, `R$ ${num(m.amount)}`)).join('')}
     ${row(`Total do caixa (${r.sales.sales} venda(s))`, `R$ ${num(r.sales.total)}`, true)}
     ${Number(r.sales.discount) ? row('Descontos concedidos', `R$ ${num(r.sales.discount)}`) : ''}
-    ${r.sales.cancelled ? row(`Canceladas (${r.sales.cancelled})`, `R$ ${num(r.sales.cancelled_total)}`) : ''}</table><hr>
+    ${r.sales.cancelled ? row(`Canceladas (${r.sales.cancelled})`, `R$ ${num(r.sales.cancelled_total)}`) : ''}
+    ${r.sales.late ? row(`Lançadas após o fechamento (${r.sales.late})`, `R$ ${num(r.sales.late_total ?? 0)}`) : ''}</table><hr>
     <div class="b">iFOOD DESPACHADO NO TURNO</div>
     <table>${r.ifood.orders.filter((o) => !o.cancelled).map((o) => row(`#${o.order_code} ${dt(o.sold_at).slice(-5)}`, `R$ ${num(o.amount)}`)).join('') || '<tr><td class="sm">Nenhum pedido</td></tr>'}
     ${row(`Total iFood (${r.ifood.count} pedido(s))`, `R$ ${num(r.ifood.amount)}`, true)}</table>
@@ -81,6 +82,7 @@ export function CashReportView({ sessionId }: { sessionId: string }) {
           {r.methods.map((m) => <div key={m.code} className="flex justify-between"><span>{m.name} <span className="text-xs text-slate-400">({m.count})</span></span><span className="tabular-nums">{formatMoney(m.amount)}</span></div>)}
           <div className="mt-1 flex justify-between border-t border-slate-100 pt-1 font-semibold"><span>Total ({r.sales.sales} venda(s))</span><span className="tabular-nums">{formatMoney(r.sales.total)}</span></div>
           {r.sales.cancelled > 0 && <div className="text-xs text-slate-500">{r.sales.cancelled} cancelada(s): {formatMoney(r.sales.cancelled_total)}</div>}
+          {!!r.sales.late && <div className="text-xs text-amber-700">Inclui {r.sales.late} venda(s) lançada(s) depois do fechamento: {formatMoney(r.sales.late_total ?? '0')}</div>}
         </div>
         <div className="rounded-xl border border-slate-200 p-3">
           <div className="mb-1 font-semibold">iFood despachado no turno</div>

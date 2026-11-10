@@ -39,6 +39,22 @@ export async function posRoutes(app: FastifyInstance) {
     reply.code(201);
     return svc.openSession(actorOf(req), id, b.counted);
   });
+  // venda feita na maquininha depois do fechamento: entra no caixa daquele dia (financeiro/Proprietário — verificado no serviço)
+  app.post('/pos/sessions/:id/late-sale', { preHandler: requireAuth() }, async (req, reply) => {
+    const { id } = parse(idParams, req.params);
+    const b = parse(z.object({
+      soldAt: z.string().datetime({ offset: true }), reason: z.string().trim().min(3, 'Informe o motivo.').max(300),
+      items: z.array(z.object({ productId: uuidSchema, quantity: z.string().regex(/^\d{1,9}(\.\d{1,3})?$/) })).min(1).max(200),
+      payments: z.array(z.object({ methodCode: z.string().min(2).max(30), amount: money })).min(1).max(5),
+      discount: money.nullable().optional(), discountReason: z.string().trim().max(200).nullable().optional(),
+      idempotencyKey: z.string().min(8).max(100),
+    }), req.body);
+    const t = (await getPool().query<{ id: string }>('SELECT t.id FROM pos_terminals t JOIN cash_sessions s ON s.account_id = t.cash_account_id WHERE s.id = $1', [id])).rows[0];
+    if (!t) throw Errors.notFound('Sessão de caixa da frente de caixa não encontrada.');
+    const r = await svc.createSale(actorOf(req), { terminalId: t.id, idempotencyKey: b.idempotencyKey, items: b.items, payments: b.payments, discount: b.discount, discountReason: b.discountReason, late: { sessionId: id, soldAt: b.soldAt, reason: b.reason } });
+    reply.code(r.duplicate ? 200 : 201);
+    return r;
+  });
   // relatório do caixa: o operador vê os do próprio caixa; quem tem financeiro vê todos
   app.get('/pos/sessions/:id/report', { preHandler: requireAuth() }, async (req) => {
     const { id } = parse(idParams, req.params);

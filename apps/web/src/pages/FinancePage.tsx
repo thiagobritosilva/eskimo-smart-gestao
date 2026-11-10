@@ -17,6 +17,7 @@ import { RecurringTab } from '../components/recurring';
 import { PartnersTab } from '../components/partners';
 import { ConciliationTab } from '../components/conciliation';
 import { CashReportView } from '../components/cash-report';
+import { LateSaleForm } from '../components/late-sale';
 
 type Tab = 'geral' | 'pagar' | 'receber' | 'fixas' | 'caixa' | 'conciliacao' | 'extrato' | 'fluxo' | 'dre' | 'socios' | 'config';
 const TABS: [Tab, string][] = [
@@ -211,8 +212,11 @@ function CashTab() {
   const owner = useIsOwner();
   const [ownerAction, setOwnerAction] = useState<{ kind: 'delete' | 'cancel'; account: FinAccount } | null>(null);
   const [report, setReport] = useState<string | null>(null);
+  const [lateFor, setLateFor] = useState<CashSession | null>(null);
+  const canLate = can('finance.manage') || owner;
   const qc = useQueryClient();
   const accounts = useFinAccounts();
+  const posAccounts = new Set((accounts.data ?? []).filter((a) => a.pos_terminal_id).map((a) => a.id));
   const sessions = useQuery({ queryKey: ['fin', 'sessions'], queryFn: () => api.get<CashSession[]>('/finance/cash-sessions') });
   const [dialog, setDialog] = useState<{ kind: 'open' | 'close'; account: FinAccount } | { kind: 'sangria' | 'suprimento'; account: FinAccount } | null>(null);
   const [counted, setCounted] = useState('');
@@ -283,7 +287,10 @@ function CashTab() {
                     <td className="td text-right tabular-nums">{s.closing_expected ? formatMoney(s.closing_expected) : '—'}</td>
                     <td className="td text-right tabular-nums">{s.closing_counted ? formatMoney(s.closing_counted) : '—'}</td>
                     <td className={clsx('td text-right font-semibold tabular-nums', num(s.difference) < 0 && 'text-red-700', num(s.difference) > 0 && 'text-emerald-700')}>{s.difference ? signedMoney(s.difference) : '—'}</td>
-                    <td className="td text-right"><button className="btn-ghost py-1 text-xs" onClick={() => setReport(s.id)}>Relatório</button></td>
+                    <td className="td whitespace-nowrap text-right">
+                      <button className="btn-ghost py-1 text-xs" onClick={() => setReport(s.id)}>Relatório</button>
+                      {canLate && s.status === 'fechada' && posAccounts.has(s.account_id) && <button className="btn-ghost py-1 text-xs" title="Venda passada só na maquininha depois do fechamento" onClick={() => setLateFor(s)}>Lançar venda</button>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -292,6 +299,9 @@ function CashTab() {
         )}
       </section>
       <Modal open={!!report} size="lg" title="Relatório do caixa" onClose={() => setReport(null)}>{report && <CashReportView sessionId={report} />}</Modal>
+      <Modal open={!!lateFor} size="lg" title={`Lançar venda após o fechamento — ${lateFor?.account_name ?? ''} (sessão nº ${lateFor?.number ?? ''})`} onClose={() => setLateFor(null)}>
+        {lateFor && <LateSaleForm session={lateFor} onDone={() => { setLateFor(null); void qc.invalidateQueries({ queryKey: ['fin'] }); }} />}
+      </Modal>
       <Modal open={dialog?.kind === 'open' || dialog?.kind === 'close'} title={dialog?.kind === 'open' ? `Abrir ${dialog.account.name}` : `Fechar ${dialog?.account.name ?? ''}`} onClose={() => setDialog(null)}>
         {(dialog?.kind === 'open' || dialog?.kind === 'close') && (
           <form className="space-y-4" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>

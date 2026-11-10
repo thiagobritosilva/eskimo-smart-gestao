@@ -230,10 +230,11 @@ export async function sessionReport(sessionId: string) {
      HAVING pm.code IN ('dinheiro', 'pix', 'debito', 'credito') OR count(x.sale_id) > 0
      ORDER BY CASE pm.code WHEN 'dinheiro' THEN 1 WHEN 'pix' THEN 2 WHEN 'debito' THEN 3 WHEN 'credito' THEN 4 ELSE 5 END, pm.sort_order`, [sessionId],
   )).rows;
-  const sales = (await db.query<{ sales: number; total: string; discount: string; cancelled: number; cancelled_total: string; change: string }>(
+  const sales = (await db.query<{ sales: number; total: string; discount: string; cancelled: number; cancelled_total: string; late: number; late_total: string; change: string }>(
     `SELECT count(*) FILTER (WHERE status = 'concluida')::int AS sales, coalesce(sum(net_amount) FILTER (WHERE status = 'concluida'), 0)::text AS total,
             coalesce(sum(discount_amount) FILTER (WHERE status = 'concluida'), 0)::text AS discount,
             count(*) FILTER (WHERE status = 'cancelada')::int AS cancelled, coalesce(sum(net_amount) FILTER (WHERE status = 'cancelada'), 0)::text AS cancelled_total,
+            count(*) FILTER (WHERE status = 'concluida' AND late_reason IS NOT NULL)::int AS late, coalesce(sum(net_amount) FILTER (WHERE status = 'concluida' AND late_reason IS NOT NULL), 0)::text AS late_total,
             coalesce((SELECT sum(p.change_amount) FROM sale_payments p JOIN sales v ON v.id = p.sale_id WHERE v.cash_session_id = $1 AND v.status = 'concluida'), 0)::text AS change
      FROM sales WHERE cash_session_id = $1`, [sessionId],
   )).rows[0]!;
@@ -291,10 +292,20 @@ export interface SaleInput {
   /** opcional: só quando o cliente pede identificação no recibo */
   customerName?: string | null;
   customerDocument?: string | null;
+  /** venda lançada DEPOIS do fechamento, no caixa daquele dia (só financeiro/Proprietário) */
+  late?: { sessionId: string; soldAt: string; reason: string } | null;
 }
 
 export async function createSale(actor: Actor, input: SaleInput) {
-  need(actor, 'pos.operate');
+  if (input.late) {
+    if (!actor.permissions.includes('finance.manage') && actor.roleCode !== OWNER_ROLE) {
+      throw Errors.forbidden('Somente o financeiro ou o Proprietário lança venda depois do fechamento do caixa.');
+    }
+    if (!input.late.reason?.trim() || input.late.reason.trim().length < 3) throw Errors.badRequest('Informe o motivo do lançamento depois do fechamento.');
+    if (input.payments.some((p) => p.methodCode === 'dinheiro')) {
+      throw Errors.businessRule('Venda em dinheiro depois do fechamento não entra no caixa fechado (a gaveta já foi conferida). Lance no próximo caixa aberto.');
+    }
+  } else need(actor, 'pos.operate');
   if (!input.items.length) throw Errors.badRequest('Adicione ao menos um produto.');
   if (!input.payments.length) throw Errors.badRequest('Informe a forma de pagamento.');
   const result = await withTransaction(async (db) => {
@@ -303,10 +314,30 @@ export async function createSale(actor: Actor, input: SaleInput) {
     const dup = (await db.query<{ id: string }>('SELECT id FROM sales WHERE connector_id = $1 AND external_id = $2', [conn, externalId])).rows[0];
     if (dup) return { saleId: dup.id, duplicate: true };
 
-    const { terminal, session } = await terminalWithSession(db, input.terminalId, true);
-    if (!terminal.is_active) throw Errors.businessRule('Caixa inativo.');
-    if (!session) throw Errors.businessRule('Abra o caixa antes de vender.');
-    if (session.opened_by !== actor.userId) throw Errors.businessRule(`Este caixa está aberto por ${session.opened_by_name ?? 'outro operador'}. Para vender, ele precisa fechar o caixa e você abrir o seu.`);
+    let { terminal, session } = await terminalWithSession(db, input.terminalId, true);
+    let soldAt: string | null = null;
+    if (input.late) {
+      // caixa já fechado daquele dia
+      const ls = (await db.query<{ id: string; number: string; opened_by: string; opened_by_name: string | null; opened_at: string; status: string; account_id: string }>(
+        `SELECT s.id, s.number::text, s.opened_by, u.name AS opened_by_name, s.opened_at, s.status, s.account_id
+         FROM cash_sessions s LEFT JOIN users u ON u.id = s.opened_by WHERE s.id = $1 FOR SHARE OF s`, [input.late.sessionId],
+      )).rows[0];
+      if (!ls || ls.account_id !== terminal.cash_account_id) throw Errors.notFound('Sessão de caixa não encontrada para este caixa.');
+      if (ls.status !== 'fechada') throw Errors.businessRule(ls.status === 'aberta' ? 'Este caixa ainda está aberto: lance a venda normalmente pelo caixa.' : 'Sessão com abertura cancelada.');
+      const when = new Date(input.late.soldAt);
+      if (Number.isNaN(when.getTime())) throw Errors.badRequest('Data/hora da venda inválida.');
+      if (when.getTime() > Date.now()) throw Errors.badRequest('A data da venda não pode ser futura.');
+      // a tela informa só até o minuto: compara com a abertura truncada no minuto
+      const openedMinute = Math.floor(new Date(ls.opened_at).getTime() / 60_000) * 60_000;
+      if (when.getTime() < openedMinute) throw Errors.badRequest('A venda não pode ser anterior à abertura deste caixa.');
+      session = { id: ls.id, number: ls.number, opened_by: ls.opened_by, opened_by_name: ls.opened_by_name, opened_at: ls.opened_at };
+      soldAt = when.toISOString();
+    } else {
+      if (!terminal.is_active) throw Errors.businessRule('Caixa inativo.');
+      if (!session) throw Errors.businessRule('Abra o caixa antes de vender.');
+      if (session.opened_by !== actor.userId) throw Errors.businessRule(`Este caixa está aberto por ${session.opened_by_name ?? 'outro operador'}. Para vender, ele precisa fechar o caixa e você abrir o seu.`);
+    }
+    if (!session) throw Errors.businessRule('Caixa sem sessão.');
 
     // preços SEMPRE do cadastro
     const ids = [...new Set(input.items.map((i) => i.productId))];
@@ -354,11 +385,13 @@ export async function createSale(actor: Actor, input: SaleInput) {
     await db.query(
       `INSERT INTO sales (id, connector_id, external_id, document_model, document_number, document_series, sold_at, gross_amount,
                           discount_amount, other_amount, net_amount, status, operator_name, stock_status, pos_terminal_id, cash_session_id, created_by,
-                          customer_name, customer_document)
-       VALUES ($1, $2, $3, 'CAIXA', $4, $5, now(), $6, $7, 0, $8, 'concluida', $9, 'pendente', $10, $11, $12, $13, $14)`,
+                          customer_name, customer_document, late_reason, late_registered_by, late_registered_at)
+       VALUES ($1, $2, $3, 'CAIXA', $4, $5, coalesce($15::timestamptz, now()), $6, $7, 0, $8, 'concluida', $9, 'pendente', $10, $11, $12, $13, $14,
+               $16, CASE WHEN $16::text IS NULL THEN NULL ELSE $12::uuid END, CASE WHEN $16::text IS NULL THEN NULL ELSE now() END)`,
       [saleId, conn, externalId, number, terminal.code, fromCents(gross), fromCents(discount), fromCents(net),
         (await db.query<{ name: string }>('SELECT name FROM users WHERE id = $1', [actor.userId])).rows[0]?.name ?? null,
-        terminal.id, session.id, actor.userId, input.customerName?.trim() || null, input.customerDocument || null],
+        terminal.id, session.id, actor.userId, input.customerName?.trim() || null, input.customerDocument || null,
+        soldAt, input.late?.reason.trim() ?? null],
     );
     // desconto rateado proporcionalmente nas linhas (centavos na última)
     let left = discount;
@@ -396,8 +429,8 @@ export async function createSale(actor: Actor, input: SaleInput) {
 
     const stock = await allocateSale(db, elevate(actor, 'stock.move'), saleId);
     await writeAudit(db, actor.audit, {
-      action: 'pos.sale', entity: 'sale', entityId: saleId,
-      metadata: { terminal: terminal.code, number, total: fromCents(net), discount: fromCents(discount), discountReason: input.discountReason ?? null, payments: input.payments, change: fromCents(change), stock },
+      action: input.late ? 'pos.sale_late' : 'pos.sale', entity: 'sale', entityId: saleId,
+      metadata: { late: input.late ? { sessionNumber: session.number, soldAt, reason: input.late.reason.trim() } : undefined, terminal: terminal.code, number, total: fromCents(net), discount: fromCents(discount), discountReason: input.discountReason ?? null, payments: input.payments, change: fromCents(change), stock },
     });
     return { saleId, duplicate: false };
   });
