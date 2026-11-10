@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Banknote, CreditCard, LogOut, Minus, Plus, Printer, QrCode, Receipt, ScanBarcode, Search, Settings2, Tag, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Banknote, Bike, CreditCard, LogOut, Minus, Plus, Printer, QrCode, Receipt, ScanBarcode, Search, Settings2, Tag, Trash2, UserRound, X } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage } from '../lib/api';
 import { useAuth, useIsOwner } from '../lib/auth';
 import { formatDateTime, formatMoney, formatQty, toDecimal } from '../lib/format';
 import { useLocations } from '../components/stock';
 import { Alert, Field, Logo, Modal, Spinner } from '../components/ui';
+import { CashReportView } from '../components/cash-report';
+import { OrderForm } from './IfoodPage';
 
 // ------------------------------------------------------------------ tipos
 interface Terminal { id: string; code: string; name: string; is_active: boolean; location_codes: string[] | null; open_session: { id: string; number: string; opened_at: string; opened_by: string } | null }
-interface State { terminal: Terminal; session: { id: string; number: string; opened_at: string; opened_by: string; opened_by_name: string | null } | null; summary: { sales: number; total: string; cancelled: number; byMethod: { method_code: string; method_name: string; amount: string; count: number }[] } | null }
+interface State { terminal: Terminal; session: { id: string; number: string; opened_at: string; opened_by: string; opened_by_name: string | null } | null; summary: { sales: number; total: string; cancelled: number; byMethod: { method_code: string; method_name: string; amount: string; count: number }[]; ifood?: { count: number; amount: string } } | null }
 interface Product { id: string; internal_code: string; barcode: string | null; name: string; unit_code: string; sale_price: string | null; is_active: boolean; stock: string }
 interface CartLine { product: Product; qty: number }
 interface Payment { methodCode: string; amount: string }
@@ -276,14 +278,14 @@ function PaymentDialog({ total, onConfirm, onCancel, busy, error }: { total: num
 // ------------------------------------------------------------------ caixa
 function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChangeTerminal: () => void }) {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const owner = useIsOwner();
   const state = useQuery({ queryKey: ['pos', 'state', terminalId], queryFn: () => api.get<State>(`/pos/terminals/${terminalId}/state`), refetchInterval: 30_000 });
   const [cart, setCart] = useState<CartLine[]>([]);
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState<{ kind: 'error' | 'warning'; text: string } | null>(null);
   const [discount, setDiscount] = useState<{ value: string; reason: string } | null>(null);
-  const [dialog, setDialog] = useState<null | 'pay' | 'search' | 'discount' | 'close' | 'sales' | 'receipt' | 'customer' | 'price' | 'cancelOpening'>(null);
+  const [dialog, setDialog] = useState<null | 'pay' | 'search' | 'discount' | 'close' | 'sales' | 'receipt' | 'customer' | 'price' | 'cancelOpening' | 'ifood'>(null);
   const [customer, setCustomer] = useState<{ name: string; document: string } | null>(null);
   const [autoPrint, setAutoPrint] = useState(readAutoPrint);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
@@ -366,6 +368,7 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
         <div className="text-xs text-red-100">Sessão nº {st.session.number} · aberta {formatDateTime(st.session.opened_at)}</div>
         <div className="ml-auto flex items-center gap-1 text-sm">
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('price')}><Tag className="mr-1 inline h-4 w-4" /> Consultar preço (F3)</button>
+          {can('ifood.operate') && <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('ifood')}><Bike className="mr-1 inline h-4 w-4" /> Pedido iFood</button>}
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('sales')}><Receipt className="mr-1 inline h-4 w-4" /> Vendas</button>
           {owner && !st.summary?.sales && !st.summary?.cancelled && <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('cancelOpening')}><X className="mr-1 inline h-4 w-4" /> Cancelar abertura</button>}
           <button className="rounded-md px-3 py-1.5 hover:bg-white/10" onClick={() => setDialog('close')}><LogOut className="mr-1 inline h-4 w-4" /> Fechar caixa</button>
@@ -429,7 +432,11 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
             <div className="rounded-xl bg-white p-4 text-sm shadow-sm">
               <div className="mb-1 font-semibold text-ink-900">Nesta sessão</div>
               <div className="flex justify-between"><span>{st.summary.sales} venda(s)</span><span className="font-semibold">{formatMoney(st.summary.total)}</span></div>
-              {st.summary.byMethod.map((m) => <div key={m.method_code} className="flex justify-between text-slate-500"><span>{m.method_name}</span><span>{formatMoney(m.amount)}</span></div>)}
+              {[['dinheiro', 'Dinheiro'], ['pix', 'Pix'], ['debito', 'Débito'], ['credito', 'Crédito']].map(([code, label]) => (
+                <div key={code} className="flex justify-between text-slate-500"><span>{label}</span><span>{formatMoney(st.summary!.byMethod.find((m) => m.method_code === code)?.amount ?? '0')}</span></div>
+              ))}
+              {st.summary.byMethod.filter((m) => !['dinheiro', 'pix', 'debito', 'credito'].includes(m.method_code)).map((m) => <div key={m.method_code} className="flex justify-between text-slate-500"><span>{m.method_name}</span><span>{formatMoney(m.amount)}</span></div>)}
+              <div className="mt-1 flex justify-between border-t border-slate-100 pt-1 text-slate-600"><span>iFood ({st.summary.ifood?.count ?? 0} pedido(s))</span><span>{formatMoney(st.summary.ifood?.amount ?? '0')}</span></div>
             </div>
           )}
           <label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={autoPrint} onChange={(e) => { setAutoPrint(e.target.checked); saveAutoPrint(e.target.checked); }} /> Imprimir o recibo automaticamente ao finalizar</label>
@@ -458,6 +465,9 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
       <Modal open={dialog === 'sales'} size="lg" title="Vendas desta sessão" onClose={() => setDialog(null)}>
         {dialog === 'sales' && <SessionSales terminalId={terminalId} owner={owner} />}
       </Modal>
+      <Modal open={dialog === 'ifood'} size="xl" title="Lançar pedido do iFood" onClose={() => setDialog(null)}>
+        {dialog === 'ifood' && <IfoodOrderInPos onDone={() => { setDialog(null); void state.refetch(); }} />}
+      </Modal>
       {dialog === 'cancelOpening' && (
         <ReasonAction title="Cancelar abertura do caixa" confirm="Cancelar abertura" onClose={() => setDialog(null)}
           text="Use quando o caixa foi aberto por engano. Só é possível enquanto não houver nenhuma venda. O fundo de troco informado na abertura é estornado e a sessão fica registrada como cancelada."
@@ -465,8 +475,19 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
           onDone={() => void state.refetch()} />
       )}
       <Modal open={dialog === 'close'} title={`Fechar ${st.terminal.name}`} onClose={() => setDialog(null)}>
-        {dialog === 'close' && <CloseRegister terminalId={terminalId} hasCart={cart.length > 0} onDone={() => { setDialog(null); void state.refetch(); }} />}
+        {dialog === 'close' && <CloseRegister terminalId={terminalId} sessionId={st.session.id} hasCart={cart.length > 0} onDone={() => { setDialog(null); void state.refetch(); }} />}
       </Modal>
+    </div>
+  );
+}
+
+function IfoodOrderInPos({ onDone }: { onDone: () => void }) {
+  const s = useQuery({ queryKey: ['ifood', 'summary'], queryFn: () => api.get<{ configured: boolean }>('/ifood/summary') });
+  if (s.isLoading) return <Spinner />;
+  return (
+    <div className="space-y-3">
+      <Alert kind="info">O pedido baixa o estoque e entra no relatório deste caixa, separado das vendas. O dinheiro do iFood não entra na gaveta: vem no repasse.</Alert>
+      <OrderForm configured={!!s.data?.configured} onDone={onDone} />
     </div>
   );
 }
@@ -497,7 +518,7 @@ function BusyRegister({ state, onChangeTerminal }: { state: State; onChangeTermi
           onDone={() => void qc.invalidateQueries({ queryKey: ['pos'] })} />
       )}
       <Modal open={closing} title={`Fechar caixa aberto por ${who}`} onClose={() => setClosing(false)}>
-        {closing && <CloseRegister terminalId={state.terminal.id} hasCart={false} otherName={who} onDone={() => { setClosing(false); void qc.invalidateQueries({ queryKey: ['pos'] }); }} />}
+        {closing && <CloseRegister terminalId={state.terminal.id} sessionId={state.session!.id} hasCart={false} otherName={who} onDone={() => { setClosing(false); void qc.invalidateQueries({ queryKey: ['pos'] }); }} />}
       </Modal>
     </div>
   );
@@ -675,7 +696,7 @@ function SessionSales({ terminalId, owner }: { terminalId: string; owner: boolea
   );
 }
 
-function CloseRegister({ terminalId, hasCart, onDone, otherName }: { terminalId: string; hasCart: boolean; onDone: () => void; otherName?: string }) {
+function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { terminalId: string; sessionId: string; hasCart: boolean; onDone: () => void; otherName?: string }) {
   const { logout } = useAuth();
   const [counted, setCounted] = useState('');
   const [notes, setNotes] = useState('');
@@ -692,6 +713,7 @@ function CloseRegister({ terminalId, hasCart, onDone, otherName }: { terminalId:
           Sessão nº {result.sessionNumber} fechada. Esperado {formatMoney(result.expected)} · contado {formatMoney(result.counted)} ·{' '}
           <strong>{diff === 0 ? 'sem diferença' : diff > 0 ? `sobra de ${formatMoney(result.difference)}` : `falta de ${formatMoney(String(-diff))}`}</strong>
         </Alert>
+        <CashReportView sessionId={sessionId} />
         {otherName
           ? <div className="flex justify-end"><button className="btn-primary" onClick={onDone}>OK</button></div>
           : <div className="flex justify-end gap-2">

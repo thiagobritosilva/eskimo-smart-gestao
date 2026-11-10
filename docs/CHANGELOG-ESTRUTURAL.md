@@ -279,3 +279,13 @@ com impacto e estratégia de preservação de dados.
   ("Picolé Uva" ou "3× Picolé Uva + 1× Pote"). Nome próprio continua opcional. Código do iFood saiu da tela.
 - `ifood.params.markupPercent` (acréscimo do iFood, informado pelo Proprietário): sugere o preço do item a partir do
   preço da loja, arredondado para o próximo final ,90.
+
+## 0019_ifood_no_caixa — relatório do caixa por forma de pagamento + iFood (2026-11-08)
+- **O quê:** `ifood_orders.cash_session_id` — pedido do iFood fica ligado ao caixa aberto de quem o lançou.
+- **Relatório do caixa** (fechamento, Financeiro › Caixa › "Relatório" e impressão 80 mm): vendas separadas em
+  Dinheiro, Pix, Débito, Crédito (e outras, se houver), canceladas, iFood despachado no turno (pedido a pedido),
+  total geral (caixa + iFood) e conferência do dinheiro (fundo + vendas em dinheiro + sangrias/suprimentos = esperado
+  × contado). O operador vê o próprio; financeiro/gerência vê todos.
+- **Caixa (PDV):** botão "Pedido iFood" para lançar o pedido sem sair do caixa; painel "Nesta sessão" com as 4 formas
+  sempre visíveis e a linha do iFood.
+- **Relatórios:** novo "Fechamentos de caixa" (por período, uma coluna por forma de pagamento + iFood).

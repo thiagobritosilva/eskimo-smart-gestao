@@ -16,6 +16,7 @@ import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
 import { RecurringTab } from '../components/recurring';
 import { PartnersTab } from '../components/partners';
 import { ConciliationTab } from '../components/conciliation';
+import { CashReportView } from '../components/cash-report';
 
 type Tab = 'geral' | 'pagar' | 'receber' | 'fixas' | 'caixa' | 'conciliacao' | 'extrato' | 'fluxo' | 'dre' | 'socios' | 'config';
 const TABS: [Tab, string][] = [
@@ -209,6 +210,7 @@ function CashTab() {
   const { can } = useAuth();
   const owner = useIsOwner();
   const [ownerAction, setOwnerAction] = useState<{ kind: 'delete' | 'cancel'; account: FinAccount } | null>(null);
+  const [report, setReport] = useState<string | null>(null);
   const qc = useQueryClient();
   const accounts = useFinAccounts();
   const sessions = useQuery({ queryKey: ['fin', 'sessions'], queryFn: () => api.get<CashSession[]>('/finance/cash-sessions') });
@@ -266,7 +268,7 @@ function CashTab() {
         {!sessions.data?.length ? <div className="card px-6 py-8 text-center text-sm text-slate-500">Nenhuma sessão registrada.</div> : (
           <div className="card overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50"><tr><th className="th">Nº</th><th className="th">Caixa</th><th className="th">Abertura</th><th className="th">Fechamento</th><th className="th text-right">Entradas</th><th className="th text-right">Saídas</th><th className="th text-right">Esperado</th><th className="th text-right">Contado</th><th className="th text-right">Diferença</th></tr></thead>
+              <thead className="bg-slate-50"><tr><th className="th">Nº</th><th className="th">Caixa</th><th className="th">Abertura</th><th className="th">Fechamento</th><th className="th text-right">Entradas</th><th className="th text-right">Saídas</th><th className="th text-right">Esperado</th><th className="th text-right">Contado</th><th className="th text-right">Diferença</th><th className="th" /></tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {sessions.data.map((s) => (
                   <tr key={s.id}>
@@ -281,6 +283,7 @@ function CashTab() {
                     <td className="td text-right tabular-nums">{s.closing_expected ? formatMoney(s.closing_expected) : '—'}</td>
                     <td className="td text-right tabular-nums">{s.closing_counted ? formatMoney(s.closing_counted) : '—'}</td>
                     <td className={clsx('td text-right font-semibold tabular-nums', num(s.difference) < 0 && 'text-red-700', num(s.difference) > 0 && 'text-emerald-700')}>{s.difference ? signedMoney(s.difference) : '—'}</td>
+                    <td className="td text-right"><button className="btn-ghost py-1 text-xs" onClick={() => setReport(s.id)}>Relatório</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -288,6 +291,7 @@ function CashTab() {
           </div>
         )}
       </section>
+      <Modal open={!!report} size="lg" title="Relatório do caixa" onClose={() => setReport(null)}>{report && <CashReportView sessionId={report} />}</Modal>
       <Modal open={dialog?.kind === 'open' || dialog?.kind === 'close'} title={dialog?.kind === 'open' ? `Abrir ${dialog.account.name}` : `Fechar ${dialog?.account.name ?? ''}`} onClose={() => setDialog(null)}>
         {(dialog?.kind === 'open' || dialog?.kind === 'close') && (
           <form className="space-y-4" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>

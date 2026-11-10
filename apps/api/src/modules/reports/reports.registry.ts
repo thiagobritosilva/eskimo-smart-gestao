@@ -77,6 +77,42 @@ function titlesReport(direction: 'pagar' | 'receber'): ReportDef['run'] {
 
 const finance: ReportDef[] = [
   {
+    key: 'fechamentos-caixa', group: 'Financeiro', title: 'Fechamentos de caixa',
+    description: 'Cada turno de caixa: vendas por forma de pagamento (dinheiro, Pix, débito, crédito), iFood despachado e conferência do dinheiro.',
+    permissions: ['finance.view'], filters: ['period'],
+    run: async (db, p) => {
+      const { rows } = await db.query(
+        `SELECT s.number::text AS sessao, coalesce(t.name, a.name) AS caixa, u.name AS operador, s.opened_at AS abertura, s.closed_at AS fechamento,
+                CASE s.status WHEN 'aberta' THEN 'Aberto' WHEN 'cancelada' THEN 'Abertura cancelada' ELSE 'Fechado' END AS situacao,
+                (SELECT coalesce(sum(pp.amount), 0) FROM sale_payments pp JOIN sales v ON v.id = pp.sale_id WHERE v.cash_session_id = s.id AND v.status = 'concluida' AND pp.method_code = 'dinheiro')::text AS dinheiro,
+                (SELECT coalesce(sum(pp.amount), 0) FROM sale_payments pp JOIN sales v ON v.id = pp.sale_id WHERE v.cash_session_id = s.id AND v.status = 'concluida' AND pp.method_code = 'pix')::text AS pix,
+                (SELECT coalesce(sum(pp.amount), 0) FROM sale_payments pp JOIN sales v ON v.id = pp.sale_id WHERE v.cash_session_id = s.id AND v.status = 'concluida' AND pp.method_code = 'debito')::text AS debito,
+                (SELECT coalesce(sum(pp.amount), 0) FROM sale_payments pp JOIN sales v ON v.id = pp.sale_id WHERE v.cash_session_id = s.id AND v.status = 'concluida' AND pp.method_code = 'credito')::text AS credito,
+                (SELECT coalesce(sum(pp.amount), 0) FROM sale_payments pp JOIN sales v ON v.id = pp.sale_id WHERE v.cash_session_id = s.id AND v.status = 'concluida' AND pp.method_code NOT IN ('dinheiro', 'pix', 'debito', 'credito'))::text AS outros,
+                (SELECT count(*) FROM ifood_orders o WHERE o.cash_session_id = s.id AND o.cancelled_at IS NULL)::int AS ifood_pedidos,
+                (SELECT coalesce(sum(o.items_amount - o.store_discount), 0) FROM ifood_orders o WHERE o.cash_session_id = s.id AND o.cancelled_at IS NULL)::text AS ifood,
+                s.closing_expected::text AS esperado, s.closing_counted::text AS contado, s.difference::text AS diferenca
+         FROM cash_sessions s JOIN financial_accounts a ON a.id = s.account_id LEFT JOIN pos_terminals t ON t.cash_account_id = s.account_id
+         JOIN users u ON u.id = s.opened_by
+         WHERE ${inPeriod('s.opened_at')} ORDER BY s.opened_at`, [p.from, p.to],
+      );
+      return {
+        columns: [
+          { key: 'sessao', label: 'Sessão', type: 'text' }, { key: 'caixa', label: 'Caixa', type: 'text' }, { key: 'operador', label: 'Operador', type: 'text' },
+          { key: 'abertura', label: 'Abertura', type: 'datetime' }, { key: 'fechamento', label: 'Fechamento', type: 'datetime' },
+          { key: 'dinheiro', label: 'Dinheiro', type: 'money', total: true }, { key: 'pix', label: 'Pix', type: 'money', total: true },
+          { key: 'debito', label: 'Débito', type: 'money', total: true }, { key: 'credito', label: 'Crédito', type: 'money', total: true },
+          { key: 'outros', label: 'Outras formas', type: 'money', total: true },
+          { key: 'ifood_pedidos', label: 'Pedidos iFood', type: 'int', total: true }, { key: 'ifood', label: 'iFood (vendas)', type: 'money', total: true },
+          { key: 'esperado', label: 'Dinheiro esperado', type: 'money', total: true }, { key: 'contado', label: 'Dinheiro contado', type: 'money', total: true },
+          { key: 'diferenca', label: 'Diferença', type: 'money', total: true }, { key: 'situacao', label: 'Situação', type: 'text' },
+        ],
+        rows,
+        notes: ['iFood: pedidos lançados pelo operador com o caixa aberto. O dinheiro do iFood não passa pela gaveta (é recebido no repasse).'],
+      };
+    },
+  },
+  {
     key: 'conciliacao', group: 'Financeiro', title: 'Conciliação do período',
     description: 'Confere vendas, caixa, cartão/Pix, iFood, contas e estoque do período, com a situação de cada item.',
     permissions: ['finance.view'], filters: ['period'],

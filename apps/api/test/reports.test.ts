@@ -25,10 +25,10 @@ afterAll(async () => {
 });
 
 describe('relatórios', () => {
-  it('lista os 21 relatórios ao Proprietário e respeita permissões', async () => {
+  it('lista os 22 relatórios ao Proprietário e respeita permissões', async () => {
     const r = await get(owner.cookie, '/api/reports');
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toHaveLength(21);
+    expect(r.json()).toHaveLength(22);
     const g = (await get(gerente.cookie, '/api/reports')).json() as { group: string; key: string }[];
     expect(g.some((x) => x.group === 'Financeiro')).toBe(false); // gerente não tem financeiro por padrão
     expect(g.some((x) => x.key === 'posicao-estoque')).toBe(true);

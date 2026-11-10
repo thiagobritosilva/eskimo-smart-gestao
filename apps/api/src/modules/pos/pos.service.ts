@@ -143,7 +143,10 @@ export async function terminalState(id: string) {
               count(*) FILTER (WHERE status = 'cancelada')::int AS cancelled
        FROM sales WHERE cash_session_id = $1`, [session.id],
     )).rows[0]!;
-    summary = { ...totals, byMethod: rows };
+    const ifood = (await db.query<{ count: number; amount: string }>(
+      `SELECT count(*)::int AS count, coalesce(sum(items_amount - store_discount), 0)::text AS amount FROM ifood_orders WHERE cash_session_id = $1 AND cancelled_at IS NULL`, [session.id],
+    )).rows[0]!;
+    summary = { ...totals, byMethod: rows, ifood };
   }
   return { terminal, session, summary };
 }
@@ -201,6 +204,58 @@ export async function deleteTerminal(actor: Actor, terminalId: string, reason: s
     await writeAudit(db, actor.audit, { action: 'pos.terminal_deleted', entity: 'pos_terminal', entityId: terminalId, before, metadata: { reason, cashMovedToStore: r.moved } });
     return { deleted: true, cashMovedToStore: r.moved };
   });
+}
+
+/**
+ * Relatório do caixa (sessão): vendas separadas por forma de pagamento (dinheiro, Pix, débito, crédito…),
+ * pedidos do iFood despachados pelo operador no turno, canceladas, sangrias/suprimentos e conferência do dinheiro.
+ */
+export async function sessionReport(sessionId: string) {
+  const db = getPool();
+  const s = (await db.query(
+    `SELECT s.id, s.number::text, s.status, s.opened_at, s.closed_at, s.opening_counted::text, s.closing_expected::text, s.closing_counted::text,
+            s.difference::text, s.notes, s.cancel_reason, a.name AS account_name, t.name AS terminal_name, t.code AS terminal_code,
+            ou.name AS opened_by_name, cu.name AS closed_by_name
+     FROM cash_sessions s JOIN financial_accounts a ON a.id = s.account_id LEFT JOIN pos_terminals t ON t.cash_account_id = s.account_id
+     JOIN users ou ON ou.id = s.opened_by LEFT JOIN users cu ON cu.id = s.closed_by WHERE s.id = $1`, [sessionId],
+  )).rows[0];
+  if (!s) throw Errors.notFound('Sessão de caixa não encontrada.');
+  // todas as formas principais aparecem, mesmo zeradas; outras só se houver venda
+  const methods = (await db.query<{ code: string; name: string; count: number; amount: string }>(
+    `SELECT pm.code, pm.name, count(DISTINCT x.sale_id)::int AS count, coalesce(sum(x.amount), 0)::text AS amount
+     FROM payment_methods pm
+     LEFT JOIN (SELECT p.method_code, p.sale_id, p.amount FROM sale_payments p JOIN sales v ON v.id = p.sale_id
+                WHERE v.cash_session_id = $1 AND v.status = 'concluida') x ON x.method_code = pm.code
+     GROUP BY pm.code, pm.name, pm.sort_order
+     HAVING pm.code IN ('dinheiro', 'pix', 'debito', 'credito') OR count(x.sale_id) > 0
+     ORDER BY CASE pm.code WHEN 'dinheiro' THEN 1 WHEN 'pix' THEN 2 WHEN 'debito' THEN 3 WHEN 'credito' THEN 4 ELSE 5 END, pm.sort_order`, [sessionId],
+  )).rows;
+  const sales = (await db.query<{ sales: number; total: string; discount: string; cancelled: number; cancelled_total: string; change: string }>(
+    `SELECT count(*) FILTER (WHERE status = 'concluida')::int AS sales, coalesce(sum(net_amount) FILTER (WHERE status = 'concluida'), 0)::text AS total,
+            coalesce(sum(discount_amount) FILTER (WHERE status = 'concluida'), 0)::text AS discount,
+            count(*) FILTER (WHERE status = 'cancelada')::int AS cancelled, coalesce(sum(net_amount) FILTER (WHERE status = 'cancelada'), 0)::text AS cancelled_total,
+            coalesce((SELECT sum(p.change_amount) FROM sale_payments p JOIN sales v ON v.id = p.sale_id WHERE v.cash_session_id = $1 AND v.status = 'concluida'), 0)::text AS change
+     FROM sales WHERE cash_session_id = $1`, [sessionId],
+  )).rows[0]!;
+  const moves = (await db.query<{ kind: string; direction: string; amount: string; description: string; occurred_at: string }>(
+    `SELECT kind, direction, amount::text, description, occurred_at FROM financial_transactions
+     WHERE cash_session_id = $1 AND kind IN ('sangria', 'suprimento')
+       -- o ajuste automático da abertura já está no "fundo de troco" (não listar de novo)
+       AND description NOT LIKE 'Fundo de troco na abertura%' AND description NOT LIKE 'Retirada da gaveta antes da abertura%'
+       AND NOT EXISTS (SELECT 1 FROM financial_transactions r WHERE r.reverses_id = financial_transactions.id)
+     ORDER BY number`, [sessionId],
+  )).rows;
+  const ifoodOrders = (await db.query<{ order_code: string; sold_at: string; amount: string; items: string | null; cancelled: boolean }>(
+    `SELECT o.order_code, o.sold_at, (o.items_amount - o.store_discount)::text AS amount, o.cancelled_at IS NOT NULL AS cancelled,
+            (SELECT string_agg(i.description || ' × ' || trim(to_char(i.quantity, 'FM999999990.###')), '; ' ORDER BY i.line_no) FROM sale_items i WHERE i.sale_id = o.sale_id) AS items
+     FROM ifood_orders o WHERE o.cash_session_id = $1 ORDER BY o.sold_at`, [sessionId],
+  )).rows;
+  const ifoodTotal = ifoodOrders.filter((o) => !o.cancelled).reduce((t, o) => t + toCents(o.amount), 0);
+  return {
+    session: s, methods, sales, movements: moves,
+    ifood: { count: ifoodOrders.filter((o) => !o.cancelled).length, amount: fromCents(ifoodTotal), orders: ifoodOrders },
+    grandTotal: fromCents(toCents(sales.total) + ifoodTotal),
+  };
 }
 
 // ------------------------------------------------------------------ produtos

@@ -190,10 +190,12 @@ export async function createOrder(actor: Actor, input: OrderInput) {
           fromCents(l.cents), fromCents(discParts[n]!), fromCents(l.cents - discParts[n]!), l.product.product_id],
       );
     }
+    // operador com caixa aberto: o pedido entra no relatório daquele turno
+    const session = (await db.query<{ id: string }>(`SELECT id FROM cash_sessions WHERE opened_by = $1 AND status = 'aberta' LIMIT 1`, [actor.userId])).rows[0]?.id ?? null;
     const { rows: ord } = await db.query<{ id: string }>(
-      `INSERT INTO ifood_orders (sale_id, order_code, sold_at, items_amount, store_discount, commission, payment_fee, other_fees, net_expected, fees_source, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-      [saleId, code, input.soldAt, fromCents(itemsCents), fromCents(discount), fromCents(commission), fromCents(paymentFee), fromCents(other), fromCents(net), source, actor.userId],
+      `INSERT INTO ifood_orders (sale_id, order_code, sold_at, items_amount, store_discount, commission, payment_fee, other_fees, net_expected, fees_source, created_by, cash_session_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+      [saleId, code, input.soldAt, fromCents(itemsCents), fromCents(discount), fromCents(commission), fromCents(paymentFee), fromCents(other), fromCents(net), source, actor.userId, session],
     );
     await db.query(`UPDATE pdv_connectors SET is_enabled = true, last_success_at = now() WHERE id = $1`, [conn.id]);
     const stock = await allocateSale(db as never, elevate(actor, 'stock.move'), saleId);

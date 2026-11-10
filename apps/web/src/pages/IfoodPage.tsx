@@ -114,7 +114,7 @@ function Orders({ configured }: { configured: boolean }) {
   );
 }
 
-function OrderForm({ configured, onDone }: { configured: boolean; onDone: () => void }) {
+export function OrderForm({ configured, onDone }: { configured: boolean; onDone: () => void }) {
   const menu = useQuery({ queryKey: ['ifood', 'menu'], queryFn: () => api.get<MenuItem[]>('/ifood/menu') });
   const active = (menu.data ?? []).filter((m) => m.is_active && m.components.length);
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);

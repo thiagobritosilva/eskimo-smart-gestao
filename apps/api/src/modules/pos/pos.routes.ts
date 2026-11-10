@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { actorOf } from '../../lib/actor.js';
-import { requirePermission } from '../../lib/http.js';
+import { requireAuth, requirePermission } from '../../lib/http.js';
+import { getPool } from '../../db/pool.js';
+import { Errors } from '../../lib/errors.js';
 import { parse, uuidSchema } from '../../lib/validation.js';
 import * as svc from './pos.service.js';
 
@@ -36,6 +38,15 @@ export async function posRoutes(app: FastifyInstance) {
     const b = parse(z.object({ counted: money }), req.body);
     reply.code(201);
     return svc.openSession(actorOf(req), id, b.counted);
+  });
+  // relatório do caixa: o operador vê os do próprio caixa; quem tem financeiro vê todos
+  app.get('/pos/sessions/:id/report', { preHandler: requireAuth() }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const actor = actorOf(req);
+    const r = await svc.sessionReport(id);
+    const own = (await getPool().query('SELECT 1 FROM cash_sessions WHERE id = $1 AND opened_by = $2', [id, actor.userId])).rowCount;
+    if (!own && !actor.permissions.includes('finance.view') && !actor.permissions.includes('pos.manage')) throw Errors.forbidden();
+    return r;
   });
   app.post('/pos/terminals/:id/cancel-opening', { preHandler: operate }, async (req) => {
     const { id } = parse(idParams, req.params);
