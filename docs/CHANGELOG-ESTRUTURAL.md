@@ -305,3 +305,15 @@ com impacto e estratégia de preservação de dados.
 - No pagamento em Dinheiro: campo "Valor recebido do cliente" (opcional), botões rápidos (valor exato e notas que
   cobrem o que falta) e "Troco a devolver" calculado enquanto o operador digita. O troco já era gravado na venda
   (`sale_payments.change_amount`) e impresso no recibo; a gaveta recebe só o valor da compra.
+
+## 0021_vendas_externas — vendedor externo / repositor (2026-11-16)
+- **O quê:** permissões `external.operate` (Proprietário, Gerente, Funcionário) e `external.manage` (Proprietário,
+  Gerente); tabelas `ext_clients` (pontos de venda) e `ext_visits` (visita imutável; só cancelamento com motivo e
+  baixa do retorno).
+- **Fluxo:** Operação › Vendas externas: Rota de hoje (retornos de hoje/atrasados, com ligar e registrar visita),
+  Visitas, Pontos de venda e Resumo. Visita: objetivo (comodato, reposição, carrinho, prospecção, pós-venda) e
+  resultado (vendeu → o quê e valor; não vendeu → motivo; retornar → data). Nova visita ao mesmo ponto baixa o retorno.
+  Localização opcional, capturada só no momento do registro.
+- **Acesso:** vendedor vê e registra as próprias visitas; gerência vê todas, cancela e acompanha o resumo
+  (visitas, conversão, comodatos, reposição, carrinho, motivos de não venda).
+- **Não altera** estoque nem financeiro (controle comercial).
