@@ -218,12 +218,17 @@ function PaymentDialog({ total, onConfirm, onCancel, busy, error }: { total: num
   useEffect(() => { setAmount((remaining / 100).toFixed(2).replace('.', ',')); ref.current?.select(); }, [remaining, method]);
   const nonCash = payments.filter((p) => p.methodCode !== 'dinheiro').reduce((s, p) => s + cents(p.amount), 0);
   const change = Math.max(paid - total, 0);
-  const add = () => {
-    const v = cents(toDecimal(amount) || '0');
+  const addValue = (v: number) => {
     if (v <= 0) return;
     if (method !== 'dinheiro' && nonCash + v > total) return;
     setPayments((ps) => [...ps, { methodCode: method, amount: (v / 100).toFixed(2) }]);
   };
+  const add = () => addValue(cents(toDecimal(amount) || '0'));
+  // dinheiro: troco previsto enquanto o operador digita o valor que o cliente entregou
+  const typed = cents(toDecimal(amount) || '0');
+  const previewChange = method === 'dinheiro' ? Math.max(paid + typed - total, 0) : 0;
+  // notas que cobrem o que falta (para o clique rápido)
+  const bills = [200, 500, 1000, 2000, 5000, 10000, 20000].filter((b) => b > remaining).slice(0, 4);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const m = METHODS.find((x) => x.key === e.key);
@@ -238,7 +243,7 @@ function PaymentDialog({ total, onConfirm, onCancel, busy, error }: { total: num
       <div className="grid grid-cols-3 gap-2 text-center">
         <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-500">Total</div><div className="text-2xl font-bold">{brl(total)}</div></div>
         <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-500">Falta</div><div className={clsx('text-2xl font-bold', remaining > 0 ? 'text-brand-700' : 'text-emerald-700')}>{brl(remaining)}</div></div>
-        <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-500">Troco</div><div className="text-2xl font-bold text-emerald-700">{brl(change)}</div></div>
+        <div className={clsx('rounded-lg p-3', change > 0 ? 'bg-emerald-600 text-white' : 'bg-slate-50')}><div className={clsx('text-xs', change > 0 ? 'text-emerald-50' : 'text-slate-500')}>Troco</div><div className={clsx('text-2xl font-bold', change > 0 ? '' : 'text-emerald-700')}>{brl(change)}</div></div>
       </div>
       {!done && (
         <>
@@ -249,10 +254,22 @@ function PaymentDialog({ total, onConfirm, onCancel, busy, error }: { total: num
               </button>
             ))}
           </div>
+          {method === 'dinheiro' && (
+            <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <div className="text-sm font-medium text-emerald-900">Valor recebido do cliente <span className="font-normal text-emerald-700">(opcional — informe se o cliente deu a mais)</span></div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn-secondary py-1.5" onClick={() => addValue(remaining)}>Valor exato {brl(remaining)}</button>
+                {bills.map((b) => <button key={b} type="button" className="btn-secondary py-1.5" onClick={() => addValue(b)}>{brl(b)}</button>)}
+              </div>
+            </div>
+          )}
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); add(); }}>
-            <input ref={ref} autoFocus className="input text-right text-2xl font-bold" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <input ref={ref} autoFocus className="input text-right text-2xl font-bold" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label={method === 'dinheiro' ? 'Valor recebido em dinheiro' : 'Valor'} />
             <button className="btn-primary px-6">Adicionar (Enter)</button>
           </form>
+          {method === 'dinheiro' && previewChange > 0 && (
+            <div className="rounded-lg bg-emerald-600 px-4 py-2 text-center text-lg font-bold text-white">Troco a devolver: {brl(previewChange)}</div>
+          )}
           {method !== 'dinheiro' && <p className="text-xs text-slate-500">Cartão e Pix: passe na maquininha e confirme o valor aprovado. Não pode passar do que falta.</p>}
         </>
       )}
@@ -260,7 +277,7 @@ function PaymentDialog({ total, onConfirm, onCancel, busy, error }: { total: num
         <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
           {payments.map((p, i) => (
             <li key={i} className="flex items-center justify-between px-3 py-2 text-sm">
-              <span>{METHODS.find((m) => m.code === p.methodCode)?.label}</span>
+              <span>{METHODS.find((m) => m.code === p.methodCode)?.label}{p.methodCode === 'dinheiro' && <span className="text-xs text-slate-500"> (recebido)</span>}</span>
               <span className="flex items-center gap-2 font-semibold">{formatMoney(p.amount)}<button className="text-slate-400 hover:text-red-600" onClick={() => setPayments((ps) => ps.filter((_, k) => k !== i))} aria-label="Remover"><X className="h-4 w-4" /></button></span>
             </li>
           ))}

@@ -300,3 +300,8 @@ com impacto e estratégia de preservação de dados.
   no próximo caixa aberto). Preço do cadastro; baixa de estoque normal; entra no relatório daquele caixa marcada como
   lançada depois; conferência do dinheiro não muda. Se o dia já foi consolidado, a próxima consolidação gera um título
   complementar em contas a receber (nada se perde).
+
+## Caixa — valor recebido em dinheiro e troco (2026-11-16, sem migration, só tela)
+- No pagamento em Dinheiro: campo "Valor recebido do cliente" (opcional), botões rápidos (valor exato e notas que
+  cobrem o que falta) e "Troco a devolver" calculado enquanto o operador digita. O troco já era gravado na venda
+  (`sale_payments.change_amount`) e impresso no recibo; a gaveta recebe só o valor da compra.
