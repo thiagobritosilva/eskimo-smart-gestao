@@ -18,6 +18,15 @@ export const passwordSchema = z
   .max(128, 'A senha deve ter no máximo 128 caracteres.')
   .refine((v) => /[A-Za-zÀ-ÿ]/.test(v) && /\d/.test(v), 'A senha deve conter letras e números.');
 
+/**
+ * Senha PROVISÓRIA (definida pelo gestor ao criar/redefinir o usuário): a partir de 4 caracteres (ex.: 4 números).
+ * O usuário é obrigado a trocá-la no primeiro acesso por uma senha definitiva (passwordSchema).
+ */
+export const temporaryPasswordSchema = z
+  .string()
+  .min(4, 'A senha provisória deve ter pelo menos 4 caracteres (ex.: 4 números).')
+  .max(128, 'A senha deve ter no máximo 128 caracteres.');
+
 export const emailSchema = z
   .string()
   .trim()

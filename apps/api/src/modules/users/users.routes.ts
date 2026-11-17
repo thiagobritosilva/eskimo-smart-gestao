@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { auditCtx, requirePermission } from '../../lib/http.js';
-import { emailSchema, parse, passwordSchema, uuidSchema } from '../../lib/validation.js';
+import { emailSchema, parse, temporaryPasswordSchema, uuidSchema } from '../../lib/validation.js';
 import * as svc from './users.service.js';
 
 const idParams = z.object({ id: uuidSchema });
@@ -26,7 +26,7 @@ export async function usersRoutes(app: FastifyInstance) {
         email: emailSchema,
         phone,
         roleCode,
-        password: passwordSchema,
+        password: temporaryPasswordSchema,
       }),
       req.body,
     );
@@ -58,7 +58,7 @@ export async function usersRoutes(app: FastifyInstance) {
 
   app.post('/users/:id/reset-password', { preHandler: requirePermission('users.manage') }, async (req, reply) => {
     const { id } = parse(idParams, req.params);
-    const { password } = parse(z.object({ password: passwordSchema }), req.body);
+    const { password } = parse(z.object({ password: temporaryPasswordSchema }), req.body);
     await svc.resetUserPassword(req.auth!, id, password, auditCtx(req));
     reply.code(204);
   });

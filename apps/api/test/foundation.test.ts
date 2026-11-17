@@ -178,6 +178,23 @@ describe('usuários e permissões', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it('senha provisória a partir de 4 números; a troca no 1º acesso continua exigindo senha forte', async () => {
+    const owner = await asRole(app, 'PROPRIETARIO');
+    const created = await app.inject({
+      method: 'POST', url: '/api/users', headers: { cookie: owner.cookie },
+      payload: { name: 'Provisoria', email: 'provisoria@loja.com', roleCode: 'FUNCIONARIO', password: '1234' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json().mustChangePassword).toBe(true);
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'provisoria@loja.com', password: '1234' } });
+    expect(login.statusCode, login.body).toBe(200);
+    const cookie = String(login.headers['set-cookie']).split(';')[0]!;
+    const weak = await app.inject({ method: 'POST', url: '/api/auth/change-password', headers: { cookie }, payload: { currentPassword: '1234', newPassword: '5678' } });
+    expect(weak.statusCode).toBe(400);
+    const reset = await app.inject({ method: 'POST', url: `/api/users/${created.json().id}/reset-password`, headers: { cookie: owner.cookie }, payload: { password: '9876' } });
+    expect(reset.statusCode, reset.body).toBe(204);
+  });
+
   it('não permite atribuir perfil IA a pessoas', async () => {
     const owner = await asRole(app, 'PROPRIETARIO');
     const res = await app.inject({

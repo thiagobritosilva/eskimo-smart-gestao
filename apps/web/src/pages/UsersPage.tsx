@@ -42,8 +42,8 @@ function UserForm({ user, roles, onClose }: { user?: User; roles: Role[]; onClos
         </select>
       </Field>
       {!user && (
-        <Field label="Senha provisória" hint="O usuário deverá trocá-la no primeiro acesso. Mínimo 10 caracteres com letras e números.">
-          <input className="input" type="text" autoComplete="off" required minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Field label="Senha provisória" hint="A partir de 4 caracteres (ex.: 4 números). O usuário troca por uma senha definitiva no primeiro acesso.">
+          <input className="input" type="text" autoComplete="off" required minLength={4} maxLength={128} value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
       )}
       <div className="flex justify-end gap-2 pt-2">
@@ -65,7 +65,7 @@ function ResetPasswordForm({ user, onClose }: { user: User; onClose: () => void 
     <form onSubmit={(e) => { e.preventDefault(); m.mutate(); }} className="space-y-4">
       {m.error && <Alert>{errorMessage(m.error)}</Alert>}
       <p className="text-sm text-slate-600">Defina uma senha provisória para <strong>{user.name}</strong>. As sessões abertas serão encerradas e a troca será exigida no próximo acesso.</p>
-      <Field label="Senha provisória"><input className="input" autoComplete="off" required minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+      <Field label="Senha provisória" hint="A partir de 4 caracteres (ex.: 4 números)."><input className="input" autoComplete="off" required minLength={4} maxLength={128} value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
       <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={m.isPending}>Redefinir</button></div>
     </form>
   );

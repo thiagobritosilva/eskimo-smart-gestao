@@ -317,3 +317,8 @@ com impacto e estratégia de preservação de dados.
 - **Acesso:** vendedor vê e registra as próprias visitas; gerência vê todas, cancela e acompanha o resumo
   (visitas, conversão, comodatos, reposição, carrinho, motivos de não venda).
 - **Não altera** estoque nem financeiro (controle comercial).
+
+## Senha provisória a partir de 4 caracteres (2026-11-17, sem migration)
+- Ao criar ou redefinir usuário, a senha **provisória** aceita a partir de 4 caracteres (ex.: 4 números).
+- Continua obrigatória a troca no primeiro acesso, e a senha **definitiva** mantém a regra forte
+  (mínimo 10 caracteres, com letras e números). Bloqueio por tentativas de login inalterado.
