@@ -226,7 +226,7 @@ export function PurchaseOrderPage() {
           {o.receipts.map((r) => (
             <div key={r.id} className={clsx('card flex flex-wrap items-center justify-between gap-3 p-4', r.reversed_at && 'opacity-60')}>
               <div className="text-sm">
-                <div className="font-medium">NF {r.invoice_number}{r.invoice_series && `/${r.invoice_series}`} · {formatMoney(r.invoice_amount)} {r.reversed_at && <span className="badge ml-1 bg-red-100 text-red-700">estornada</span>}</div>
+                <div className="font-medium">NF {r.invoice_number}{r.invoice_series && `/${r.invoice_series}`} · {formatMoneyOrDash(r.invoice_amount)} {r.reversed_at && <span className="badge ml-1 bg-red-100 text-red-700">estornada</span>}</div>
                 <div className="text-xs text-slate-500">
                   Recebimento nº {r.number} · {formatDateTime(r.received_at)} · {r.received_by_name} · destino {r.location_name}
                   {Number(r.freight) > 0 && ` · frete ${formatMoney(r.freight)}`}{Number(r.discount) > 0 && ` · desconto ${formatMoney(r.discount)}`}

@@ -217,10 +217,8 @@ describe('DRE gerencial e fluxo de caixa', () => {
 });
 
 describe('permissões financeiras', () => {
-  it('gerente não acessa o financeiro sem concessão do proprietário', async () => {
+  it('gerente consulta o financeiro por padrão, mas não lança sem concessão do proprietário', async () => {
     const g = await asRole(app, 'GERENTE');
-    expect((await call(g.cookie, { method: 'GET', url: '/api/finance/accounts' })).statusCode).toBe(403);
-    await call(owner.cookie, { method: 'PUT', url: `/api/users/${g.id}/permissions`, payload: { overrides: [{ code: 'finance.view', effect: 'grant' }] } });
     expect((await call(g.cookie, { method: 'GET', url: '/api/finance/accounts' })).statusCode).toBe(200);
     const create = await call(g.cookie, { method: 'POST', url: '/api/finance/titles', payload: { idempotencyKey: key(), direction: 'pagar', description: 'x', categoryId: cat['Água'], competenceDate: '2026-10-01', totalAmount: '1' } });
     expect(create.statusCode).toBe(403);

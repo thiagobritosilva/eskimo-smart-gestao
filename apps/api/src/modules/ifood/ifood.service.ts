@@ -163,7 +163,9 @@ export async function createOrder(actor: Actor, input: OrderInput) {
     } else {
       const p = await getParams(db);
       if (p.commissionPercent == null || p.paymentFeePercent == null) {
-        throw Errors.businessRule('Informe as taxas deste pedido ou configure os percentuais do seu contrato em iFood › Configurações.');
+        throw Errors.businessRule(input.fees === null && !actor.permissions.includes('ifood.manage')
+          ? 'Os percentuais do contrato do iFood ainda não foram configurados. Peça ao gerente para configurar em iFood › Configurações.'
+          : 'Informe as taxas deste pedido ou configure os percentuais do seu contrato em iFood › Configurações.');
       }
       commission = Math.round((base * Number(p.commissionPercent)) / 100);
       paymentFee = Math.round((base * Number(p.paymentFeePercent)) / 100);
@@ -211,7 +213,7 @@ export async function listOrders(f: { from?: string; to?: string; status?: 'a_re
   const { rows } = await getPool().query(
     `SELECT o.id, o.order_code, o.sold_at, o.items_amount::text, o.store_discount::text, o.commission::text, o.payment_fee::text,
             o.other_fees::text, o.net_expected::text, o.fees_source, o.cancelled_at, o.cancel_reason, s.stock_status, s.id AS sale_id,
-            r.number::text AS repasse_number, r.paid_on::text AS repasse_paid_on, u.name AS created_by_name,
+            r.number::text AS repasse_number, r.paid_on::text AS repasse_paid_on, o.created_by, u.name AS created_by_name,
             (SELECT string_agg(i.description || ' × ' || trim(to_char(i.quantity, 'FM999999990.###')), '; ' ORDER BY i.line_no) FROM sale_items i WHERE i.sale_id = s.id) AS items
      FROM ifood_orders o JOIN sales s ON s.id = o.sale_id LEFT JOIN ifood_repasses r ON r.id = o.repasse_id LEFT JOIN users u ON u.id = o.created_by
      WHERE ($1::date IS NULL OR (o.sold_at AT TIME ZONE '${TZ}')::date >= $1) AND ($2::date IS NULL OR (o.sold_at AT TIME ZONE '${TZ}')::date <= $2)

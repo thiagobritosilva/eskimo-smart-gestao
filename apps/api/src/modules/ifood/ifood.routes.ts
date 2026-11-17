@@ -18,7 +18,12 @@ const menuBody = z.object({
 export async function ifoodRoutes(app: FastifyInstance) {
   const view = requirePermission('ifood.operate');
   const manage = requirePermission('ifood.manage');
-  app.get('/ifood/summary', { preHandler: view }, async () => svc.summary());
+  // resumo (vendas, taxas e repasse) é informação financeira: só gerência/financeiro
+  app.get('/ifood/summary', { preHandler: view }, async (req) => {
+    const s = await svc.summary();
+    if (actorOf(req).permissions.includes('ifood.manage')) return s;
+    return { configured: s.configured }; // operador só precisa saber se pode lançar
+  });
   app.get('/ifood/params', { preHandler: view }, async () => svc.getParams());
   app.put('/ifood/params', { preHandler: manage }, async (req) => {
     const b = parse(z.object({ commissionPercent: pct.nullable(), paymentFeePercent: pct.nullable(), repasseDays: z.number().int().min(0).max(120).nullable(), markupPercent: z.union([z.string(), z.number()]).transform((v) => String(v).trim()).refine((v) => /^\d{1,3}(\.\d{1,2})?$/.test(v), 'Percentual inválido.').nullable().optional() }), req.body);
@@ -29,7 +34,12 @@ export async function ifoodRoutes(app: FastifyInstance) {
   app.patch('/ifood/menu/:id', { preHandler: manage }, async (req) => svc.updateMenuItem(actorOf(req), parse(idParams, req.params).id, parse(menuBody.partial(), req.body)));
   app.get('/ifood/orders', { preHandler: view }, async (req) => {
     const q = parse(z.object({ from: date.optional(), to: date.optional(), status: z.enum(['a_repassar', 'repassados', 'cancelados', 'todos']).default('todos') }), req.query);
-    return svc.listOrders(q);
+    const actor = actorOf(req);
+    const rows = await svc.listOrders(q);
+    if (actor.permissions.includes('ifood.manage')) return rows;
+    // operador: só os pedidos que ele lançou, sem taxas nem repasse
+    return rows.filter((r: { created_by: string }) => r.created_by === actor.userId)
+      .map(({ commission: _c, payment_fee: _p, other_fees: _o, net_expected: _n, fees_source: _f, repasse_number: _r, repasse_paid_on: _d, ...r }: Record<string, unknown>) => r);
   });
   app.post('/ifood/orders', { preHandler: view }, async (req, reply) => {
     const b = parse(z.object({
@@ -39,7 +49,9 @@ export async function ifoodRoutes(app: FastifyInstance) {
       fees: z.object({ commission: money, paymentFee: money, otherFees: money.nullable().optional() }).nullable().optional(),
       idempotencyKey: z.string().min(8).max(100),
     }), req.body);
-    const r = await svc.createOrder(actorOf(req), b);
+    const actor = actorOf(req);
+    // taxas do pedido só podem ser informadas pela gerência; o operador usa os percentuais do contrato
+    const r = await svc.createOrder(actor, actor.permissions.includes('ifood.manage') ? b : { ...b, fees: null });
     reply.code(r.duplicate ? 200 : 201);
     return r;
   });

@@ -115,7 +115,7 @@ export function LocationDetailPage() {
         <div className="card p-4"><div className="text-xs uppercase text-slate-500">Produtos</div><div className="mt-1 text-2xl font-bold">{loc.products_count}</div></div>
         <div className="card p-4"><div className="text-xs uppercase text-slate-500">Quantidade</div><div className="mt-1 text-2xl font-bold">{formatQty(loc.total_qty)}</div></div>
         {canCost && <div className="card p-4"><div className="text-xs uppercase text-slate-500">Valor pelo custo</div><div className="mt-1 text-2xl font-bold">{formatMoney(loc.cost_value ?? '0')}</div>{!!loc.items_without_cost && <div className="text-xs text-amber-700">{loc.items_without_cost} sem custo</div>}</div>}
-        <div className="card p-4"><div className="text-xs uppercase text-slate-500">Potencial de venda</div><div className="mt-1 text-2xl font-bold">{formatMoney(loc.sale_value)}</div>{loc.items_without_price > 0 && <div className="text-xs text-amber-700">{loc.items_without_price} sem preço</div>}</div>
+        {canCost && <div className="card p-4"><div className="text-xs uppercase text-slate-500">Potencial de venda</div><div className="mt-1 text-2xl font-bold">{formatMoney(loc.sale_value)}</div>{loc.items_without_price > 0 && <div className="text-xs text-amber-700">{loc.items_without_price} sem preço</div>}</div>}
       </div>
 
       <div className="mb-4 flex gap-1 border-b border-slate-200">
@@ -134,7 +134,7 @@ export function LocationDetailPage() {
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50"><tr>
                 <th className="th">Produto</th><th className="th text-right">Quantidade</th><th className="th text-right">Mínimo no local</th>
-                <th className="th">Próx. validade</th>{canCost && <th className="th text-right">Valor (custo)</th>}<th className="th text-right">Valor (venda)</th>
+                <th className="th">Próx. validade</th>{canCost && <th className="th text-right">Valor (custo)</th>}{canCost && <th className="th text-right">Valor (venda)</th>}
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {balances.data.map((b) => (
@@ -148,7 +148,7 @@ export function LocationDetailPage() {
                     </td>
                     <td className="td whitespace-nowrap">{b.next_expiry ? formatDate(b.next_expiry) : '—'}</td>
                     {canCost && <td className="td text-right tabular-nums">{formatMoneyOrDash(b.cost_value)}</td>}
-                    <td className="td text-right tabular-nums">{formatMoneyOrDash(b.sale_value)}</td>
+                    {canCost && <td className="td text-right tabular-nums">{formatMoneyOrDash(b.sale_value)}</td>}
                   </tr>
                 ))}
               </tbody>

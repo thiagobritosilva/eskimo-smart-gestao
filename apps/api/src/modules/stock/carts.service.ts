@@ -38,7 +38,7 @@ export async function listCarts() {
             coalesce((SELECT sum(b.quantity) FROM stock_balances b WHERE b.location_id = l.id), 0)::text AS stock_qty,
             (SELECT to_jsonb(r) - 'idempotency_key' FROM (
                SELECT r.id, r.number, r.renter_name, r.renter_document, r.renter_phone, r.started_on::text, r.expected_return::text,
-                      r.amount::text, r.billing_period, r.title_id, r.notes
+                      r.amount::text, r.billing_period, r.title_id, r.notes, r.created_by
                FROM cart_rentals r WHERE r.cart_id = l.id AND r.returned_on IS NULL) r) AS open_rental,
             (SELECT count(*)::int FROM cart_rentals r WHERE r.cart_id = l.id) AS rentals_count
      FROM locations l JOIN carts c ON c.location_id = l.id
@@ -51,7 +51,7 @@ export async function listRentals(cartId: string) {
   const { rows } = await getPool().query(
     `SELECT r.id, r.number, r.renter_name, r.renter_document, r.renter_phone, r.started_on::text, r.expected_return::text,
             r.returned_on::text, r.amount::text, r.billing_period, r.notes, r.return_notes, r.title_id, t.number AS title_number,
-            t.status AS title_status, u1.name AS created_by_name, u2.name AS returned_by_name, r.created_at
+            t.status AS title_status, r.created_by, u1.name AS created_by_name, u2.name AS returned_by_name, r.created_at
      FROM cart_rentals r
      LEFT JOIN financial_titles t ON t.id = r.title_id
      LEFT JOIN users u1 ON u1.id = r.created_by
@@ -203,4 +203,15 @@ export async function returnRental(actor: Actor, rentalId: string, input: { retu
     await writeAudit(db, actor.audit, { action: 'cart.returned', entity: 'cart', entityId: r.cart_id, after: { rentalId, ...input } });
     return { id: rentalId, cartId: r.cart_id, stockRemaining: stock };
   });
+}
+
+/** Valor do aluguel é informação financeira: só quem tem financeiro vê (ou quem lançou aquele aluguel). */
+export function maskRentalValues<T>(rows: T, actor: { userId: string; permissions: string[] }): T {
+  if (actor.permissions.includes('finance.view')) return rows;
+  const strip = (r: Record<string, unknown> | null) => {
+    if (!r || r.created_by === actor.userId) return r;
+    const { amount: _a, title_id: _t, title_number: _n, title_status: _s, ...rest } = r;
+    return rest;
+  };
+  return (rows as unknown as Record<string, unknown>[]).map((r) => ('open_rental' in r ? { ...r, open_rental: strip(r.open_rental as Record<string, unknown> | null) } : strip(r))) as unknown as T;
 }

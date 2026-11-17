@@ -146,7 +146,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
   });
   app.get('/purchase-receipts', { preHandler: view }, async (req) => {
     const q = parse(z.object({ from: date.optional(), to: date.optional(), supplierId: uuidSchema.optional() }), req.query);
-    return svc.listReceipts(q);
+    return maskCosts(await svc.listReceipts(q), cost(req));
   });
   app.get('/purchase-receipts/:id', { preHandler: view }, async (req) => maskCosts(await svc.getReceipt(parse(idParams, req.params).id), cost(req)));
   app.post('/purchase-receipts/:id/reverse', { preHandler: manage }, async (req, reply) => {

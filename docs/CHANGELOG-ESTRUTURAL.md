@@ -332,3 +332,17 @@ com impacto e estratégia de preservação de dados.
 - "Vendedor externo e repositor" e "Motorista e repositor" unificados em **Vendedor externo, motorista e repositor**
   (`VENDEDOR_EXTERNO`). Usuários que estivessem como `MOTORISTA` foram movidos (registro na auditoria) e o perfil
   `MOTORISTA` foi removido. Permissões inalteradas.
+
+## 0024_gerente_financeiro — números sensíveis só para Proprietário, Gerente e Financeiro (2026-11-17)
+- **Gerente** passa a ter `finance.view` e `dashboard.financial` por padrão (consulta; lançar continua exigindo concessão).
+- **Perfis operacionais** (Funcionário/caixa, Estoquista, Vendedor externo/motorista) deixam de ver:
+  - Dashboard: total de vendas, valor do estoque (custo e venda), gráficos de vendas por dia/mês, mais/menos vendidos,
+    desempenho por categoria e distribuição do estoque em valor (agora exigem `dashboard.financial` / `products.view_cost`).
+  - Estoque/freezers/compras: `sale_value`, valores de notas de compra (total, mercadorias, frete, outros, descontos)
+    — incluídos no mascaramento de custos (só quem tem `products.view_cost`).
+  - iFood: resumo (vendas, taxas, repasse) e taxas/repasse por pedido; o operador vê só os pedidos que ele lançou e não
+    informa taxas (usa os percentuais do contrato).
+  - Carrinhos: valor do aluguel (só com `finance.view` ou para quem lançou aquele aluguel).
+  - Caixa: totais e vendas do turno de OUTRO operador (só o próprio, gerência ou financeiro).
+- Continuam vendo o que é deles: vendas do próprio caixa/turno e relatório do próprio caixa, as próprias visitas e
+  vendas externas, os pedidos do iFood que lançaram.

@@ -102,7 +102,7 @@ export async function stockRoutes(app: FastifyInstance) {
     physicalLocation: z.string().trim().max(120).nullable().optional(),
     notes: z.string().trim().max(500).nullable().optional(),
   };
-  app.get('/carts', { preHandler: requirePermission('stock.view') }, async () => carts.listCarts());
+  app.get('/carts', { preHandler: requirePermission('stock.view') }, async (req) => carts.maskRentalValues(await carts.listCarts(), actorOf(req)));
   app.post('/carts', { preHandler: requirePermission('freezers.manage') }, async (req, reply) => {
     const body = parse(z.object(cartBody), req.body ?? {});
     reply.code(201);
@@ -114,7 +114,7 @@ export async function stockRoutes(app: FastifyInstance) {
     return carts.updateCart(actorOf(req), id, body);
   });
   app.get('/carts/:id/rentals', { preHandler: requirePermission('stock.view') }, async (req) =>
-    carts.listRentals(parse(idParams, req.params).id),
+    carts.maskRentalValues(await carts.listRentals(parse(idParams, req.params).id), actorOf(req)),
   );
   app.post('/carts/:id/rentals', { preHandler: requirePermission('freezers.manage') }, async (req, reply) => {
     const { id } = parse(idParams, req.params);

@@ -36,7 +36,7 @@ export function IfoodPage() {
       {s && !s.configured && (
         <div className="mb-4"><Alert kind="warning">Percentuais do contrato do iFood não configurados. {manage ? 'Informe em Configurações' : 'Peça ao gerente para informar'} — até lá, cada pedido precisa das taxas informadas manualmente.</Alert></div>
       )}
-      {s && (
+      {s && manage && (
         <div className="mb-5 grid gap-3 sm:grid-cols-4">
           <div className="card p-4"><div className="text-xs uppercase text-slate-500">Pedidos a repassar</div><div className="text-2xl font-semibold">{s.open_count}</div></div>
           <div className="card p-4"><div className="text-xs uppercase text-slate-500">Vendas (bruto)</div><div className="text-2xl font-semibold tabular-nums">{formatMoney(s.open_gross)}</div></div>
@@ -67,6 +67,7 @@ function Orders({ configured }: { configured: boolean }) {
   const [from, setFrom] = useState('');
   const [creating, setCreating] = useState(false);
   const [cancelling, setCancelling] = useState<Order | null>(null);
+  const manage = can('ifood.manage');
   const orders = useQuery({ queryKey: ['ifood', 'orders', status, from], queryFn: () => api.get<Order[]>(`/ifood/orders${qs({ status, from })}`) });
   return (
     <div className="space-y-4">
@@ -80,7 +81,7 @@ function Orders({ configured }: { configured: boolean }) {
       {orders.isLoading ? <Spinner /> : (
         <div className="card overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50"><tr><th className="th">Pedido</th><th className="th">Itens</th><th className="th text-right">Vendas</th><th className="th text-right">Taxas</th><th className="th text-right">Repasse</th><th className="th">Situação</th><th className="th" /></tr></thead>
+            <thead className="bg-slate-50"><tr><th className="th">Pedido</th><th className="th">Itens</th><th className="th text-right">Vendas</th>{manage && <th className="th text-right">Taxas</th>}{manage && <th className="th text-right">Repasse</th>}<th className="th">Situação</th><th className="th" /></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {(orders.data ?? []).map((o) => {
                 const fees = Number(o.commission) + Number(o.payment_fee) + Number(o.other_fees);
@@ -89,12 +90,13 @@ function Orders({ configured }: { configured: boolean }) {
                     <td className="td whitespace-nowrap"><div className="font-medium">#{o.order_code}</div><div className="text-xs text-slate-500">{formatDateTime(o.sold_at)}</div></td>
                     <td className="td max-w-md text-xs text-slate-600">{o.items}</td>
                     <td className="td text-right tabular-nums">{formatMoney(String(Number(o.items_amount) - Number(o.store_discount)))}{Number(o.store_discount) > 0 && <div className="text-xs text-slate-500">desc. loja {formatMoney(o.store_discount)}</div>}</td>
-                    <td className="td text-right tabular-nums text-red-600">−{formatMoney(fees.toFixed(2))}<div className="text-xs text-slate-500">{o.fees_source === 'informado' ? 'informadas' : 'pelo contrato'}</div></td>
-                    <td className="td text-right font-medium tabular-nums">{formatMoney(o.net_expected)}</td>
+                    {manage && <td className="td text-right tabular-nums text-red-600">−{formatMoney(fees.toFixed(2))}<div className="text-xs text-slate-500">{o.fees_source === 'informado' ? 'informadas' : 'pelo contrato'}</div></td>}
+                    {manage && <td className="td text-right font-medium tabular-nums">{formatMoney(o.net_expected)}</td>}
                     <td className="td text-xs">
                       {o.cancelled_at ? <span className="text-red-600">cancelado: {o.cancel_reason}</span>
-                        : o.repasse_number ? <span className="text-emerald-700">repassado (nº {o.repasse_number} · {formatDate(o.repasse_paid_on!)})</span>
-                          : <span className="text-amber-700">a repassar</span>}
+                        : !manage ? <span className="text-slate-600">lançado</span>
+                          : o.repasse_number ? <span className="text-emerald-700">repassado (nº {o.repasse_number} · {formatDate(o.repasse_paid_on!)})</span>
+                            : <span className="text-amber-700">a repassar</span>}
                       {o.stock_status === 'pendente' && <div className="text-amber-700">baixa de estoque pendente</div>}
                     </td>
                     <td className="td text-right">{can('ifood.manage') && !o.cancelled_at && !o.repasse_number && <button className="btn-ghost py-1 text-xs text-red-600" onClick={() => setCancelling(o)}>Cancelar</button>}</td>
@@ -115,6 +117,8 @@ function Orders({ configured }: { configured: boolean }) {
 }
 
 export function OrderForm({ configured, onDone }: { configured: boolean; onDone: () => void }) {
+  const { can } = useAuth();
+  const manage = can('ifood.manage');
   const menu = useQuery({ queryKey: ['ifood', 'menu'], queryFn: () => api.get<MenuItem[]>('/ifood/menu') });
   const active = (menu.data ?? []).filter((m) => m.is_active && m.components.length);
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -135,7 +139,7 @@ export function OrderForm({ configured, onDone }: { configured: boolean; onDone:
     mutationFn: () => api.post('/ifood/orders', {
       orderCode: code, soldAt: new Date(when).toISOString(), idempotencyKey: key, storeDiscount: discount ? dec(discount) : null,
       items: items.map((i) => ({ menuItemId: i.menuItemId, quantity: dec(i.quantity), unitPrice: dec(i.unitPrice) })),
-      fees: informFees ? { commission: dec(fees.commission), paymentFee: dec(fees.paymentFee), otherFees: fees.otherFees ? dec(fees.otherFees) : null } : null,
+      fees: manage && informFees ? { commission: dec(fees.commission), paymentFee: dec(fees.paymentFee), otherFees: fees.otherFees ? dec(fees.otherFees) : null } : null,
     }),
     onSuccess: onDone,
   });
@@ -172,8 +176,9 @@ export function OrderForm({ configured, onDone }: { configured: boolean; onDone:
         <Field label="Promoção bancada pela loja (R$)" hint="Só o desconto que a LOJA paga. Cupom pago pelo iFood não entra aqui."><input className="input" inputMode="decimal" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0,00" /></Field>
         <div className="rounded-xl bg-slate-50 p-3 text-sm">Vendas do pedido: <strong>{formatMoney(Math.max(total, 0).toFixed(2))}</strong></div>
       </div>
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={informFees} disabled={!configured} onChange={(e) => setInformFees(e.target.checked)} /> Informar comissão e taxas deste pedido (valores do iFood){!configured && ' — obrigatório até configurar os percentuais'}</label>
-      {informFees && (
+      {manage && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={informFees} disabled={!configured} onChange={(e) => setInformFees(e.target.checked)} /> Informar comissão e taxas deste pedido (valores do iFood){!configured && ' — obrigatório até configurar os percentuais'}</label>}
+      {!manage && !configured && <Alert kind="warning">Os percentuais do contrato do iFood ainda não foram configurados. Peça ao gerente para configurar antes de lançar pedidos.</Alert>}
+      {manage && informFees && (
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Comissão (R$) *"><input className="input" inputMode="decimal" required value={fees.commission} onChange={(e) => setFees({ ...fees, commission: e.target.value })} /></Field>
           <Field label="Taxa de pagamento (R$) *"><input className="input" inputMode="decimal" required value={fees.paymentFee} onChange={(e) => setFees({ ...fees, paymentFee: e.target.value })} /></Field>

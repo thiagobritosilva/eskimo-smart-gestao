@@ -44,7 +44,7 @@ function LocationCard({ l, canCost }: { l: LocationSummary; canCost: boolean }) 
           <div className="text-sm text-slate-400">Vazio</div>
         ) : (
           <>
-            <div className="text-base font-bold tabular-nums text-ink-900">{formatMoney(value ?? '0')}</div>
+            {canCost && <div className="text-base font-bold tabular-nums text-ink-900">{formatMoney(value ?? '0')}</div>}
             <div className="text-xs text-slate-500">{l.products_count} produto(s) · {formatQty(l.total_qty)} un.</div>
           </>
         )}
@@ -104,7 +104,7 @@ export function FreezersPage() {
         <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-600">
           <span className={clsx('h-2.5 w-2.5 rounded-full', accent)} />{title} <span className="font-normal normal-case text-slate-400">({items.length})</span>
         </h2>
-        <span className="text-sm text-slate-500">{valueLabel}: <strong className="text-ink-900">{formatMoney(sum(items))}</strong></span>
+        {canCost && <span className="text-sm text-slate-500">{valueLabel}: <strong className="text-ink-900">{formatMoney(sum(items))}</strong></span>}
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
         {items.map((l) => <LocationCard key={l.id} l={l} canCost={canCost} />)}
@@ -131,7 +131,7 @@ export function FreezersPage() {
         }
       />
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
-        <div className="card p-4"><div className="text-xs uppercase text-slate-500">Central + freezers ({valueLabel.toLowerCase()})</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(data.filter((l) => l.kind !== 'carrinho')))}</div></div>
+        {canCost && <div className="card p-4"><div className="text-xs uppercase text-slate-500">Central + freezers ({valueLabel.toLowerCase()})</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(data.filter((l) => l.kind !== 'carrinho')))}</div></div>}
         <div className="card border-brand-200 p-4"><div className="text-xs uppercase text-brand-700">Freezers Eskimo · franquia</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(eskimo))}</div></div>
         <div className="card border-violet-200 p-4"><div className="text-xs uppercase text-violet-700">Freezers próprios · loja</div><div className="mt-1 text-2xl font-bold">{formatMoney(sum(own))}</div></div>
       </div>

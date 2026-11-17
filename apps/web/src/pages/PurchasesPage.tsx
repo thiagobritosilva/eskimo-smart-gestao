@@ -218,7 +218,7 @@ function Receipts() {
                   <td className="td">{r.supplier_name}</td>
                   <td className="td"><Link className="font-mono text-brand-700 hover:underline" to={`/compras/pedidos/${r.order_id}`}>#{r.order_number}</Link></td>
                   <td className="td text-sm">{r.title_number ? `nº ${r.title_number} · ${r.title_status}` : 'não gerada'}</td>
-                  <td className="td text-right font-semibold tabular-nums">{formatMoney(r.invoice_amount)}</td>
+                  <td className="td text-right font-semibold tabular-nums">{formatMoneyOrDash(r.invoice_amount)}</td>
                 </tr>
               ))}
             </tbody>

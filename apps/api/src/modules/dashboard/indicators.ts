@@ -59,7 +59,7 @@ export function unavailable(phase: number): IndicatorValue {
 export const INDICATORS: IndicatorDef[] = [
   { key: 'revenue_today', label: 'Faturamento de hoje', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial', compute: sales.revenueToday },
   { key: 'revenue_period', label: 'Faturamento no período', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial', compute: sales.revenuePeriod },
-  { key: 'sales_count', label: 'Total de vendas', group: 'vendas', unit: 'count', phase: 5, compute: sales.salesCount },
+  { key: 'sales_count', label: 'Total de vendas', group: 'vendas', unit: 'count', phase: 5, permission: 'dashboard.financial', compute: sales.salesCount },
   { key: 'avg_ticket', label: 'Ticket médio', group: 'vendas', unit: 'BRL', phase: 5, permission: 'dashboard.financial', compute: sales.avgTicket },
   { key: 'expenses_today', label: 'Despesas do dia', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.expensesToday },
   { key: 'expenses_period', label: 'Despesas no período', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.expensesPeriod },
@@ -71,7 +71,7 @@ export const INDICATORS: IndicatorDef[] = [
   { key: 'cash_balance', label: 'Saldo de caixa', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.cashBalance },
   { key: 'bank_balance', label: 'Saldo bancário', group: 'financeiro', unit: 'BRL', phase: 3, permission: 'dashboard.financial', compute: fin.bankBalance },
   { key: 'stock_cost_value', label: 'Estoque pelo custo', group: 'estoque', unit: 'BRL', phase: 2, permission: 'products.view_cost', compute: stock.stockCostValue },
-  { key: 'stock_sale_value', label: 'Potencial de venda do estoque', group: 'estoque', unit: 'BRL', phase: 2, compute: stock.stockSaleValue },
+  { key: 'stock_sale_value', label: 'Potencial de venda do estoque', group: 'estoque', unit: 'BRL', phase: 2, permission: 'dashboard.financial', compute: stock.stockSaleValue },
   { key: 'low_stock_count', label: 'Produtos com estoque baixo', group: 'estoque', unit: 'count', phase: 2, compute: stock.lowStockCount },
   { key: 'expiring_count', label: 'Produtos próximos do vencimento', group: 'estoque', unit: 'count', phase: 2, compute: stock.expiringCount },
   { key: 'freezers_count', label: 'Freezers cadastrados', group: 'freezers', unit: 'count', phase: 2, compute: (db) => stock.freezersCount(db) },
@@ -85,15 +85,15 @@ export interface ChartDef {
 }
 
 export const CHARTS: ChartDef[] = [
-  { key: 'sales_by_day', label: 'Vendas por dia', phase: 5 },
-  { key: 'sales_by_month', label: 'Vendas por mês', phase: 5 },
+  { key: 'sales_by_day', label: 'Vendas por dia', phase: 5, permission: 'dashboard.financial' },
+  { key: 'sales_by_month', label: 'Vendas por mês', phase: 5, permission: 'dashboard.financial' },
   { key: 'revenue_trend', label: 'Evolução do faturamento', phase: 5, permission: 'dashboard.financial' },
   { key: 'expenses_trend', label: 'Evolução das despesas', phase: 3, permission: 'dashboard.financial' },
   { key: 'profit_by_period', label: 'Lucro por período', phase: 7, permission: 'dashboard.financial' },
-  { key: 'top_products', label: 'Produtos mais vendidos', phase: 5 },
-  { key: 'bottom_products', label: 'Produtos menos vendidos', phase: 5 },
+  { key: 'top_products', label: 'Produtos mais vendidos', phase: 5, permission: 'dashboard.financial' },
+  { key: 'bottom_products', label: 'Produtos menos vendidos', phase: 5, permission: 'dashboard.financial' },
   { key: 'most_profitable', label: 'Produtos mais rentáveis', phase: 7, permission: 'products.view_cost' },
-  { key: 'stock_distribution', label: 'Distribuição do estoque', phase: 2 },
+  { key: 'stock_distribution', label: 'Distribuição do estoque', phase: 2, permission: 'products.view_cost' },
   { key: 'stock_value_by_freezer', label: 'Valor das mercadorias por freezer', phase: 2, permission: 'products.view_cost' },
-  { key: 'category_performance', label: 'Desempenho por categoria', phase: 5 },
+  { key: 'category_performance', label: 'Desempenho por categoria', phase: 5, permission: 'dashboard.financial' },
 ];

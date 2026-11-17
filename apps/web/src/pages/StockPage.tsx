@@ -161,7 +161,7 @@ function ProductStockTable() {
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50"><tr>
               <th className="th">Produto</th><th className="th text-right">Total</th><th className="th text-right">Mínimo</th><th className="th text-right">Locais</th>
-              <th className="th">Validade</th>{canCost && <th className="th text-right">Valor (custo)</th>}<th className="th text-right">Valor (venda)</th>
+              <th className="th">Validade</th>{canCost && <th className="th text-right">Valor (custo)</th>}{canCost && <th className="th text-right">Valor (venda)</th>}
             </tr></thead>
             <tbody className="divide-y divide-slate-100">
               {data.map((r) => (
@@ -174,12 +174,12 @@ function ProductStockTable() {
                     {r.next_expiry ? <span className={clsx(r.has_expired ? 'font-semibold text-red-700' : r.expiring_soon && 'font-semibold text-amber-700')}>{formatDate(r.next_expiry)}{r.has_expired && ' (vencido)'}</span> : '—'}
                   </td>
                   {canCost && <td className="td text-right tabular-nums">{formatMoneyOrDash(r.cost_value)}</td>}
-                  <td className="td text-right tabular-nums">{formatMoneyOrDash(r.sale_value)}</td>
+                  {canCost && <td className="td text-right tabular-nums">{formatMoneyOrDash(r.sale_value)}</td>}
                 </tr>
               ))}
             </tbody>
             <tfoot className="bg-slate-50 text-sm font-semibold">
-              <tr><td className="td" colSpan={5}>Total ({data.length} produtos)</td>{canCost && <td className="td text-right">{formatMoneyOrDash(totals.cost)}</td>}<td className="td text-right">{formatMoneyOrDash(totals.sale)}</td></tr>
+              <tr><td className="td" colSpan={5}>Total ({data.length} produtos)</td>{canCost && <td className="td text-right">{formatMoneyOrDash(totals.cost)}</td>}{canCost && <td className="td text-right">{formatMoneyOrDash(totals.sale)}</td>}</tr>
             </tfoot>
           </table>
         </div>

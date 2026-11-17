@@ -30,9 +30,9 @@ describe('relatórios', () => {
     expect(r.statusCode).toBe(200);
     expect(r.json()).toHaveLength(22);
     const g = (await get(gerente.cookie, '/api/reports')).json() as { group: string; key: string }[];
-    expect(g.some((x) => x.group === 'Financeiro')).toBe(false); // gerente não tem financeiro por padrão
+    expect(g.some((x) => x.group === 'Financeiro')).toBe(true); // gerente vê o financeiro por padrão (migration 0024)
     expect(g.some((x) => x.key === 'posicao-estoque')).toBe(true);
-    expect((await get(gerente.cookie, '/api/reports/contas-pagar')).statusCode).toBe(403);
+    expect((await get(gerente.cookie, '/api/reports/contas-pagar')).statusCode).toBe(200); // gerente vê o financeiro (migration 0024)
     expect((await get(funcionario.cookie, '/api/reports')).statusCode).toBe(403);
   });
 

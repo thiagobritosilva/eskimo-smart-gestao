@@ -31,8 +31,21 @@ export async function posRoutes(app: FastifyInstance) {
     const b = parse(z.object({ name: z.string().trim().min(2).max(60).optional(), locationIds: z.array(uuidSchema).min(1).max(40).optional(), isActive: z.boolean().optional() }), req.body);
     return svc.updateTerminal(actorOf(req), id, b);
   });
-  app.get('/pos/terminals/:id/state', { preHandler: operate }, async (req) => svc.terminalState(parse(idParams, req.params).id));
-  app.get('/pos/terminals/:id/sales', { preHandler: operate }, async (req) => svc.listSessionSales(parse(idParams, req.params).id));
+  // totais do turno: só o próprio operador ou a gerência/financeiro
+  const seesAll = (a: { permissions: string[] }) => a.permissions.includes('pos.manage') || a.permissions.includes('finance.view');
+  app.get('/pos/terminals/:id/state', { preHandler: operate }, async (req) => {
+    const actor = actorOf(req);
+    const st = await svc.terminalState(parse(idParams, req.params).id);
+    if (st.session && st.session.opened_by !== actor.userId && !seesAll(actor)) return { ...st, summary: null };
+    return st;
+  });
+  app.get('/pos/terminals/:id/sales', { preHandler: operate }, async (req) => {
+    const actor = actorOf(req);
+    const { id } = parse(idParams, req.params);
+    const st = await svc.terminalState(id);
+    if (st.session && st.session.opened_by !== actor.userId && !seesAll(actor)) return [];
+    return svc.listSessionSales(id);
+  });
   app.post('/pos/terminals/:id/open', { preHandler: operate }, async (req, reply) => {
     const { id } = parse(idParams, req.params);
     const b = parse(z.object({ counted: money }), req.body);
