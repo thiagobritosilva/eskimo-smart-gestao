@@ -71,3 +71,21 @@ describe('vendedor externo', () => {
     expect((await req(est.cookie, 'GET', '/external/visits')).statusCode).toBe(403);
   });
 });
+
+describe('perfis de rua', () => {
+  it('Proprietário altera o perfil de um usuário para "Vendedor externo e repositor" e ele acessa vendas externas', async () => {
+    const app2 = app;
+    const owner2 = owner;
+    const created = await app2.inject({ method: 'POST', url: '/api/users', headers: { cookie: owner2.cookie },
+      payload: { name: 'Pessoa Teste Rua', email: `rua${tag}@loja.com`, roleCode: 'ESTOQUISTA', password: '1234' } });
+    expect(created.statusCode, created.body).toBe(201);
+    const upd = await app2.inject({ method: 'PATCH', url: `/api/users/${created.json().id}`, headers: { cookie: owner2.cookie }, payload: { roleCode: 'VENDEDOR_EXTERNO' } });
+    expect(upd.statusCode, upd.body).toBe(200);
+    expect(upd.json()).toMatchObject({ roleCode: 'VENDEDOR_EXTERNO', roleName: 'Vendedor externo e repositor' });
+    const roles = (await app2.inject({ method: 'GET', url: '/api/roles', headers: { cookie: owner2.cookie } })).json();
+    const mot = roles.find((r: { code: string }) => r.code === 'MOTORISTA');
+    expect(mot.name).toBe('Motorista e repositor');
+    expect(mot.permissions).toEqual(expect.arrayContaining(['external.operate', 'stock.move']));
+    expect(mot.permissions).not.toContain('finance.view');
+  });
+});

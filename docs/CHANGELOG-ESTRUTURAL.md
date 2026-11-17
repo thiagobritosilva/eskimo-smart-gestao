@@ -322,3 +322,8 @@ com impacto e estratégia de preservação de dados.
 - Ao criar ou redefinir usuário, a senha **provisória** aceita a partir de 4 caracteres (ex.: 4 números).
 - Continua obrigatória a troca no primeiro acesso, e a senha **definitiva** mantém a regra forte
   (mínimo 10 caracteres, com letras e números). Bloqueio por tentativas de login inalterado.
+
+## 0022_perfis_externos — perfis de rua (2026-11-17)
+- Novos perfis: **Vendedor externo e repositor** (`VENDEDOR_EXTERNO`) e **Motorista e repositor** (`MOTORISTA`), com
+  dashboard, produtos, estoque (consulta e movimentação para reposição), alertas e Vendas externas. Sem financeiro,
+  compras, usuários ou configurações. Troca de perfil de usuário existente: Usuários › Editar (auditado).
