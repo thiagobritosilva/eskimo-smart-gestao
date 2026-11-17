@@ -81,11 +81,11 @@ describe('perfis de rua', () => {
     expect(created.statusCode, created.body).toBe(201);
     const upd = await app2.inject({ method: 'PATCH', url: `/api/users/${created.json().id}`, headers: { cookie: owner2.cookie }, payload: { roleCode: 'VENDEDOR_EXTERNO' } });
     expect(upd.statusCode, upd.body).toBe(200);
-    expect(upd.json()).toMatchObject({ roleCode: 'VENDEDOR_EXTERNO', roleName: 'Vendedor externo e repositor' });
+    expect(upd.json()).toMatchObject({ roleCode: 'VENDEDOR_EXTERNO', roleName: 'Vendedor externo, motorista e repositor' });
     const roles = (await app2.inject({ method: 'GET', url: '/api/roles', headers: { cookie: owner2.cookie } })).json();
-    const mot = roles.find((r: { code: string }) => r.code === 'MOTORISTA');
-    expect(mot.name).toBe('Motorista e repositor');
-    expect(mot.permissions).toEqual(expect.arrayContaining(['external.operate', 'stock.move']));
-    expect(mot.permissions).not.toContain('finance.view');
+    expect(roles.some((r: { code: string }) => r.code === 'MOTORISTA')).toBe(false); // unificado
+    const rua = roles.find((r: { code: string }) => r.code === 'VENDEDOR_EXTERNO');
+    expect(rua.permissions).toEqual(expect.arrayContaining(['external.operate', 'stock.move']));
+    expect(rua.permissions).not.toContain('finance.view');
   });
 });

@@ -327,3 +327,8 @@ com impacto e estratégia de preservação de dados.
 - Novos perfis: **Vendedor externo e repositor** (`VENDEDOR_EXTERNO`) e **Motorista e repositor** (`MOTORISTA`), com
   dashboard, produtos, estoque (consulta e movimentação para reposição), alertas e Vendas externas. Sem financeiro,
   compras, usuários ou configurações. Troca de perfil de usuário existente: Usuários › Editar (auditado).
+
+## 0023_unifica_perfil_rua (2026-11-17)
+- "Vendedor externo e repositor" e "Motorista e repositor" unificados em **Vendedor externo, motorista e repositor**
+  (`VENDEDOR_EXTERNO`). Usuários que estivessem como `MOTORISTA` foram movidos (registro na auditoria) e o perfil
+  `MOTORISTA` foi removido. Permissões inalteradas.
