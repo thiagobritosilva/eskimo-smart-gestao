@@ -370,3 +370,17 @@ com impacto e estratégia de preservação de dados.
 - **Relatório/comprovante do caixa:** passa a listar todas as vendas do turno (formas, comentários e correções).
   Comentários pendentes aparecem em Financeiro › Caixa e na Conciliação.
 - **Impacto:** somente tabelas novas e troca do trigger de `sale_payments`; nenhum dado alterado.
+
+## 0027_ponto — registro de ponto (controle interno de jornada) (2026-11-21)
+- **O quê:** permissões `timeclock.punch` (Proprietário, Gerente, Funcionário, Estoquista, Vendedor externo) e
+  `timeclock.manage` (Proprietário, Gerente); tabelas `time_punches` (marcação imutável, NSR sequencial, hora do
+  servidor, dia no fuso de São Paulo, IP/navegador, hash SHA-256 encadeado com a marcação anterior) e
+  `time_punch_adjustments` (pedido de ajuste com motivo; só a decisão é registrada, uma vez).
+- **Fluxo:** cada usuário, com o próprio login, abre "Ponto" e bate entrada → saída para o almoço → volta do almoço →
+  saída (o sistema sugere a próxima; nunca bloqueia marcação). Toque duplo em até 2 min não duplica. Comprovante
+  imprimível por marcação. Esquecimento/erro: pedido de ajuste → gestor aprova (vira marcação "incluída por ajuste",
+  identificada no espelho) ou recusa com motivo; ninguém aprova o próprio ajuste (exceto o Proprietário).
+- **Espelho de ponto:** mensal por empregado, com horas trabalhadas, intervalo e alertas da CLT (art. 71: intervalo
+  < 1h ou > 2h; art. 59: > 10h no dia; art. 66: < 11h entre jornadas; marcação incompleta); impressão com assinaturas.
+  Gestor: quadro "Equipe hoje", ajustes e espelho de todos; conferência da corrente de hashes (`/timeclock/verify`).
+- **Impacto:** somente tabelas e permissões novas; nenhum dado existente alterado.

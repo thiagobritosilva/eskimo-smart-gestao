@@ -28,6 +28,7 @@ import { searchRoutes } from './modules/search/search.routes.js';
 import { ifoodRoutes } from './modules/ifood/ifood.routes.js';
 import { conciliationRoutes } from './modules/finance/conciliation.routes.js';
 import { externalRoutes } from './modules/external/external.routes.js';
+import { timeclockRoutes } from './modules/timeclock/timeclock.routes.js';
 import './types.js';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -130,6 +131,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(ifoodRoutes);
       await api.register(conciliationRoutes);
       await api.register(externalRoutes);
+      await api.register(timeclockRoutes);
       await api.register(productsRoutes);
       await api.register(stockRoutes);
       await api.register(financeRoutes);

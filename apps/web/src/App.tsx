@@ -8,6 +8,7 @@ import { ForcePasswordChangePage } from './pages/ForcePasswordChangePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { IfoodPage } from './pages/IfoodPage';
 import { ExternalPage } from './pages/ExternalPage';
+import { TimeclockPage } from './pages/TimeclockPage';
 import { UsersPage } from './pages/UsersPage';
 import { AuditPage } from './pages/AuditPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -66,6 +67,7 @@ export function App() {
         <Route path="relatorios" element={<RequirePermission permission="reports.view"><ReportsPage /></RequirePermission>} />
         <Route path="relatorios/:key" element={<RequirePermission permission="reports.view"><ReportViewPage /></RequirePermission>} />
         <Route path="notificacoes" element={<RequirePermission permission="alerts.view"><NotificationsPage /></RequirePermission>} />
+        <Route path="ponto" element={<RequirePermission permission="timeclock.punch"><TimeclockPage /></RequirePermission>} />
         <Route path="vendas-externas" element={<RequirePermission permission="external.operate"><ExternalPage /></RequirePermission>} />
         <Route path="ifood" element={<RequirePermission permission="ifood.operate"><IfoodPage /></RequirePermission>} />
         <Route path="carrinhos" element={<RequirePermission permission="stock.view"><CartsPage /></RequirePermission>} />
