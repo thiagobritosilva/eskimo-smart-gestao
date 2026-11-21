@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Clock, Coffee, LogIn, LogOut, MapPin, Printer, UtensilsCrossed } from 'lucide-react';
@@ -7,6 +7,7 @@ import { api, errorMessage, qs } from '../lib/api';
 import { useAuth, useIsOwner } from '../lib/auth';
 import { formatDate, formatDateTime } from '../lib/format';
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
+import { KIND_COLOR, PunchMap, type MapPoint } from '../components/punch-map';
 
 type Kind = 'entrada' | 'saida_almoco' | 'volta_almoco' | 'saida';
 const KIND: Record<Kind, string> = { entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída' };
@@ -34,8 +35,11 @@ function getLocation(): Promise<Geo> {
     );
   });
 }
-function PinLink({ p }: { p: { latitude?: number | null; longitude?: number | null; accuracy?: number | null; outside?: boolean; distance?: number | null } }) {
+function PinLink({ p, onFocus }: { p: { latitude?: number | null; longitude?: number | null; accuracy?: number | null; outside?: boolean; distance?: number | null }; onFocus?: () => void }) {
   if (p.latitude == null || p.longitude == null) return null;
+  if (onFocus) {
+    return <button type="button" onClick={onFocus} title="Ver no mapa" className={clsx('inline-flex', p.outside ? 'text-red-600' : 'text-slate-500 hover:text-slate-800')}><MapPin className="h-3.5 w-3.5" /></button>;
+  }
   return <a href={mapUrl(p.latitude, p.longitude)} target="_blank" rel="noreferrer" title={`Ver no mapa${p.accuracy ? ` (precisão ~${Math.round(p.accuracy)} m)` : ''}${p.distance != null ? ` · ${Math.round(p.distance)} m da loja` : ''}`}
     className={clsx('inline-flex', p.outside ? 'text-red-600' : 'text-slate-400 hover:text-brand-700')}><MapPin className="h-3.5 w-3.5" /></a>;
 }
@@ -47,7 +51,23 @@ interface Sheet {
   adjustments: { number: string; kind: Kind; requested_at: string; reason: string; status: string; decision_reason: string | null; decided_by_name: string | null }[];
   totals: { days: number; workedMinutes: number; alerts: number };
 }
-interface BoardUser { id: string; name: string; role_name: string; status: 'sem_marcacao' | 'trabalhando' | 'almoco' | 'encerrado'; punches: { kind: Kind; at: string; origin: string; latitude: number | null; longitude: number | null }[] }
+interface BoardUser { id: string; name: string; role_name: string; status: 'sem_marcacao' | 'trabalhando' | 'almoco' | 'encerrado'; punches: { id: string; kind: Kind; at: string; origin: string; latitude: number | null; longitude: number | null; accuracy: number | null; distance: number | null; outside: boolean }[] }
+const distTxt = (d?: number | null) => (d != null ? ` · ${d < 1000 ? `${Math.round(d)} m` : `${(d / 1000).toFixed(1)} km`} da loja` : '');
+/** Local da loja para o mapa (somente o Proprietário consulta). */
+function useStore() {
+  const q = useQuery({ queryKey: ['timeclock', 'params'], queryFn: () => api.get<Params>('/timeclock/params') });
+  const p = q.data;
+  return p && p.storeLatitude != null && p.storeLongitude != null && p.radiusMeters != null ? { latitude: p.storeLatitude, longitude: p.storeLongitude, radiusMeters: p.radiusMeters } : null;
+}
+function MapLegend() {
+  return (
+    <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+      {(Object.keys(KIND) as Kind[]).map((k) => <span key={k} className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: KIND_COLOR[k] }} />{KIND[k]}</span>)}
+      <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-red-600" />Fora do raio</span>
+      <span>Círculo tracejado: raio da loja · mancha clara: precisão do GPS</span>
+    </div>
+  );
+}
 interface Adjustment { id: string; number: string; kind: Kind; requested_at: string; reason: string; status: string; created_at: string; decision_reason: string | null; user_id: string; user_name: string; requested_by_name: string; decided_by_name: string | null }
 
 const hm = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
@@ -265,6 +285,10 @@ function AdjustmentForm({ userId, onDone }: { userId?: string; onDone: () => voi
 
 function Timesheet({ userId }: { userId: string | null }) {
   const [month, setMonth] = useState(thisMonth);
+  const [focus, setFocus] = useState<string | null>(null);
+  const showMap = !!userId; // visão do Proprietário sobre um empregado
+  const mapRef = useRef<HTMLDivElement>(null);
+  const focusOn = (id: string) => { setFocus(null); setTimeout(() => setFocus(id), 0); mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   const q = useQuery({ queryKey: ['timeclock', 'sheet', userId, month], queryFn: () => api.get<Sheet>(`/timeclock/timesheet${qs({ month, userId: userId ?? undefined })}`) });
   const s = q.data;
   return (
@@ -283,7 +307,7 @@ function Timesheet({ userId }: { userId: string | null }) {
               <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-2 py-2 text-left">Dia</th><th className="px-2 py-2 text-left">Entrada</th><th className="px-2 py-2 text-left">Saída almoço</th><th className="px-2 py-2 text-left">Volta almoço</th><th className="px-2 py-2 text-left">Saída</th><th className="px-2 py-2 text-right">Intervalo</th><th className="px-2 py-2 text-right">Trabalhado</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {s!.days.map((d) => {
-                  const at = (k: Kind) => d.punches.filter((p) => p.kind === k).map((p) => <span key={p.id} className={clsx('mr-1 tabular-nums', p.origin === 'ajuste' && 'text-violet-700')} title={p.origin === 'ajuste' ? 'Incluída por ajuste aprovado' : `NSR ${p.nsr}`}>{hm(p.punched_at)}{p.origin === 'ajuste' ? '*' : ''}<PinLink p={p} /></span>);
+                  const at = (k: Kind) => d.punches.filter((p) => p.kind === k).map((p) => <span key={p.id} className={clsx('mr-1 tabular-nums', p.origin === 'ajuste' && 'text-violet-700')} title={p.origin === 'ajuste' ? 'Incluída por ajuste aprovado' : `NSR ${p.nsr}`}>{hm(p.punched_at)}{p.origin === 'ajuste' ? '*' : ''}<PinLink p={p} onFocus={showMap ? () => focusOn(p.id) : undefined} /></span>);
                   return (
                     <tr key={d.date} className="align-top">
                       <td className="whitespace-nowrap px-2 py-2">{formatDate(d.date)}
@@ -299,6 +323,7 @@ function Timesheet({ userId }: { userId: string | null }) {
               <tfoot><tr className="border-t border-slate-200 font-semibold"><td colSpan={6} className="px-2 py-2">Total ({s!.totals.days} dia(s)){s!.totals.alerts ? <span className="ml-2 text-xs font-normal text-amber-700">{s!.totals.alerts} alerta(s)</span> : null}</td><td className="px-2 py-2 text-right tabular-nums">{dur(s!.totals.workedMinutes)}</td></tr></tfoot>
             </table>
           </div>
+          {showMap && <div ref={mapRef} className="mt-4 space-y-2"><h4 className="text-sm font-semibold">Onde o ponto foi batido no mês</h4><SheetMap sheet={s!} focus={focus} /><MapLegend /></div>}
           <p className="mt-2 text-xs text-slate-500"><MapPin className="inline h-3 w-3" /> abre a localização no mapa (vermelho = fora do raio da loja). * incluída por ajuste aprovado. Alertas seguem a CLT: intervalo mínimo de 1h e máximo de 2h (art. 71), até 2h extras/dia (art. 59) e 11h de descanso entre jornadas (art. 66).</p>
         </>
       )}
@@ -306,19 +331,48 @@ function Timesheet({ userId }: { userId: string | null }) {
   );
 }
 
+function SheetMap({ sheet, focus }: { sheet: Sheet; focus: string | null }) {
+  const store = useStore();
+  const points = useMemo<MapPoint[]>(() => sheet.days.flatMap((d) => d.punches.filter((p) => p.latitude != null && p.longitude != null).map((p) => ({
+    id: p.id, latitude: p.latitude!, longitude: p.longitude!, accuracy: p.accuracy, color: KIND_COLOR[p.kind]!, outside: p.outside,
+    title: `${sheet.user.name} — ${KIND[p.kind]}`, subtitle: `${formatDate(d.date)} às ${hm(p.punched_at)}${distTxt(p.distance)}`,
+  }))), [sheet]);
+  if (!points.length) return <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Nenhuma marcação com localização neste mês.</div>;
+  return <PunchMap points={points} store={store} focusId={focus} />;
+}
+
 function TeamToday() {
   const q = useQuery({ queryKey: ['timeclock', 'today'], queryFn: () => api.get<BoardUser[]>('/timeclock/today'), refetchInterval: 60000 });
+  const store = useStore();
+  const [focus, setFocus] = useState<string | null>(null);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const points = useMemo<MapPoint[]>(() => (q.data ?? []).flatMap((u) => u.punches.filter((p) => p.latitude != null && p.longitude != null).map((p) => ({
+    id: p.id, latitude: p.latitude!, longitude: p.longitude!, accuracy: p.accuracy, color: KIND_COLOR[p.kind]!, outside: p.outside,
+    title: `${u.name} — ${KIND[p.kind]}`, subtitle: `hoje às ${hm(p.at)}${distTxt(p.distance)}`,
+  }))), [q.data]);
   if (q.isLoading) return <Spinner />;
   if (q.error) return <Alert>{errorMessage(q.error)}</Alert>;
+  const focusOn = (id: string) => { setFocus(null); setTimeout(() => setFocus(id), 0); mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {q.data!.map((u) => (
-        <div key={u.id} className="card p-4 text-sm">
-          <div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{u.name}</div><div className="text-xs text-slate-500">{u.role_name}</div></div>
-            <span className={clsx('rounded px-2 py-0.5 text-xs', STATUS[u.status].cls)}>{STATUS[u.status].label}</span></div>
-          <div className="mt-2 space-y-0.5">{u.punches.map((p, i) => <div key={i} className="flex justify-between text-slate-600"><span>{KIND[p.kind]}</span><span className="flex items-center gap-1 tabular-nums"><PinLink p={p} />{hm(p.at)}{p.origin === 'ajuste' ? '*' : ''}</span></div>)}</div>
-        </div>
-      ))}
+    <div className="space-y-4">
+      <section ref={mapRef} className="card space-y-2 p-4">
+        <h3 className="font-semibold">Onde o ponto foi batido hoje</h3>
+        {points.length ? <PunchMap points={points} store={store} focusId={focus} height={380} /> : <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Nenhuma marcação com localização hoje.</div>}
+        <MapLegend />
+        {!store && <p className="text-xs text-slate-500">Dica: configure o local da loja (aba “Local da loja”) para ver o raio no mapa e destacar marcações fora dele.</p>}
+      </section>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {q.data!.map((u) => (
+          <div key={u.id} className="card p-4 text-sm">
+            <div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{u.name}</div><div className="text-xs text-slate-500">{u.role_name}</div></div>
+              <span className={clsx('rounded px-2 py-0.5 text-xs', STATUS[u.status].cls)}>{STATUS[u.status].label}</span></div>
+            <div className="mt-2 space-y-0.5">{u.punches.map((p) => (
+              <div key={p.id} className="flex justify-between text-slate-600"><span>{KIND[p.kind]}</span>
+                <span className="flex items-center gap-1 tabular-nums"><PinLink p={p} onFocus={() => focusOn(p.id)} />{hm(p.at)}{p.origin === 'ajuste' ? '*' : ''}</span></div>
+            ))}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

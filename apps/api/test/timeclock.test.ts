@@ -146,7 +146,8 @@ describe('ponto', () => {
     const f = b.find((u: { id: string }) => u.id === func.id);
     expect(f.status).toBe('trabalhando');
     expect(f.punches).toHaveLength(3);
-    expect(f.punches[0].latitude).toBe(-23.55052);
+    expect(f.punches[0]).toMatchObject({ latitude: -23.55052, longitude: -46.633308, accuracy: 15, outside: false });
+    expect(f.punches[0].id).toMatch(/^[0-9a-f-]{36}$/);
     expect((await call(func.cookie, 'GET', '/timeclock/today')).statusCode).toBe(403);
     expect((await call(gerente.cookie, 'GET', '/timeclock/today')).statusCode).toBe(403);
   });

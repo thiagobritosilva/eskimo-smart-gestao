@@ -49,7 +49,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        imgSrc: ["'self'", 'data:'],
+        // mapa do ponto (Proprietário): imagens do OpenStreetMap
+        imgSrc: ["'self'", 'data:', 'https://tile.openstreetmap.org'],
         styleSrc: ["'self'", "'unsafe-inline'"],
         scriptSrc: ["'self'"],
         connectSrc: ["'self'"],

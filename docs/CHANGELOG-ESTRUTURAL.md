@@ -402,3 +402,11 @@ com impacto e estratégia de preservação de dados.
 - **Demais usuários (inclusive Gerente):** apenas "Meu ponto" — bater o próprio ponto, ver o próprio espelho e
   comprovantes e pedir ajuste do próprio ponto.
 - **Impacto:** só permissões; nenhuma marcação ou pedido de ajuste alterado.
+
+## Mapa do ponto (sem migration) (2026-11-21)
+- **O quê:** mapa interativo (Leaflet + OpenStreetMap) nas telas do Proprietário: "Equipe hoje" (todas as marcações
+  do dia) e "Espelho de ponto" de um empregado (marcações do mês). Cores por tipo de marcação, círculo de precisão do
+  GPS, raio da loja tracejado e anel vermelho para marcação fora do raio; o alfinete de cada marcação centraliza o mapa.
+- **Segurança:** a política de conteúdo (CSP) libera apenas imagens de `https://tile.openstreetmap.org`.
+  Os dados das marcações continuam saindo só do servidor do sistema e só para o Proprietário.
+- **Dependência nova:** `leaflet` 1.9.4 (web).

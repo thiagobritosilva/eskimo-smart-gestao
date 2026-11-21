@@ -252,9 +252,10 @@ export async function timesheet(actor: Actor, userId: string, month: string) {
 export async function todayBoard(actor: Actor) {
   needOwner(actor);
   const db = getPool();
-  const { rows } = await db.query<{ id: string; name: string; role_name: string; punches: { kind: PunchKind; at: string; origin: string }[] }>(
+  const params = await getTimeclockParams(db);
+  const { rows } = await db.query<{ id: string; name: string; role_name: string; punches: { kind: PunchKind; at: string; origin: string; latitude: number | null; longitude: number | null; distance?: number | null; outside?: boolean }[] }>(
     `SELECT u.id, u.name, r.name AS role_name,
-            coalesce((SELECT json_agg(json_build_object('kind', p.kind, 'at', p.punched_at, 'origin', p.origin, 'latitude', p.latitude::float8, 'longitude', p.longitude::float8) ORDER BY p.punched_at, p.nsr)
+            coalesce((SELECT json_agg(json_build_object('id', p.id, 'kind', p.kind, 'at', p.punched_at, 'origin', p.origin, 'latitude', p.latitude::float8, 'longitude', p.longitude::float8, 'accuracy', p.accuracy_m::float8) ORDER BY p.punched_at, p.nsr)
                       FROM time_punches p WHERE p.user_id = u.id AND p.work_date = ${todaySPSql}::date), '[]') AS punches
      FROM users u JOIN roles r ON r.id = u.role_id
      WHERE u.is_active AND r.code <> 'IA' AND EXISTS (
@@ -262,6 +263,10 @@ export async function todayBoard(actor: Actor) {
      ORDER BY u.name`,
   );
   return rows.map((u) => {
+    for (const p of u.punches) {
+      p.distance = p.latitude != null ? distanceToStore(params, { latitude: p.latitude, longitude: p.longitude! }) : null;
+      p.outside = p.distance != null && p.distance > params.radiusMeters!;
+    }
     const last = u.punches[u.punches.length - 1]?.kind;
     const status = !last ? 'sem_marcacao' : last === 'saida' ? 'encerrado' : last === 'saida_almoco' ? 'almoco' : 'trabalhando';
     return { ...u, status };
