@@ -384,3 +384,13 @@ com impacto e estratégia de preservação de dados.
   < 1h ou > 2h; art. 59: > 10h no dia; art. 66: < 11h entre jornadas; marcação incompleta); impressão com assinaturas.
   Gestor: quadro "Equipe hoje", ajustes e espelho de todos; conferência da corrente de hashes (`/timeclock/verify`).
 - **Impacto:** somente tabelas e permissões novas; nenhum dado existente alterado.
+
+## 0028_ponto_localizacao — localização obrigatória no ponto (2026-11-21)
+- **O quê:** `time_punches` ganha `latitude`, `longitude`, `accuracy_m`; restrição `time_punches_app_location`
+  (NOT VALID: vale para as novas marcações) exige localização em toda marcação feita pelo app. A localização entra
+  no hash encadeado (marcações antigas, sem localização, continuam conferindo). Parâmetro opcional
+  `app_settings.timeclock.params` (latitude/longitude da loja + raio em metros), configurado em Ponto › Local da loja.
+- **Regra:** o navegador lê o GPS só no instante da marcação (sem rastreamento contínuo). Sem localização, o servidor
+  recusa e orienta a permitir a localização; impossibilidade técnica → pedido de ajuste ao gestor. Fora do raio da
+  loja: a marcação é registrada e sinalizada (alerta no espelho, alfinete vermelho), nunca bloqueada.
+- **Impacto:** colunas novas e nulas; nenhum dado existente alterado.

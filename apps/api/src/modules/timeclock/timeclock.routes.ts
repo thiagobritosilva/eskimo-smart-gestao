@@ -14,8 +14,11 @@ export async function timeclockRoutes(app: FastifyInstance) {
   app.get('/timeclock/me', { preHandler: punch }, async (req) => svc.myToday(actorOf(req)));
   // o navegador não envia horário: a hora é a do servidor
   app.post('/timeclock/punch', { preHandler: punch }, async (req, reply) => {
-    const b = parse(z.object({ kind: kind.nullable().optional() }), req.body ?? {});
-    const r = await svc.punch(actorOf(req), b.kind ?? null, { ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300) || null });
+    const b = parse(z.object({
+      kind: kind.nullable().optional(),
+      location: z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), accuracy: z.number().min(0).max(1000000).nullable().optional() }).nullable().optional(),
+    }), req.body ?? {});
+    const r = await svc.punch(actorOf(req), b.kind ?? null, { ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300) || null, geo: b.location ?? null });
     reply.code(r.duplicate ? 200 : 201);
     return r;
   });
@@ -43,5 +46,12 @@ export async function timeclockRoutes(app: FastifyInstance) {
     return svc.decideAdjustment(actorOf(req), id, b.approve, b.reason ?? null);
   });
   app.get('/timeclock/today', { preHandler: manage }, async (req) => svc.todayBoard(actorOf(req)));
+  app.get('/timeclock/params', { preHandler: punch }, async () => svc.getTimeclockParams());
+  app.put('/timeclock/params', { preHandler: manage }, async (req) => {
+    const b = parse(z.object({
+      storeLatitude: z.number().min(-90).max(90).nullable(), storeLongitude: z.number().min(-180).max(180).nullable(), radiusMeters: z.number().int().min(20).max(50000).nullable(),
+    }).refine((v) => (v.storeLatitude == null) === (v.storeLongitude == null) && (v.storeLatitude == null) === (v.radiusMeters == null), 'Informe latitude, longitude e raio juntos (ou deixe os três em branco).'), req.body);
+    return svc.setTimeclockParams(actorOf(req), b);
+  });
   app.get('/timeclock/verify', { preHandler: manage }, async (req) => svc.verifyChain(actorOf(req)));
 }

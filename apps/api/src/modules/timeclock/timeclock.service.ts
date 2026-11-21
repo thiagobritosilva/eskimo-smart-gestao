@@ -23,25 +23,27 @@ const need = (a: Actor, p: string) => { if (!a.permissions.includes(p)) throw Er
 const canManage = (a: Actor) => a.permissions.includes('timeclock.manage');
 
 /** Grava a marcação com NSR e hash encadeado (bloqueio para manter a corrente em ordem). */
-async function insertPunch(db: Queryable, p: { userId: string; kind: PunchKind; at: string | null; origin: 'app' | 'ajuste'; adjustmentId?: string | null; ip?: string | null; userAgent?: string | null }) {
+export interface GeoPoint { latitude: number; longitude: number; accuracy?: number | null }
+
+async function insertPunch(db: Queryable, p: { userId: string; kind: PunchKind; at: string | null; origin: 'app' | 'ajuste'; adjustmentId?: string | null; ip?: string | null; userAgent?: string | null; geo?: GeoPoint | null }) {
   await db.query(`SELECT pg_advisory_xact_lock(hashtext('time_punches_chain'))`);
   const { rows } = await db.query<{ id: string; nsr: string; kind: PunchKind; punched_at: string; work_date: string; origin: string; hash: string }>(
     `WITH prev AS (SELECT hash FROM time_punches ORDER BY nsr DESC LIMIT 1),
           t AS (SELECT coalesce($3::timestamptz, now()) AS at)
-     INSERT INTO time_punches (user_id, kind, punched_at, work_date, origin, adjustment_id, ip, user_agent, prev_hash, hash)
-     SELECT $1::uuid, $2::text, t.at, (t.at AT TIME ZONE ${TZ})::date, $4::text, $5::uuid, $6::text, $7::text, (SELECT hash FROM prev),
+     INSERT INTO time_punches (user_id, kind, punched_at, work_date, origin, adjustment_id, ip, user_agent, latitude, longitude, accuracy_m, prev_hash, hash)
+     SELECT $1::uuid, $2::text, t.at, (t.at AT TIME ZONE ${TZ})::date, $4::text, $5::uuid, $6::text, $7::text, g.lat, g.lng, g.acc, (SELECT hash FROM prev),
             encode(sha256(convert_to(concat_ws('|', coalesce((SELECT hash FROM prev), 'GENESIS'), $1::uuid::text, $2::text,
-                   extract(epoch FROM t.at)::text, (t.at AT TIME ZONE ${TZ})::date::text, $4::text), 'UTF8')), 'hex')
-     FROM t
+                   extract(epoch FROM t.at)::text, (t.at AT TIME ZONE ${TZ})::date::text, $4::text, g.lat::text, g.lng::text), 'UTF8')), 'hex')
+     FROM t, (SELECT round($8::numeric, 6)::numeric(9,6) AS lat, round($9::numeric, 6)::numeric(9,6) AS lng, round($10::numeric, 1)::numeric(8,1) AS acc) g
      RETURNING id, nsr::text, kind, punched_at, work_date::text, origin, hash`,
-    [p.userId, p.kind, p.at, p.origin, p.adjustmentId ?? null, p.ip ?? null, p.userAgent ?? null],
+    [p.userId, p.kind, p.at, p.origin, p.adjustmentId ?? null, p.ip ?? null, p.userAgent ?? null, p.geo?.latitude ?? null, p.geo?.longitude ?? null, p.geo?.accuracy ?? null],
   );
   return rows[0]!;
 }
 
 async function dayPunches(db: Queryable, userId: string, date: string) {
-  return (await db.query<{ id: string; nsr: string; kind: PunchKind; punched_at: string; origin: string }>(
-    `SELECT id, nsr::text, kind, punched_at, origin FROM time_punches WHERE user_id = $1 AND work_date = $2::date ORDER BY punched_at, nsr`, [userId, date],
+  return (await db.query<{ id: string; nsr: string; kind: PunchKind; punched_at: string; origin: string; latitude: number | null; longitude: number | null; accuracy: number | null }>(
+    `SELECT id, nsr::text, kind, punched_at, origin, latitude::float8 AS latitude, longitude::float8 AS longitude, accuracy_m::float8 AS accuracy FROM time_punches WHERE user_id = $1 AND work_date = $2::date ORDER BY punched_at, nsr`, [userId, date],
   )).rows;
 }
 const todaySPSql = `(now() AT TIME ZONE ${TZ})::date::text`;
@@ -66,8 +68,9 @@ export async function myToday(actor: Actor) {
   return { date: t!.today, serverTime: t!.now, punches, next: nextKind(punches.map((p) => p.kind)), adjustments: pending };
 }
 
-export async function punch(actor: Actor, kind: PunchKind | null, meta: { ip?: string | null; userAgent?: string | null }) {
+export async function punch(actor: Actor, kind: PunchKind | null, meta: { ip?: string | null; userAgent?: string | null; geo?: GeoPoint | null }) {
   need(actor, 'timeclock.punch');
+  if (!meta.geo) throw Errors.businessRule('Localização obrigatória: permita o acesso à localização do aparelho para bater o ponto. Se não for possível, peça ajuste ao gestor.');
   return withTransaction(async (db) => {
     await db.query(`SELECT pg_advisory_xact_lock(hashtext('time_punch_user:' || $1))`, [actor.userId]);
     const today = (await db.query<{ d: string }>(`SELECT ${todaySPSql} AS d`)).rows[0]!.d;
@@ -79,7 +82,7 @@ export async function punch(actor: Actor, kind: PunchKind | null, meta: { ip?: s
       [actor.userId, k, DOUBLE_TAP_SECONDS],
     )).rows[0];
     if (dup) return { ...(await receiptInDb(db, dup.id)), duplicate: true };
-    const p = await insertPunch(db, { userId: actor.userId, kind: k, at: null, origin: 'app', ip: meta.ip, userAgent: meta.userAgent });
+    const p = await insertPunch(db, { userId: actor.userId, kind: k, at: null, origin: 'app', ip: meta.ip, userAgent: meta.userAgent, geo: meta.geo });
     const warnings: string[] = [];
     if (k !== nextKind(punches.map((x) => x.kind))) warnings.push(`Marcação fora da sequência esperada (esperado: ${KIND_LABEL[nextKind(punches.map((x) => x.kind))]}). Ficou registrada; se foi engano, peça ajuste.`);
     if (k === 'volta_almoco') {
@@ -89,19 +92,23 @@ export async function punch(actor: Actor, kind: PunchKind | null, meta: { ip?: s
         if (mins < LUNCH_MIN) warnings.push(`Intervalo de almoço de ${mins} min — inferior a 1 hora (art. 71 da CLT).`);
       }
     }
+    const params = await getTimeclockParams(db);
+    const dist = distanceToStore(params, meta.geo!);
+    if (dist != null && dist > params.radiusMeters!) warnings.push(`Marcação a ${Math.round(dist)} m da loja (fora do raio de ${params.radiusMeters} m). Ficou registrada e aparece sinalizada no espelho.`);
     return { ...(await receiptInDb(db, p.id)), duplicate: false, warnings };
   });
 }
 
 async function receiptInDb(db: Queryable, punchId: string) {
   const r = (await db.query(
-    `SELECT p.id, p.nsr::text, p.kind, p.punched_at, p.work_date::text, p.origin, p.hash, u.name AS user_name,
+    `SELECT p.id, p.nsr::text, p.kind, p.punched_at, p.work_date::text, p.origin, p.hash, u.name AS user_name, p.latitude::float8 AS latitude, p.longitude::float8 AS longitude, p.accuracy_m::float8 AS accuracy,
             (SELECT value FROM app_settings WHERE key = 'company.profile') AS company
      FROM time_punches p JOIN users u ON u.id = p.user_id WHERE p.id = $1`, [punchId],
   )).rows[0];
   if (!r) throw Errors.notFound('Marcação não encontrada.');
   const c = (r.company ?? {}) as { legalName?: string; tradeName?: string; cnpj?: string };
   return { id: r.id, nsr: r.nsr, kind: r.kind as PunchKind, label: KIND_LABEL[r.kind as PunchKind], punchedAt: r.punched_at, workDate: r.work_date, origin: r.origin, hash: r.hash, userName: r.user_name,
+    location: r.latitude != null ? { latitude: r.latitude, longitude: r.longitude, accuracy: r.accuracy } : null,
     company: { name: c.legalName ?? c.tradeName ?? null, cnpj: c.cnpj ?? null } };
 }
 
@@ -165,7 +172,8 @@ export async function listAdjustments(actor: Actor, status: 'pendente' | 'todos'
 }
 
 // ------------------------------------------------------------------ espelho
-interface DayRow { date: string; punches: { id: string; nsr: string; kind: PunchKind; punched_at: string; origin: string }[]; workedMinutes: number; lunchMinutes: number | null; alerts: string[] }
+type PunchRow = { outside?: boolean; id: string; nsr: string; kind: PunchKind; punched_at: string; origin: string; latitude?: number | null; longitude?: number | null; accuracy?: number | null; distance?: number | null };
+interface DayRow { date: string; punches: PunchRow[]; workedMinutes: number; lunchMinutes: number | null; alerts: string[] }
 
 /** Calcula horas trabalhadas, intervalo e alertas legais de um dia. */
 export function computeDay(date: string, punches: DayRow['punches'], prevDayLastOut: string | null): DayRow {
@@ -195,6 +203,7 @@ export function computeDay(date: string, punches: DayRow['punches'], prevDayLast
     const rest = (new Date(firstIn.punched_at).getTime() - new Date(prevDayLastOut).getTime()) / 3600000;
     if (rest < 11) alerts.push(`Descanso entre jornadas de ${rest.toFixed(1)}h — inferior a 11h (art. 66 CLT).`);
   }
+  for (const p of punches) if (p.distance != null && p.distance > 0 && p.outside) alerts.push(`${KIND_LABEL[p.kind]} marcada a ${Math.round(p.distance)} m da loja (fora do raio).`);
   if (punches.some((p) => p.origin === 'ajuste')) alerts.push('Dia com marcação incluída por ajuste aprovado.');
   return { date, punches, workedMinutes: Math.round(worked), lunchMinutes: lunch, alerts };
 }
@@ -206,14 +215,16 @@ export async function timesheet(actor: Actor, userId: string, month: string) {
   const user = (await db.query('SELECT u.id, u.name, r.name AS role_name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1', [userId])).rows[0];
   if (!user) throw Errors.notFound('Usuário não encontrado.');
   const from = `${month}-01`;
-  const punches = (await db.query<{ id: string; nsr: string; kind: PunchKind; punched_at: string; origin: string; work_date: string }>(
-    `SELECT id, nsr::text, kind, punched_at, origin, work_date::text FROM time_punches
+  const params = await getTimeclockParams(db);
+  const punches = (await db.query<PunchRow & { work_date: string }>(
+    `SELECT id, nsr::text, kind, punched_at, origin, work_date::text, latitude::float8 AS latitude, longitude::float8 AS longitude, accuracy_m::float8 AS accuracy FROM time_punches
      WHERE user_id = $1 AND work_date BETWEEN ($2::date - 1) AND (($2::date + interval '1 month')::date - 1) ORDER BY punched_at, nsr`, [userId, from],
   )).rows;
   const byDay = new Map<string, DayRow['punches']>();
   for (const p of punches) {
     const list = byDay.get(p.work_date) ?? [];
-    list.push({ id: p.id, nsr: p.nsr, kind: p.kind, punched_at: p.punched_at, origin: p.origin });
+    const distance = p.latitude != null ? distanceToStore(params, { latitude: p.latitude, longitude: p.longitude! }) : null;
+    list.push({ id: p.id, nsr: p.nsr, kind: p.kind, punched_at: p.punched_at, origin: p.origin, latitude: p.latitude, longitude: p.longitude, accuracy: p.accuracy, distance, outside: distance != null && distance > params.radiusMeters! });
     byDay.set(p.work_date, list);
   }
   const days: DayRow[] = [];
@@ -242,7 +253,7 @@ export async function todayBoard(actor: Actor) {
   const db = getPool();
   const { rows } = await db.query<{ id: string; name: string; role_name: string; punches: { kind: PunchKind; at: string; origin: string }[] }>(
     `SELECT u.id, u.name, r.name AS role_name,
-            coalesce((SELECT json_agg(json_build_object('kind', p.kind, 'at', p.punched_at, 'origin', p.origin) ORDER BY p.punched_at, p.nsr)
+            coalesce((SELECT json_agg(json_build_object('kind', p.kind, 'at', p.punched_at, 'origin', p.origin, 'latitude', p.latitude::float8, 'longitude', p.longitude::float8) ORDER BY p.punched_at, p.nsr)
                       FROM time_punches p WHERE p.user_id = u.id AND p.work_date = ${todaySPSql}::date), '[]') AS punches
      FROM users u JOIN roles r ON r.id = u.role_id
      WHERE u.is_active AND r.code <> 'IA' AND EXISTS (
@@ -262,10 +273,37 @@ export async function verifyChain(actor: Actor) {
   const { rows } = await getPool().query<{ nsr: string; ok: boolean; link_ok: boolean }>(
     `SELECT nsr::text,
             hash = encode(sha256(convert_to(concat_ws('|', coalesce(prev_hash, 'GENESIS'), user_id::text, kind,
-                   extract(epoch FROM punched_at)::text, work_date::text, origin), 'UTF8')), 'hex') AS ok,
+                   extract(epoch FROM punched_at)::text, work_date::text, origin, latitude::text, longitude::text), 'UTF8')), 'hex') AS ok,
             prev_hash IS NOT DISTINCT FROM lag(hash) OVER (ORDER BY nsr) AS link_ok
      FROM time_punches ORDER BY nsr`,
   );
   const broken = rows.filter((r) => !r.ok || !r.link_ok).map((r) => r.nsr);
   return { total: rows.length, ok: broken.length === 0, broken };
+}
+
+// ------------------------------------------------------------------ local da loja (opcional)
+export interface TimeclockParams { storeLatitude: number | null; storeLongitude: number | null; radiusMeters: number | null }
+export async function getTimeclockParams(db: Queryable = getPool()): Promise<TimeclockParams> {
+  const v = (await db.query<{ value: Partial<TimeclockParams> }>(`SELECT value FROM app_settings WHERE key = 'timeclock.params'`)).rows[0]?.value ?? {};
+  return { storeLatitude: v.storeLatitude ?? null, storeLongitude: v.storeLongitude ?? null, radiusMeters: v.radiusMeters ?? null };
+}
+export async function setTimeclockParams(actor: Actor, input: TimeclockParams) {
+  need(actor, 'timeclock.manage');
+  return withTransaction(async (db) => {
+    const before = await getTimeclockParams(db);
+    await db.query(`INSERT INTO app_settings (key, value, updated_by) VALUES ('timeclock.params', $1, $2)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`, [JSON.stringify(input), actor.userId]);
+    await writeAudit(db, actor.audit, { action: 'settings.updated', entity: 'app_settings', entityId: 'timeclock.params', before, after: input });
+    return input;
+  });
+}
+/** Distância (m) até a loja, quando o local da loja estiver configurado. */
+export function distanceToStore(p: TimeclockParams, g: GeoPoint): number | null {
+  if (p.storeLatitude == null || p.storeLongitude == null || p.radiusMeters == null) return null;
+  const R = 6371000;
+  const rad = (x: number) => (x * Math.PI) / 180;
+  const dLat = rad(g.latitude - p.storeLatitude);
+  const dLng = rad(g.longitude - p.storeLongitude);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(p.storeLatitude)) * Math.cos(rad(g.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
 }

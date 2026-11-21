@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Clock, Coffee, LogIn, LogOut, Printer, UtensilsCrossed } from 'lucide-react';
+import { AlertTriangle, Clock, Coffee, LogIn, LogOut, MapPin, Printer, UtensilsCrossed } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage, qs } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -11,8 +11,35 @@ import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
 type Kind = 'entrada' | 'saida_almoco' | 'volta_almoco' | 'saida';
 const KIND: Record<Kind, string> = { entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída' };
 const ICON = { entrada: LogIn, saida_almoco: UtensilsCrossed, volta_almoco: Coffee, saida: LogOut } as const;
-interface Punch { id: string; nsr: string; kind: Kind; punched_at: string; origin: string }
-interface Receipt { id: string; nsr: string; kind: Kind; label: string; punchedAt: string; workDate: string; origin: string; hash: string; userName: string; company: { name: string | null; cnpj: string | null }; duplicate?: boolean; warnings?: string[] }
+interface Geo { latitude: number; longitude: number; accuracy?: number | null }
+interface Punch { id: string; nsr: string; kind: Kind; punched_at: string; origin: string; latitude?: number | null; longitude?: number | null; accuracy?: number | null; distance?: number | null; outside?: boolean }
+interface Params { storeLatitude: number | null; storeLongitude: number | null; radiusMeters: number | null }
+const mapUrl = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
+
+/** Erro de localização (mensagem própria, exibida como está). */
+class GeoError extends Error {}
+const msg = (e: unknown) => (e instanceof GeoError ? e.message : errorMessage(e));
+
+/** Lê a posição do aparelho só no momento da marcação (sem rastreamento contínuo). */
+function getLocation(): Promise<Geo> {
+  return new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) { reject(new GeoError('Este aparelho/navegador não informa a localização. Use outro aparelho ou peça ajuste ao gestor.')); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ latitude: Number(p.coords.latitude.toFixed(6)), longitude: Number(p.coords.longitude.toFixed(6)), accuracy: Math.round(p.coords.accuracy * 10) / 10 }),
+      (e) => reject(new GeoError(e.code === e.PERMISSION_DENIED
+        ? 'A localização está bloqueada. Permita a localização para este site nas configurações do navegador (cadeado ao lado do endereço) e tente de novo.'
+        : e.code === e.TIMEOUT ? 'Não foi possível obter a localização a tempo. Verifique se o GPS está ligado e tente de novo.'
+          : 'Não foi possível obter a localização. Ligue o GPS/localização do aparelho e tente de novo.')),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  });
+}
+function PinLink({ p }: { p: { latitude?: number | null; longitude?: number | null; accuracy?: number | null; outside?: boolean; distance?: number | null } }) {
+  if (p.latitude == null || p.longitude == null) return null;
+  return <a href={mapUrl(p.latitude, p.longitude)} target="_blank" rel="noreferrer" title={`Ver no mapa${p.accuracy ? ` (precisão ~${Math.round(p.accuracy)} m)` : ''}${p.distance != null ? ` · ${Math.round(p.distance)} m da loja` : ''}`}
+    className={clsx('inline-flex', p.outside ? 'text-red-600' : 'text-slate-400 hover:text-brand-700')}><MapPin className="h-3.5 w-3.5" /></a>;
+}
+interface Receipt { id: string; nsr: string; kind: Kind; label: string; punchedAt: string; workDate: string; origin: string; hash: string; userName: string; location: Geo | null; company: { name: string | null; cnpj: string | null }; duplicate?: boolean; warnings?: string[] }
 interface Me { date: string; serverTime: string; punches: Punch[]; next: Kind; adjustments: { id: string; number: string; kind: Kind; requested_at: string; reason: string; status: string }[] }
 interface Day { date: string; punches: Punch[]; workedMinutes: number; lunchMinutes: number | null; alerts: string[] }
 interface Sheet {
@@ -20,7 +47,7 @@ interface Sheet {
   adjustments: { number: string; kind: Kind; requested_at: string; reason: string; status: string; decision_reason: string | null; decided_by_name: string | null }[];
   totals: { days: number; workedMinutes: number; alerts: number };
 }
-interface BoardUser { id: string; name: string; role_name: string; status: 'sem_marcacao' | 'trabalhando' | 'almoco' | 'encerrado'; punches: { kind: Kind; at: string; origin: string }[] }
+interface BoardUser { id: string; name: string; role_name: string; status: 'sem_marcacao' | 'trabalhando' | 'almoco' | 'encerrado'; punches: { kind: Kind; at: string; origin: string; latitude: number | null; longitude: number | null }[] }
 interface Adjustment { id: string; number: string; kind: Kind; requested_at: string; reason: string; status: string; created_at: string; decision_reason: string | null; user_id: string; user_name: string; requested_by_name: string; decided_by_name: string | null }
 
 const hm = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
@@ -55,6 +82,7 @@ export function printPunchReceipt(r: Receipt) {
     <tr><td>Data</td><td class="r">${formatDate(r.workDate)}</td></tr>
     <tr><td>Hora (servidor)</td><td class="r"><b>${hms(r.punchedAt)}</b></td></tr>
     <tr><td>NSR</td><td class="r">${esc(r.nsr)}</td></tr>
+    ${r.location ? `<tr><td>Localização</td><td class="r">${r.location.latitude.toFixed(6)}, ${r.location.longitude.toFixed(6)}${r.location.accuracy ? ` (±${Math.round(r.location.accuracy)} m)` : ''}</td></tr>` : ''}
     ${r.origin === 'ajuste' ? '<tr><td colspan="2">Marcação incluída por ajuste aprovado</td></tr>' : ''}</table><hr>
     <div class="sm">Código de integridade (SHA-256):</div><div class="hash">${esc(r.hash)}</div>
     <div class="sm" style="margin-top:6px">Controle interno de jornada — horário do servidor; registro imutável.</div></div>`);
@@ -63,7 +91,7 @@ export function printPunchReceipt(r: Receipt) {
 function printTimesheet(s: Sheet) {
   const [y, m] = s.month.split('-');
   const rows = s.days.map((d) => {
-    const at = (k: Kind) => d.punches.filter((p) => p.kind === k).map((p) => `${hm(p.punched_at)}${p.origin === 'ajuste' ? '*' : ''}`).join(' / ') || '—';
+    const at = (k: Kind) => d.punches.filter((p) => p.kind === k).map((p) => `${hm(p.punched_at)}${p.origin === 'ajuste' ? '*' : ''}${p.outside ? '†' : ''}`).join(' / ') || '—';
     return `<tr><td>${formatDate(d.date)}</td><td>${at('entrada')}</td><td>${at('saida_almoco')}</td><td>${at('volta_almoco')}</td><td>${at('saida')}</td>
       <td class="r">${d.lunchMinutes != null ? dur(d.lunchMinutes) : '—'}</td><td class="r">${dur(d.workedMinutes)}</td><td class="sm">${d.alerts.map(esc).join('<br>')}</td></tr>`;
   }).join('');
@@ -73,7 +101,7 @@ function printTimesheet(s: Sheet) {
     <table><thead><tr><th>Data</th><th>Entrada</th><th>Saída almoço</th><th>Volta almoço</th><th>Saída</th><th>Intervalo</th><th>Trabalhado</th><th>Observações</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="8">Nenhuma marcação no mês.</td></tr>'}</tbody>
     <tfoot><tr><th colspan="6">Total do mês (${s.totals.days} dia(s))</th><th class="r">${dur(s.totals.workedMinutes)}</th><th></th></tr></tfoot></table>
-    <p class="sm">* marcação incluída por ajuste aprovado pelo gestor (com motivo registrado). Horários do servidor (Brasília).</p>
+    <p class="sm">* marcação incluída por ajuste aprovado pelo gestor (com motivo registrado). † marcação fora do raio da loja (localização registrada). Horários do servidor (Brasília); localização do aparelho no momento da marcação.</p>
     ${s.adjustments.length ? `<b>Ajustes do mês</b><table><tr><th>Nº</th><th>Marcação</th><th>Horário</th><th>Motivo</th><th>Decisão</th></tr>${s.adjustments.map((a) => `<tr><td>${a.number}</td><td>${KIND[a.kind]}</td><td>${formatDateTime(a.requested_at)}</td><td>${esc(a.reason)}</td><td>${a.status}${a.decided_by_name ? ` (${esc(a.decided_by_name)})` : ''}${a.decision_reason ? ` — ${esc(a.decision_reason)}` : ''}</td></tr>`).join('')}</table>` : ''}
     <div class="sig"><div>Empregado: ${esc(s.user.name)}</div><div>Empregador</div></div>`, 900);
 }
@@ -82,9 +110,9 @@ export function TimeclockPage() {
   const { can } = useAuth();
   const manage = can('timeclock.manage');
   const [params, setParams] = useSearchParams();
-  type Tab = 'meu' | 'equipe' | 'ajustes' | 'espelho';
+  type Tab = 'meu' | 'equipe' | 'ajustes' | 'espelho' | 'local';
   const tab = (params.get('aba') as Tab) || 'meu';
-  const TABS: [Tab, string][] = manage ? [['meu', 'Meu ponto'], ['equipe', 'Equipe hoje'], ['ajustes', 'Ajustes'], ['espelho', 'Espelho de ponto']] : [['meu', 'Meu ponto']];
+  const TABS: [Tab, string][] = manage ? [['meu', 'Meu ponto'], ['equipe', 'Equipe hoje'], ['ajustes', 'Ajustes'], ['espelho', 'Espelho de ponto'], ['local', 'Local da loja']] : [['meu', 'Meu ponto']];
   return (
     <>
       <PageHeader title="Ponto" subtitle="Registro de jornada: entrada, saída para o almoço, volta do almoço e saída. Horário do servidor." />
@@ -97,6 +125,7 @@ export function TimeclockPage() {
       {tab === 'equipe' && manage && <TeamToday />}
       {tab === 'ajustes' && manage && <Adjustments />}
       {tab === 'espelho' && manage && <TimesheetPicker />}
+      {tab === 'local' && manage && <StoreLocation />}
     </>
   );
 }
@@ -116,8 +145,12 @@ function MyPunch() {
   const [result, setResult] = useState<Receipt | null>(null);
   const [confirm, setConfirm] = useState<Kind | null>(null);
   const [adjust, setAdjust] = useState(false);
+  const [locating, setLocating] = useState(false);
   const m = useMutation({
-    mutationFn: (kind: Kind) => api.post<Receipt>('/timeclock/punch', { kind }),
+    mutationFn: async (kind: Kind) => {
+      setLocating(true);
+      try { return await api.post<Receipt>('/timeclock/punch', { kind, location: await getLocation() }); } finally { setLocating(false); }
+    },
     onSuccess: (r) => { setResult(r); setConfirm(null); void qc.invalidateQueries({ queryKey: ['timeclock'] }); },
   });
   if (me.isLoading) return <Spinner />;
@@ -129,7 +162,6 @@ function MyPunch() {
       <section className="card min-w-0 space-y-4 p-5 text-center">
         <div className="text-sm text-slate-500">{user?.name} · {formatDate(d.date)}</div>
         <Clock2 serverTime={d.serverTime} />
-        {m.error && <Alert>{errorMessage(m.error)}</Alert>}
         <button className="btn-primary mx-auto w-full max-w-sm justify-center py-5 text-lg" disabled={m.isPending} onClick={() => setConfirm(d.next)}>
           <NextIcon className="h-6 w-6" /> Bater ponto: {KIND[d.next]}
         </button>
@@ -139,7 +171,7 @@ function MyPunch() {
             {(Object.keys(KIND) as Kind[]).filter((k) => k !== d.next).map((k) => <button key={k} className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setConfirm(k)}>{KIND[k]}</button>)}
           </div>
         </details>
-        <p className="text-xs text-slate-500">O horário registrado é o do servidor, não o do celular/computador. A marcação não pode ser apagada; se errar ou esquecer, peça ajuste.</p>
+        <p className="text-xs text-slate-500">O horário registrado é o do servidor, não o do celular/computador. A <b>localização é obrigatória</b> (permita o acesso quando o navegador pedir). A marcação não pode ser apagada; se errar ou esquecer, peça ajuste.</p>
       </section>
       <section className="min-w-0 space-y-4">
         <div className="card p-4">
@@ -152,7 +184,7 @@ function MyPunch() {
                 return (
                   <li key={p.id} className="flex items-center justify-between py-2">
                     <span className="flex items-center gap-2"><I className="h-4 w-4 text-slate-400" />{KIND[p.kind]}{p.origin === 'ajuste' && <span className="rounded bg-violet-100 px-1.5 text-xs text-violet-800">ajuste</span>}</span>
-                    <span className="flex items-center gap-2"><span className="font-semibold tabular-nums">{hms(p.punched_at)}</span>
+                    <span className="flex items-center gap-2"><PinLink p={p} /><span className="font-semibold tabular-nums">{hms(p.punched_at)}</span>
                       <button className="btn-ghost px-1.5 py-0.5 text-xs" title="Comprovante" onClick={async () => printPunchReceipt(await api.get<Receipt>(`/timeclock/punches/${p.id}`))}><Printer className="h-3.5 w-3.5" /></button></span>
                   </li>
                 );
@@ -180,7 +212,9 @@ function MyPunch() {
             <div className="text-lg">Registrar <b>{KIND[confirm]}</b> agora?</div>
             {confirm !== d.next && <Alert kind="warning">A marcação esperada agora é <b>{KIND[d.next]}</b>. Confirme só se estiver certo.</Alert>}
             <div className="flex justify-center gap-2"><button className="btn-secondary" onClick={() => setConfirm(null)}>Voltar</button>
-              <button className="btn-primary" autoFocus disabled={m.isPending} onClick={() => m.mutate(confirm)}>Confirmar</button></div>
+              <button className="btn-primary" autoFocus disabled={m.isPending} onClick={() => m.mutate(confirm)}>{locating ? 'Obtendo localização…' : 'Confirmar'}</button></div>
+            {m.error && <Alert>{msg(m.error)}</Alert>}
+            <p className="text-xs text-slate-500"><MapPin className="mr-1 inline h-3 w-3" />A localização do aparelho é obrigatória e é lida só neste momento, para registrar onde o ponto foi batido.</p>
           </div>
         )}
       </Modal>
@@ -188,7 +222,8 @@ function MyPunch() {
         {result && (
           <div className="space-y-3 text-center">
             <div className="rounded-xl bg-emerald-600 p-4 text-white"><div className="text-sm opacity-90">{result.label}</div><div className="text-4xl font-bold tabular-nums">{hms(result.punchedAt)}</div>
-              <div className="text-xs opacity-90">NSR {result.nsr} · {formatDate(result.workDate)}</div></div>
+              <div className="text-xs opacity-90">NSR {result.nsr} · {formatDate(result.workDate)}</div>
+              {result.location && <a className="mt-1 inline-flex items-center gap-1 text-xs underline opacity-90" href={mapUrl(result.location.latitude, result.location.longitude)} target="_blank" rel="noreferrer"><MapPin className="h-3 w-3" /> localização registrada{result.location.accuracy ? ` (±${Math.round(result.location.accuracy)} m)` : ''}</a>}</div>
             {result.duplicate && <Alert kind="info">Esta marcação já tinha sido registrada há instantes — não foi duplicada.</Alert>}
             {result.warnings?.map((w, i) => <Alert key={i} kind="warning">{w}</Alert>)}
             <div className="flex justify-center gap-2"><button className="btn-secondary" onClick={() => printPunchReceipt(result)}><Printer className="h-4 w-4" /> Comprovante</button>
@@ -248,7 +283,7 @@ function Timesheet({ userId }: { userId: string | null }) {
               <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-2 py-2 text-left">Dia</th><th className="px-2 py-2 text-left">Entrada</th><th className="px-2 py-2 text-left">Saída almoço</th><th className="px-2 py-2 text-left">Volta almoço</th><th className="px-2 py-2 text-left">Saída</th><th className="px-2 py-2 text-right">Intervalo</th><th className="px-2 py-2 text-right">Trabalhado</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {s!.days.map((d) => {
-                  const at = (k: Kind) => d.punches.filter((p) => p.kind === k).map((p) => <span key={p.id} className={clsx('mr-1 tabular-nums', p.origin === 'ajuste' && 'text-violet-700')} title={p.origin === 'ajuste' ? 'Incluída por ajuste aprovado' : `NSR ${p.nsr}`}>{hm(p.punched_at)}{p.origin === 'ajuste' ? '*' : ''}</span>);
+                  const at = (k: Kind) => d.punches.filter((p) => p.kind === k).map((p) => <span key={p.id} className={clsx('mr-1 tabular-nums', p.origin === 'ajuste' && 'text-violet-700')} title={p.origin === 'ajuste' ? 'Incluída por ajuste aprovado' : `NSR ${p.nsr}`}>{hm(p.punched_at)}{p.origin === 'ajuste' ? '*' : ''}<PinLink p={p} /></span>);
                   return (
                     <tr key={d.date} className="align-top">
                       <td className="whitespace-nowrap px-2 py-2">{formatDate(d.date)}
@@ -264,7 +299,7 @@ function Timesheet({ userId }: { userId: string | null }) {
               <tfoot><tr className="border-t border-slate-200 font-semibold"><td colSpan={6} className="px-2 py-2">Total ({s!.totals.days} dia(s)){s!.totals.alerts ? <span className="ml-2 text-xs font-normal text-amber-700">{s!.totals.alerts} alerta(s)</span> : null}</td><td className="px-2 py-2 text-right tabular-nums">{dur(s!.totals.workedMinutes)}</td></tr></tfoot>
             </table>
           </div>
-          <p className="mt-2 text-xs text-slate-500">* incluída por ajuste aprovado. Alertas seguem a CLT: intervalo mínimo de 1h e máximo de 2h (art. 71), até 2h extras/dia (art. 59) e 11h de descanso entre jornadas (art. 66).</p>
+          <p className="mt-2 text-xs text-slate-500"><MapPin className="inline h-3 w-3" /> abre a localização no mapa (vermelho = fora do raio da loja). * incluída por ajuste aprovado. Alertas seguem a CLT: intervalo mínimo de 1h e máximo de 2h (art. 71), até 2h extras/dia (art. 59) e 11h de descanso entre jornadas (art. 66).</p>
         </>
       )}
     </section>
@@ -281,7 +316,7 @@ function TeamToday() {
         <div key={u.id} className="card p-4 text-sm">
           <div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{u.name}</div><div className="text-xs text-slate-500">{u.role_name}</div></div>
             <span className={clsx('rounded px-2 py-0.5 text-xs', STATUS[u.status].cls)}>{STATUS[u.status].label}</span></div>
-          <div className="mt-2 space-y-0.5">{u.punches.map((p, i) => <div key={i} className="flex justify-between text-slate-600"><span>{KIND[p.kind]}</span><span className="tabular-nums">{hm(p.at)}{p.origin === 'ajuste' ? '*' : ''}</span></div>)}</div>
+          <div className="mt-2 space-y-0.5">{u.punches.map((p, i) => <div key={i} className="flex justify-between text-slate-600"><span>{KIND[p.kind]}</span><span className="flex items-center gap-1 tabular-nums"><PinLink p={p} />{hm(p.at)}{p.origin === 'ajuste' ? '*' : ''}</span></div>)}</div>
         </div>
       ))}
     </div>
@@ -363,5 +398,43 @@ function TimesheetPicker() {
       <Field label="Empregado"><select className="input max-w-sm" value={userId} onChange={(e) => setUserId(e.target.value)}><option value="">Selecione…</option>{users.data?.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>
       {userId ? <Timesheet key={userId} userId={userId} /> : <div className="card flex items-center gap-2 p-4 text-sm text-slate-500"><Clock className="h-4 w-4" /> Escolha o empregado para ver e imprimir o espelho do mês.</div>}
     </div>
+  );
+}
+
+/** Local da loja + raio: marcações fora do raio são registradas e sinalizadas (não bloqueadas). */
+function StoreLocation() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['timeclock', 'params'], queryFn: () => api.get<Params>('/timeclock/params') });
+  const [lat, setLat] = useState('');
+  const [lng, setLng] = useState('');
+  const [radius, setRadius] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!q.data) return;
+    setLat(q.data.storeLatitude?.toString() ?? ''); setLng(q.data.storeLongitude?.toString() ?? ''); setRadius(q.data.radiusMeters?.toString() ?? '');
+  }, [q.data]);
+  const m = useMutation({
+    mutationFn: (v: Params) => api.put('/timeclock/params', v),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['timeclock'] }),
+  });
+  const here = async () => { setErr(null); try { const g = await getLocation(); setLat(String(g.latitude)); setLng(String(g.longitude)); if (!radius) setRadius('200'); } catch (e) { setErr(msg(e)); } };
+  const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')));
+  return (
+    <section className="card max-w-xl space-y-3 p-5 text-sm">
+      <p className="text-slate-600">Opcional. Com o local da loja configurado, o espelho sinaliza em <b className="text-red-600">vermelho</b> as marcações feitas fora do raio. A marcação nunca é bloqueada (o vendedor externo trabalha na rua) — fica registrada com a localização para conferência.</p>
+      {(m.error || err) && <Alert>{err ?? errorMessage(m.error)}</Alert>}
+      {m.isSuccess && <Alert kind="success">Local da loja salvo.</Alert>}
+      <button type="button" className="btn-secondary" onClick={() => void here()}><MapPin className="h-4 w-4" /> Usar minha localização atual (estando na loja)</button>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Latitude"><input className="input" inputMode="decimal" value={lat} onChange={(e) => setLat(e.target.value)} /></Field>
+        <Field label="Longitude"><input className="input" inputMode="decimal" value={lng} onChange={(e) => setLng(e.target.value)} /></Field>
+      </div>
+      <Field label="Raio (metros)"><input className="input" inputMode="numeric" value={radius} onChange={(e) => setRadius(e.target.value.replace(/\D/g, ''))} placeholder="ex.: 200" /></Field>
+      {lat && lng && <a className="text-brand-700 underline" href={mapUrl(Number(lat), Number(lng))} target="_blank" rel="noreferrer">Conferir no mapa</a>}
+      <div className="flex justify-end gap-2">
+        <button className="btn-secondary" onClick={() => m.mutate({ storeLatitude: null, storeLongitude: null, radiusMeters: null })}>Remover local</button>
+        <button className="btn-primary" disabled={m.isPending} onClick={() => m.mutate({ storeLatitude: num(lat), storeLongitude: num(lng), radiusMeters: num(radius) })}>Salvar</button>
+      </div>
+    </section>
   );
 }

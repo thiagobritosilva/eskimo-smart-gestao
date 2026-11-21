@@ -9,7 +9,8 @@ let owner: { cookie: string; id: string };
 let gerente: { cookie: string; id: string };
 let func: { cookie: string; id: string };
 let outro: { cookie: string; id: string };
-const call = (cookie: string, method: 'GET' | 'POST', url: string, payload?: unknown) =>
+const LOJA = { latitude: -23.55052, longitude: -46.633308, accuracy: 15 }; // coordenada fictícia de teste
+const call = (cookie: string, method: 'GET' | 'POST' | 'PUT', url: string, payload?: unknown) =>
   app.inject({ method, url: `/api${url}`, payload: payload as Record<string, unknown>, headers: { cookie } });
 
 beforeAll(async () => {
@@ -25,21 +26,26 @@ describe('ponto', () => {
   it('bate o ponto na sequência sugerida, com hora do servidor, NSR e comprovante; toque duplo não duplica', async () => {
     const me = (await call(func.cookie, 'GET', '/timeclock/me')).json();
     expect(me.next).toBe('entrada');
+    // sem localização: recusado
+    const semGps = await call(func.cookie, 'POST', '/timeclock/punch', { kind: null });
+    expect(semGps.statusCode).toBe(422);
+    expect(semGps.body).toMatch(/Localização obrigatória/);
     const before = Date.now();
-    const e = await call(func.cookie, 'POST', '/timeclock/punch', { kind: null });
+    const e = await call(func.cookie, 'POST', '/timeclock/punch', { kind: null, location: LOJA });
     expect(e.statusCode, e.body).toBe(201);
     expect(e.json()).toMatchObject({ kind: 'entrada', label: 'Entrada', origin: 'app', duplicate: false });
     expect(Math.abs(new Date(e.json().punchedAt).getTime() - before)).toBeLessThan(5000);
     expect(e.json().hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(e.json().location).toMatchObject({ latitude: -23.55052, longitude: -46.633308, accuracy: 15 });
     // toque duplo
-    const again = await call(func.cookie, 'POST', '/timeclock/punch', { kind: 'entrada' });
+    const again = await call(func.cookie, 'POST', '/timeclock/punch', { kind: 'entrada', location: LOJA });
     expect(again.statusCode).toBe(200);
     expect(again.json()).toMatchObject({ id: e.json().id, duplicate: true });
     expect((await call(func.cookie, 'GET', '/timeclock/me')).json().next).toBe('saida_almoco');
-    const s = await call(func.cookie, 'POST', '/timeclock/punch', {});
+    const s = await call(func.cookie, 'POST', '/timeclock/punch', { location: LOJA });
     expect(s.json().kind).toBe('saida_almoco');
     // volta antes de 1h: registra (não pode bloquear), mas alerta
-    const v = await call(func.cookie, 'POST', '/timeclock/punch', {});
+    const v = await call(func.cookie, 'POST', '/timeclock/punch', { location: LOJA });
     expect(v.statusCode).toBe(201);
     expect(v.json().kind).toBe('volta_almoco');
     expect(v.json().warnings.join(' ')).toMatch(/inferior a 1 hora/);
@@ -48,6 +54,23 @@ describe('ponto', () => {
     expect((await call(func.cookie, 'GET', `/timeclock/punches/${e.json().id}`)).statusCode).toBe(200);
     expect((await call(gerente.cookie, 'GET', `/timeclock/punches/${e.json().id}`)).statusCode).toBe(200);
     expect((await call(outro.cookie, 'GET', `/timeclock/punches/${e.json().id}`)).statusCode).toBe(403);
+  });
+
+  it('local da loja (opcional): marcação fora do raio fica registrada e sinalizada; banco exige localização na marcação do app', async () => {
+    expect((await call(func.cookie, 'GET', '/timeclock/params')).json()).toEqual({ storeLatitude: null, storeLongitude: null, radiusMeters: null });
+    expect((await call(func.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: LOJA.longitude, radiusMeters: 200 })).statusCode).toBe(403);
+    expect((await call(gerente.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: null, radiusMeters: 200 })).statusCode).toBe(400);
+    expect((await call(gerente.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: LOJA.longitude, radiusMeters: 200 })).statusCode).toBe(200);
+    // ~1,1 km ao norte
+    const longe = await call(outro.cookie, 'POST', '/timeclock/punch', { kind: 'entrada', location: { latitude: -23.54052, longitude: -46.633308, accuracy: 30 } });
+    expect(longe.statusCode, longe.body).toBe(201);
+    expect(longe.json().warnings.join(' ')).toMatch(/fora do raio de 200 m/);
+    const month = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+    const sheet = (await call(outro.cookie, 'GET', `/timeclock/timesheet?month=${month}`)).json();
+    expect(sheet.days.at(-1).alerts.join(' ')).toMatch(/Entrada marcada a 11\d\d m da loja/);
+    expect(sheet.days.at(-1).punches[0]).toMatchObject({ latitude: -23.54052, outside: true });
+    await expect(getPool().query(`INSERT INTO time_punches (user_id, kind, work_date, origin, hash) VALUES ($1, 'saida', current_date, 'app', 'x')`, [outro.id])).rejects.toThrow(/time_punches_app_location/);
+    await call(gerente.cookie, 'PUT', '/timeclock/params', { storeLatitude: null, storeLongitude: null, radiusMeters: null });
   });
 
   it('marcação é imutável no banco e a corrente de hashes detecta adulteração', async () => {
@@ -106,6 +129,7 @@ describe('ponto', () => {
     const f = b.find((u: { id: string }) => u.id === func.id);
     expect(f.status).toBe('trabalhando');
     expect(f.punches).toHaveLength(3);
+    expect(f.punches[0].latitude).toBe(-23.55052);
     expect((await call(func.cookie, 'GET', '/timeclock/today')).statusCode).toBe(403);
   });
 
