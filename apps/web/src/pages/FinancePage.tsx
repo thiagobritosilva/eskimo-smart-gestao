@@ -18,6 +18,7 @@ import { PartnersTab } from '../components/partners';
 import { ConciliationTab } from '../components/conciliation';
 import { CashReportView } from '../components/cash-report';
 import { LateSaleForm } from '../components/late-sale';
+import { CashFundSetting, HandoversPanel } from '../components/handovers';
 
 type Tab = 'geral' | 'pagar' | 'receber' | 'fixas' | 'caixa' | 'conciliacao' | 'extrato' | 'fluxo' | 'dre' | 'socios' | 'config';
 const TABS: [Tab, string][] = [
@@ -243,13 +244,14 @@ function CashTab() {
                 <div className="text-2xl font-bold tabular-nums">{formatMoney(a.balance)}</div>
               </div>
               <div className="flex items-center gap-1">
-                <span className={clsx('badge', a.open_session_id ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>{a.open_session_id ? 'Aberto' : 'Fechado'}</span>
+                {a.name.toLowerCase() !== 'tesouraria (cofre)' && <span className={clsx('badge', a.open_session_id ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>{a.open_session_id ? 'Aberto' : 'Fechado'}</span>}
                 {owner && a.pos_terminal_id && !a.open_session_id && (
                   <button className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir caixa" aria-label={`Excluir ${a.name}`} onClick={() => setOwnerAction({ kind: 'delete', account: a })}><Trash2 className="h-4 w-4" /></button>
                 )}
               </div>
             </div>
-            {canCash && (
+            {a.name.toLowerCase() === 'tesouraria (cofre)' && <div className="mt-2 text-xs text-slate-500">Dinheiro entregue pelos caixas no fechamento, aguardando depósito no banco. Ao depositar, use "Transferência entre contas" na aba Extrato.</div>}
+            {canCash && a.name.toLowerCase() !== 'tesouraria (cofre)' && (
               <div className="mt-4 flex flex-wrap gap-2">
                 {a.open_session_id ? (
                   <>
@@ -266,6 +268,8 @@ function CashTab() {
           </div>
         ))}
       </div>
+      <CashFundSetting />
+      <HandoversPanel />
       {ownerAction && <CashOwnerAction action={ownerAction} onClose={() => setOwnerAction(null)} onDone={() => invalidateFinance(qc)} />}
       <section>
         <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Histórico de sessões</h3>

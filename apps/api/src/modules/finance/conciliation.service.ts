@@ -172,6 +172,20 @@ export async function conciliation(db: Queryable, from: string, to: string) {
     detail: stock.pend ? `${stock.pend} venda(s) sem baixa no estoque (produto sem vínculo, sem local ou saldo insuficiente).` : 'Todas as vendas baixaram o estoque.', link: stock.pend ? '/pdv' : null });
   if (stock.issues) add({ area: 'Estoque', item: 'Pendências do PDV Connector', expected: null, actual: null, difference: null, status: 'atencao', detail: `${stock.issues} pendência(s) aberta(s).`, link: '/pdv' });
 
+  // envelopes dos caixas (entrega ao financeiro) ainda não conferidos
+  const env = (await db.query<{ n: number; v: string; old: number }>(
+    `SELECT count(*)::int AS n, coalesce(sum(declared_amount), 0)::text AS v,
+            count(*) FILTER (WHERE ${day('created_at')} < $1::date)::int AS old
+     FROM cash_handovers WHERE status = 'pendente' AND ${day('created_at')} <= $2::date`, [today, to],
+  )).rows[0]!;
+  if (env.n) add({ area: 'Caixa', item: `${env.n} envelope(s) de fechamento a conferir`, expected: env.v, actual: null, difference: null,
+    status: env.old ? 'pendente' : 'atencao', detail: 'Dinheiro entregue pelos caixas ao financeiro aguardando conferência do envelope.', link: '/financeiro?aba=caixa' });
+  const envDiff = (await db.query<{ n: number; v: string }>(
+    `SELECT count(*)::int AS n, coalesce(sum(difference), 0)::text AS v FROM cash_handovers
+     WHERE status = 'conferido' AND difference <> 0 AND ${day('confirmed_at')} BETWEEN $1::date AND $2::date`, [from, to],
+  )).rows[0]!;
+  if (envDiff.n) add({ area: 'Caixa', item: `${envDiff.n} envelope(s) com diferença na conferência`, expected: null, actual: null, difference: envDiff.v, status: 'atencao', detail: 'Valor recebido pelo financeiro diferente do declarado pelo caixa (motivo registrado).', link: '/financeiro?aba=caixa' });
+
   // títulos vencidos no período e não pagos (contas a pagar esquecidas)
   const overduePay = (await db.query<{ n: number; v: string }>(
     `SELECT count(*)::int AS n, coalesce(sum(i.amount - i.settled), 0)::text AS v FROM financial_installments i JOIN financial_titles t ON t.id = i.title_id

@@ -346,3 +346,14 @@ com impacto e estratégia de preservação de dados.
   - Caixa: totais e vendas do turno de OUTRO operador (só o próprio, gerência ou financeiro).
 - Continuam vendo o que é deles: vendas do próprio caixa/turno e relatório do próprio caixa, as próprias visitas e
   vendas externas, os pedidos do iFood que lançaram.
+
+## 0025_entrega_financeiro — fechamento do caixa com envelope para o financeiro (2026-11-21)
+- **O quê:** `app_settings.pos.params.cashFund` (fundo de troco que fica no caixa; padrão R$ 100,00, editável em
+  Financeiro › Caixa); tabela `cash_handovers` (envelope: declarado pelo caixa × recebido pelo financeiro; imutável após
+  a conferência); conta "Tesouraria (cofre)" criada automaticamente no primeiro fechamento.
+- **Fechamento (Caixa/PDV):** contagem por cédula/moeda (opcional; a soma precisa bater) ou total; o sistema mostra
+  OK / falta / sobra (quebra ou sobra lançada como antes), calcula o envelope = contado − fundo e faz a sangria de
+  fechamento gaveta → Tesouraria na mesma transação. Comprovante 80 mm (impressora térmica, ex.: Elgin i8) com
+  vendas por forma de pagamento, iFood, conferência do dinheiro, cédulas, envelope e linhas de assinatura.
+- **Financeiro › Caixa › Envelopes:** conferir (valor recebido; diferença exige motivo e vira quebra/sobra na
+  tesouraria). Pendências aparecem na Conciliação. `closeCashSession` ganhou a versão `closeCashSessionInDb`.

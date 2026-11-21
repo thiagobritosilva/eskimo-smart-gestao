@@ -716,7 +716,12 @@ export async function openCashSession(
 
 export async function closeCashSession(actor: Actor, id: string, closingCounted: string, notes: string | null) {
   require(actor, 'finance.cash');
-  return withTransaction(async (db) => {
+  return withTransaction((db) => closeCashSessionInDb(db, actor, id, closingCounted, notes));
+}
+
+/** Fechamento dentro de uma transação já aberta (o caixa da loja fecha e entrega o dinheiro na mesma operação). */
+export async function closeCashSessionInDb(db: Db, actor: Actor, id: string, closingCounted: string, notes: string | null) {
+  {
     const s = (await db.query(`SELECT * FROM cash_sessions WHERE id = $1 FOR UPDATE`, [id])).rows[0];
     if (!s) throw Errors.notFound('Sessão de caixa não encontrada.');
     if (s.status !== 'aberta') throw Errors.conflict('Sessão já fechada.');
@@ -744,6 +749,91 @@ export async function closeCashSession(actor: Actor, id: string, closingCounted:
     );
     await writeAudit(db, actor.audit, { action: 'finance.cash_closed', entity: 'cash_session', entityId: id, metadata: { counted: fromCents(counted), expected: fromCents(expected), difference: fromCents(diff) } });
     return { expected: fromCents(expected), counted: fromCents(counted), difference: fromCents(diff) };
+  }
+}
+
+// =====================================================================
+// Entrega do dinheiro do caixa ao financeiro (fechamento)
+// =====================================================================
+/** Conta "Tesouraria (cofre)": onde fica o dinheiro entregue pelos caixas até o financeiro depositar. */
+async function treasuryAccountId(db: Db, actor: Actor): Promise<string> {
+  const found = (await db.query<{ id: string; is_active: boolean }>(`SELECT id, is_active FROM financial_accounts WHERE lower(name) = 'tesouraria (cofre)' LIMIT 1`)).rows[0];
+  if (found) {
+    if (!found.is_active) await db.query('UPDATE financial_accounts SET is_active = true WHERE id = $1', [found.id]);
+    return found.id;
+  }
+  const { rows } = await db.query<{ id: string }>(
+    `INSERT INTO financial_accounts (kind, name, opening_balance, opening_date, allow_negative, created_by)
+     VALUES ('caixa', 'Tesouraria (cofre)', 0, $1, false, $2) RETURNING id`, [todaySP(), actor.userId],
+  );
+  await writeAudit(db, actor.audit, { action: 'finance.account_created', entity: 'financial_account', entityId: rows[0]!.id, after: { name: 'Tesouraria (cofre)', origem: 'criada no primeiro fechamento com entrega ao financeiro' } });
+  return rows[0]!.id;
+}
+
+export interface Denomination { value: string; qty: number }
+
+/** Sangria de fechamento: o que passou do fundo de troco sai da gaveta para a tesouraria, aguardando conferência. */
+export async function cashHandoverInDb(db: Db, actor: Actor, sessionId: string, input: { amount: string; kept: string; denominations?: Denomination[] | null }) {
+  const s = (await db.query<{ account_id: string; number: string; status: string }>('SELECT account_id, number::text, status FROM cash_sessions WHERE id = $1', [sessionId])).rows[0];
+  if (!s) throw Errors.notFound('Sessão de caixa não encontrada.');
+  const cents = toCents(input.amount, 'valor da entrega');
+  if (cents <= 0) return null;
+  const from = await lockAccount(db, s.account_id);
+  const toId = await treasuryAccountId(db, actor);
+  await lockAccount(db, toId);
+  if (toCentsSigned(from.balance) < cents) throw Errors.businessRule('O valor a entregar é maior que o dinheiro registrado no caixa.');
+  const group = (await db.query<{ g: string }>('SELECT gen_random_uuid()::text AS g')).rows[0]!.g;
+  const desc = `Entrega ao financeiro — fechamento do ${from.name} (sessão nº ${s.number})`;
+  await insertTx(db, actor, { accountId: from.id, direction: 'saida', amountCents: cents, kind: 'sangria', description: desc, transferGroup: group, cashSessionId: sessionId });
+  await insertTx(db, actor, { accountId: toId, direction: 'entrada', amountCents: cents, kind: 'sangria', description: desc, transferGroup: group });
+  const { rows } = await db.query<{ id: string; number: string }>(
+    `INSERT INTO cash_handovers (session_id, from_account_id, to_account_id, declared_amount, kept_amount, denominations, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, number::text`,
+    [sessionId, from.id, toId, fromCents(cents), input.kept, input.denominations ? JSON.stringify(input.denominations) : null, actor.userId],
+  );
+  await writeAudit(db, actor.audit, { action: 'finance.cash_handover', entity: 'cash_handover', entityId: rows[0]!.id, metadata: { session: s.number, amount: fromCents(cents), kept: input.kept } });
+  return { id: rows[0]!.id, number: rows[0]!.number, amount: fromCents(cents) };
+}
+
+export async function listHandovers(f: { status?: 'pendente' | 'conferido' | 'todos' }) {
+  const { rows } = await getPool().query(
+    `SELECT h.id, h.number::text, h.status, h.declared_amount::text, h.kept_amount::text, h.denominations, h.received_amount::text,
+            h.difference::text, h.reason, h.created_at, h.confirmed_at, s.id AS session_id, s.number::text AS session_number,
+            s.closed_at, s.difference::text AS closing_difference, a.name AS account_name, u.name AS operator_name, c.name AS confirmed_by_name
+     FROM cash_handovers h JOIN cash_sessions s ON s.id = h.session_id JOIN financial_accounts a ON a.id = h.from_account_id
+     JOIN users u ON u.id = s.opened_by LEFT JOIN users c ON c.id = h.confirmed_by
+     WHERE ($1::text = 'todos' OR h.status = $1) ORDER BY h.created_at DESC LIMIT 300`, [f.status ?? 'pendente'],
+  );
+  return rows;
+}
+
+/** Financeiro confere o envelope: valor recebido; diferença vira quebra/sobra na tesouraria, com motivo. */
+export async function confirmHandover(actor: Actor, id: string, input: { received: string; reason?: string | null }) {
+  if (!actor.permissions.includes('finance.manage') && actor.roleCode !== 'PROPRIETARIO') throw Errors.forbidden('Somente o financeiro confere a entrega do caixa.');
+  return withTransaction(async (db) => {
+    const h = (await db.query(`SELECT h.*, h.declared_amount::text AS declared, s.number::text AS session_number FROM cash_handovers h JOIN cash_sessions s ON s.id = h.session_id WHERE h.id = $1 FOR UPDATE OF h`, [id])).rows[0];
+    if (!h) throw Errors.notFound('Entrega não encontrada.');
+    if (h.status === 'conferido') throw Errors.conflict('Esta entrega já foi conferida.');
+    const received = toCents(input.received, 'valor recebido');
+    const diff = received - toCents(h.declared);
+    if (diff !== 0 && !input.reason?.trim()) throw Errors.businessRule(`O valor recebido difere do declarado pelo caixa em R$ ${fromCents(Math.abs(diff)).replace('.', ',')}. Informe o motivo.`);
+    if (diff !== 0) {
+      const cfg = (await db.query<{ value: { shortageCategoryId: string; surplusCategoryId: string } }>(`SELECT value FROM app_settings WHERE key = 'finance.cash_adjustment'`)).rows[0]?.value;
+      if (!cfg) throw Errors.businessRule('Categorias de quebra/sobra de caixa não configuradas.');
+      const acc = await lockAccount(db, h.to_account_id);
+      if (diff < 0 && toCentsSigned(acc.balance) < -diff) throw Errors.businessRule('Saldo da tesouraria insuficiente para registrar a falta.');
+      await insertTx(db, actor, {
+        accountId: h.to_account_id, direction: diff > 0 ? 'entrada' : 'saida', amountCents: Math.abs(diff), kind: 'ajuste_caixa',
+        description: `${diff > 0 ? 'Sobra' : 'Falta'} na entrega do caixa (sessão nº ${h.session_number}): ${input.reason!.trim()}`,
+        categoryId: diff > 0 ? cfg.surplusCategoryId : cfg.shortageCategoryId,
+      });
+    }
+    await db.query(
+      `UPDATE cash_handovers SET status = 'conferido', received_amount = $2, difference = $3, reason = $4, confirmed_by = $5, confirmed_at = now() WHERE id = $1`,
+      [id, fromCents(received), diff < 0 ? `-${fromCents(-diff)}` : fromCents(diff), diff ? input.reason!.trim() : null, actor.userId],
+    );
+    await writeAudit(db, actor.audit, { action: 'finance.cash_handover_confirmed', entity: 'cash_handover', entityId: id, metadata: { declared: h.declared, received: fromCents(received), difference: fromCents(Math.abs(diff)), reason: input.reason ?? null } });
+    return { confirmed: true, difference: diff < 0 ? `-${fromCents(-diff)}` : fromCents(diff) };
   });
 }
 

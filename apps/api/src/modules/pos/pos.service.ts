@@ -6,7 +6,7 @@ import { Errors } from '../../lib/errors.js';
 import { fromCents, toCents, todaySP } from '../../lib/money.js';
 import { OWNER_ROLE } from '../auth/permissions.js';
 import {
-  cancelCashSessionInDb, cancelTitleInDb, closeCashSession, createAccount, createTitleInDb, openCashSession, retireCashAccountInDb, reverseTransactionInDb,
+  cancelCashSessionInDb, cancelTitleInDb, cashHandoverInDb, closeCashSessionInDb, type Denomination, createAccount, createTitleInDb, openCashSession, retireCashAccountInDb, reverseTransactionInDb,
 } from '../finance/finance.service.js';
 import { allocateSale } from '../pdv/pdv.service.js';
 import { reverseMovement, type Actor } from '../stock/stock.service.js';
@@ -164,7 +164,24 @@ export async function openSession(actor: Actor, terminalId: string, counted: str
 }
 
 /** Fechamento "às cegas": o operador informa o dinheiro contado; o sistema calcula a diferença e registra quebra/sobra. */
-export async function closeSession(actor: Actor, terminalId: string, counted: string, notes: string | null) {
+/** Fundo de troco que fica no caixa no fechamento (Configurações do caixa). */
+export async function getPosParams(db: { query: ReturnType<typeof getPool>['query'] } = getPool()) {
+  const v = (await db.query<{ value: { cashFund?: string } }>(`SELECT value FROM app_settings WHERE key = 'pos.params'`)).rows[0]?.value ?? {};
+  return { cashFund: v.cashFund ?? '100.00' };
+}
+
+export async function setPosParams(actor: Actor, input: { cashFund: string }) {
+  if (!actor.permissions.includes('pos.manage') && !actor.permissions.includes('finance.manage')) throw Errors.forbidden();
+  return withTransaction(async (db) => {
+    const before = await getPosParams(db as never);
+    await db.query(`INSERT INTO app_settings (key, value, updated_by) VALUES ('pos.params', $1, $2)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`, [JSON.stringify(input), actor.userId]);
+    await writeAudit(db, actor.audit, { action: 'settings.updated', entity: 'app_settings', entityId: 'pos.params', before, after: input });
+    return input;
+  });
+}
+
+export async function closeSession(actor: Actor, terminalId: string, counted: string, notes: string | null, denominations?: Denomination[] | null) {
   need(actor, 'pos.operate');
   const { terminal, session } = await terminalWithSession(getPool(), terminalId);
   if (!session) throw Errors.businessRule('O caixa já está fechado.');
@@ -172,9 +189,24 @@ export async function closeSession(actor: Actor, terminalId: string, counted: st
   const other = session.opened_by !== actor.userId;
   if (other && !actor.permissions.includes('pos.manage')) throw Errors.forbidden(`Este caixa foi aberto por ${session.opened_by_name ?? 'outro operador'}. Somente quem abriu, o gerente ou o proprietário pode fechá-lo.`);
   if (other && !notes?.trim()) throw Errors.badRequest(`Informe o motivo para fechar o caixa aberto por ${session.opened_by_name ?? 'outro operador'}.`);
-  const r = await closeCashSession(elevate(actor, 'finance.cash'), session.id, counted,
-    other ? `Fechado por outro usuário (caixa de ${session.opened_by_name}): ${notes}` : notes ?? `Fechamento do ${terminal.name}`);
-  return { ...r, sessionNumber: session.number };
+  // contagem por cédula/moeda (opcional) precisa bater com o total informado
+  const dens = (denominations ?? []).filter((d) => d.qty > 0);
+  if (dens.length) {
+    const sum = dens.reduce((t, d) => t + toCents(d.value) * d.qty, 0);
+    if (sum !== toCents(counted)) throw Errors.badRequest(`A soma das cédulas e moedas (R$ ${fromCents(sum).replace('.', ',')}) não confere com o total contado.`);
+  }
+  const fin = elevate(actor, 'finance.cash');
+  return withTransaction(async (db) => {
+    const r = await closeCashSessionInDb(db, fin, session.id, counted,
+      other ? `Fechado por outro usuário (caixa de ${session.opened_by_name}): ${notes}` : notes ?? `Fechamento do ${terminal.name}`);
+    // fica no caixa só o fundo de troco; o resto vai em envelope para o financeiro
+    const fund = toCents((await getPosParams(db as never)).cashFund);
+    const countedC = toCents(r.counted);
+    const handoverC = Math.max(countedC - fund, 0);
+    const keptC = countedC - handoverC;
+    const handover = handoverC > 0 ? await cashHandoverInDb(db, fin, session.id, { amount: fromCents(handoverC), kept: fromCents(keptC), denominations: dens.length ? dens : null }) : null;
+    return { ...r, sessionNumber: session.number, sessionId: session.id, cashFund: fromCents(fund), kept: fromCents(keptC), handover: handover ? { ...handover, amount: fromCents(handoverC) } : null };
+  });
 }
 
 /** Proprietário: cancela a abertura feita por engano (sem nenhuma venda). O fundo de troco lançado é estornado. */
@@ -252,8 +284,12 @@ export async function sessionReport(sessionId: string) {
      FROM ifood_orders o WHERE o.cash_session_id = $1 ORDER BY o.sold_at`, [sessionId],
   )).rows;
   const ifoodTotal = ifoodOrders.filter((o) => !o.cancelled).reduce((t, o) => t + toCents(o.amount), 0);
+  const handover = (await db.query(
+    `SELECT h.number::text, h.status, h.declared_amount::text, h.kept_amount::text, h.denominations, h.received_amount::text, h.difference::text, h.reason, h.confirmed_at, c.name AS confirmed_by_name
+     FROM cash_handovers h LEFT JOIN users c ON c.id = h.confirmed_by WHERE h.session_id = $1`, [sessionId],
+  )).rows[0] ?? null;
   return {
-    session: s, methods, sales, movements: moves,
+    session: s, methods, sales, movements: moves.filter((m) => !m.description.startsWith('Entrega ao financeiro')), handover,
     ifood: { count: ifoodOrders.filter((o) => !o.cancelled).length, amount: fromCents(ifoodTotal), orders: ifoodOrders },
     grandTotal: fromCents(toCents(sales.total) + ifoodTotal),
   };

@@ -8,7 +8,7 @@ import { useAuth, useIsOwner } from '../lib/auth';
 import { formatDateTime, formatMoney, formatQty, toDecimal } from '../lib/format';
 import { useLocations } from '../components/stock';
 import { Alert, Field, Logo, Modal, Spinner } from '../components/ui';
-import { CashReportView } from '../components/cash-report';
+import { CashReportView, printCashReport, type CashReport } from '../components/cash-report';
 import { OrderForm } from './IfoodPage';
 
 // ------------------------------------------------------------------ tipos
@@ -713,23 +713,41 @@ function SessionSales({ terminalId, owner }: { terminalId: string; owner: boolea
   );
 }
 
+const DENOMS = ['200', '100', '50', '20', '10', '5', '2', '1', '0.50', '0.25', '0.10', '0.05'];
+interface CloseResult { expected: string; counted: string; difference: string; sessionNumber: string; kept: string; cashFund: string; handover: { amount: string } | null }
+
 function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { terminalId: string; sessionId: string; hasCart: boolean; onDone: () => void; otherName?: string }) {
   const { logout } = useAuth();
+  const [byNote, setByNote] = useState(true);
+  const [qty, setQty] = useState<Record<string, string>>({});
   const [counted, setCounted] = useState('');
   const [notes, setNotes] = useState('');
-  const [result, setResult] = useState<{ expected: string; counted: string; difference: string; sessionNumber: string } | null>(null);
+  const [result, setResult] = useState<CloseResult | null>(null);
+  const report = useQuery({ queryKey: ['cash-report', sessionId], queryFn: () => api.get<CashReport>(`/pos/sessions/${sessionId}/report`), enabled: !!result });
+  // contagem por cédula/moeda: soma em centavos
+  const noteTotal = DENOMS.reduce((t, d) => t + Math.round(Number(d) * 100) * (parseInt(qty[d] || '0', 10) || 0), 0);
+  const total = byNote ? noteTotal : cents(toDecimal(counted) || '0');
   const m = useMutation({
-    mutationFn: () => api.post<{ expected: string; counted: string; difference: string; sessionNumber: string }>(`/pos/terminals/${terminalId}/close`, { counted: toDecimal(counted) || '0', notes: notes.trim() || null }),
+    mutationFn: () => api.post<CloseResult>(`/pos/terminals/${terminalId}/close`, {
+      counted: (total / 100).toFixed(2), notes: notes.trim() || null,
+      denominations: byNote ? DENOMS.filter((d) => parseInt(qty[d] || '0', 10) > 0).map((d) => ({ value: d, qty: parseInt(qty[d]!, 10) })) : null,
+    }),
     onSuccess: setResult,
   });
   if (result) {
     const diff = Number(result.difference);
     return (
       <div className="space-y-3">
-        <Alert kind={diff === 0 ? 'success' : 'warning'}>
-          Sessão nº {result.sessionNumber} fechada. Esperado {formatMoney(result.expected)} · contado {formatMoney(result.counted)} ·{' '}
-          <strong>{diff === 0 ? 'sem diferença' : diff > 0 ? `sobra de ${formatMoney(result.difference)}` : `falta de ${formatMoney(String(-diff))}`}</strong>
-        </Alert>
+        <div className={clsx('rounded-xl p-4 text-center text-white', diff === 0 ? 'bg-emerald-600' : diff > 0 ? 'bg-amber-500' : 'bg-red-600')}>
+          <div className="text-sm opacity-90">Sessão nº {result.sessionNumber} fechada · esperado {formatMoney(result.expected)} · contado {formatMoney(result.counted)}</div>
+          <div className="text-2xl font-bold">{diff === 0 ? 'CAIXA OK' : diff > 0 ? `SOBRA DE ${formatMoney(result.difference)}` : `FALTA DE ${formatMoney(String(-diff))}`}</div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-center">
+          <div className="rounded-xl border border-slate-200 p-3"><div className="text-xs text-slate-500">Fica no caixa (troco)</div><div className="text-xl font-bold">{formatMoney(result.kept)}</div></div>
+          <div className="rounded-xl border-2 border-brand-600 p-3"><div className="text-xs text-slate-500">Colocar no envelope p/ o financeiro</div><div className="text-2xl font-bold text-brand-700">{formatMoney(result.handover?.amount ?? '0')}</div></div>
+        </div>
+        <Alert kind="info">Imprima o comprovante, assine, junte com o dinheiro do envelope e entregue ao financeiro.</Alert>
+        {report.data && <button className="btn-primary w-full" onClick={() => printCashReport(report.data!)}><Printer className="h-4 w-4" /> Imprimir comprovante de fechamento</button>}
         <CashReportView sessionId={sessionId} />
         {otherName
           ? <div className="flex justify-end"><button className="btn-primary" onClick={onDone}>OK</button></div>
@@ -743,9 +761,25 @@ function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { 
   return (
     <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
       {hasCart && <Alert kind="warning">Há uma venda em andamento na tela. Finalize ou limpe antes de fechar.</Alert>}
-      <p className="text-sm text-slate-600">Conte todo o dinheiro da gaveta e informe o valor. O sistema compara com o esperado e registra a diferença (quebra ou sobra).</p>
+      <p className="text-sm text-slate-600">Conte <strong>todo</strong> o dinheiro da gaveta (inclusive o troco). O sistema compara com o esperado, mostra se o caixa está OK, com falta ou com sobra, e calcula o que vai para o financeiro.</p>
       {m.error && <Alert>{errorMessage(m.error)}</Alert>}
-      <Field label="Dinheiro contado (R$) *"><input autoFocus className="input text-xl" inputMode="decimal" required value={counted} onChange={(e) => setCounted(e.target.value)} /></Field>
+      <div className="flex gap-2 text-sm">
+        <button type="button" className={clsx('rounded-lg border px-3 py-1.5', byNote ? 'border-brand-600 bg-brand-50 font-medium text-brand-700' : 'border-slate-200')} onClick={() => setByNote(true)}>Contar por cédula/moeda</button>
+        <button type="button" className={clsx('rounded-lg border px-3 py-1.5', !byNote ? 'border-brand-600 bg-brand-50 font-medium text-brand-700' : 'border-slate-200')} onClick={() => setByNote(false)}>Informar só o total</button>
+      </div>
+      {byNote ? (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {DENOMS.map((d) => (
+            <label key={d} className="rounded-lg border border-slate-200 p-2 text-xs">
+              <span className="text-slate-500">{Number(d) >= 2 ? 'Nota' : 'Moeda'} {formatMoney(d)}</span>
+              <input className="input mt-1 py-1 text-right" inputMode="numeric" value={qty[d] ?? ''} onChange={(e) => setQty({ ...qty, [d]: e.target.value.replace(/\D/g, '') })} placeholder="0" />
+            </label>
+          ))}
+        </div>
+      ) : (
+        <Field label="Dinheiro contado (R$) *"><input autoFocus className="input text-xl" inputMode="decimal" required value={counted} onChange={(e) => setCounted(e.target.value)} /></Field>
+      )}
+      <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-lg font-bold"><span>Total contado</span><span className="tabular-nums">{formatMoney((total / 100).toFixed(2))}</span></div>
       <Field label={otherName ? `Motivo (caixa de ${otherName}) *` : 'Observação'}><input className="input" required={!!otherName} minLength={otherName ? 3 : undefined} maxLength={300} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={otherName ? 'Ex.: operador esqueceu de fechar' : ''} /></Field>
       <div className="flex justify-end"><button className="btn-primary" disabled={m.isPending || hasCart}>Fechar caixa</button></div>
     </form>

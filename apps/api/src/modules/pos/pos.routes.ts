@@ -77,6 +77,8 @@ export async function posRoutes(app: FastifyInstance) {
     if (!own && !actor.permissions.includes('finance.view') && !actor.permissions.includes('pos.manage')) throw Errors.forbidden();
     return r;
   });
+  app.get('/pos/params', { preHandler: operate }, async () => svc.getPosParams());
+  app.put('/pos/params', { preHandler: requireAuth() }, async (req) => svc.setPosParams(actorOf(req), parse(z.object({ cashFund: money }), req.body)));
   app.post('/pos/terminals/:id/cancel-opening', { preHandler: operate }, async (req) => {
     const { id } = parse(idParams, req.params);
     const b = parse(z.object({ reason: z.string().trim().min(3, 'Informe o motivo.').max(300) }), req.body);
@@ -89,8 +91,11 @@ export async function posRoutes(app: FastifyInstance) {
   });
   app.post('/pos/terminals/:id/close', { preHandler: operate }, async (req) => {
     const { id } = parse(idParams, req.params);
-    const b = parse(z.object({ counted: money, notes: z.string().trim().max(300).nullable().optional() }), req.body);
-    return svc.closeSession(actorOf(req), id, b.counted, b.notes ?? null);
+    const b = parse(z.object({
+      counted: money, notes: z.string().trim().max(300).nullable().optional(),
+      denominations: z.array(z.object({ value: money, qty: z.number().int().min(0).max(100000) })).max(20).nullable().optional(),
+    }), req.body);
+    return svc.closeSession(actorOf(req), id, b.counted, b.notes ?? null, b.denominations ?? null);
   });
 
   app.get('/pos/products/lookup', { preHandler: operate }, async (req) => {

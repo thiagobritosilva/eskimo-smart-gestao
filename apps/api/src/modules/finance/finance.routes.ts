@@ -207,6 +207,19 @@ export async function financeRoutes(app: FastifyInstance) {
   });
 
   // ----- Caixa -----
+  // entregas de dinheiro dos caixas ao financeiro (fechamento)
+  app.get('/finance/cash-handovers', { preHandler: view }, async (req) => {
+    const q = parse(z.object({ status: z.enum(['pendente', 'conferido', 'todos']).default('pendente') }), req.query);
+    return svc.listHandovers(q);
+  });
+  app.post('/finance/cash-handovers/:id/confirm', { preHandler: view }, async (req) => {
+    const { id } = parse(z.object({ id: uuidSchema }), req.params);
+    const b = parse(z.object({
+      received: z.union([z.string(), z.number()]).transform((v) => String(v).trim()).refine((v) => /^\d{1,10}(\.\d{1,2})?$/.test(v), 'Valor inválido.'),
+      reason: z.string().trim().max(300).nullable().optional(),
+    }), req.body);
+    return svc.confirmHandover(actorOf(req), id, b);
+  });
   app.get('/finance/cash-sessions', { preHandler: view }, async (req) => {
     const { accountId } = parse(z.object({ accountId: uuidSchema.optional() }), req.query);
     return reports.listCashSessions(accountId);

@@ -15,6 +15,7 @@ export interface CashReport {
   movements: { kind: string; direction: string; amount: string; description: string; occurred_at: string }[];
   ifood: { count: number; amount: string; orders: { order_code: string; sold_at: string; amount: string; items: string | null; cancelled: boolean }[] };
   grandTotal: string;
+  handover?: { number: string; status: string; declared_amount: string; kept_amount: string; denominations: { value: string; qty: number }[] | null; received_amount: string | null; difference: string | null; reason: string | null; confirmed_by_name: string | null } | null;
 }
 const KIND: Record<string, string> = { sangria: 'Sangria', suprimento: 'Suprimento', transferencia: 'Transferência', estorno: 'Estorno', ajuste_caixa: 'Ajuste (quebra/sobra)' };
 const num = (v: string | number) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -24,11 +25,14 @@ const dt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', 
 /** Impressão em bobina 80 mm (mesma impressora do recibo). */
 export function printCashReport(r: CashReport) {
   const s = r.session;
+  const h = r.handover ?? null;
   const row = (l: string, v: string, b = false) => `<tr${b ? ' class="b"' : ''}><td>${esc(l)}</td><td class="r">${v}</td></tr>`;
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Caixa ${esc(s.number)}</title><style>
     @page { size: 80mm auto; margin: 2mm 3mm; } body { font: 11px/1.35 Arial, sans-serif; width: 72mm; margin: 0; color: #000; }
     h1 { font-size: 13px; text-align: center; margin: 2px 0; } .c { text-align: center; } .r { text-align: right; white-space: nowrap; } .b { font-weight: bold; }
     table { width: 100%; border-collapse: collapse; } td { padding: 1px 0; vertical-align: top; } hr { border: 0; border-top: 1px dashed #000; margin: 4px 0; } .sm { font-size: 10px; }
+    .box { border: 2px solid #000; text-align: center; font-weight: bold; font-size: 13px; padding: 3px; margin: 4px 0; }
+    .big { text-align: center; font-weight: bold; font-size: 16px; margin: 4px 0; }
   </style></head><body>
     <h1>RELATÓRIO DO CAIXA</h1>
     <div class="c">${esc(s.terminal_name ?? s.account_name)} — sessão nº ${esc(s.number)}</div>
@@ -49,10 +53,17 @@ export function printCashReport(r: CashReport) {
     <table>${row('Fundo de troco (abertura)', `R$ ${num(s.opening_counted)}`)}${row('Vendas em dinheiro', `+ R$ ${num(r.methods.find((m) => m.code === 'dinheiro')?.amount ?? 0)}`)}
     ${r.movements.filter((m) => m.kind !== 'ajuste_caixa').map((m) => row(`${KIND[m.kind] ?? m.kind}`, `${m.direction === 'saida' ? '−' : '+'} R$ ${num(m.amount)}`)).join('')}
     ${s.closing_expected != null ? row('Esperado na gaveta', `R$ ${num(s.closing_expected)}`) : ''}
-    ${s.closing_counted != null ? row('Contado', `R$ ${num(s.closing_counted)}`) : ''}
-    ${s.difference != null ? row(Number(s.difference) === 0 ? 'Diferença' : Number(s.difference) > 0 ? 'SOBRA' : 'FALTA', `R$ ${num(Math.abs(Number(s.difference)))}`, true) : ''}</table>
-    <br><br><div class="c">_______________________________<br>${esc(s.opened_by_name)}</div>
-    <br><div class="c">_______________________________<br>Conferido por</div>
+    ${s.closing_counted != null ? row('Contado', `R$ ${num(s.closing_counted)}`) : ''}</table>
+    ${s.difference != null ? `<div class="box">${Number(s.difference) === 0 ? 'CAIXA OK — SEM DIFERENÇA' : Number(s.difference) > 0 ? `SOBRA (ACRÉSCIMO): R$ ${num(s.difference)}` : `FALTA: R$ ${num(Math.abs(Number(s.difference)))}`}</div>` : ''}
+    ${h?.denominations?.length ? `<div class="b">CONTAGEM POR CÉDULA/MOEDA</div><table>${h.denominations.map((d) => row(`${d.qty} x R$ ${num(d.value)}`, `R$ ${num(Number(d.value) * d.qty)}`)).join('')}</table>` : ''}
+    <hr>
+    <div class="b">ENTREGA AO FINANCEIRO</div>
+    <table>${row('Fica no caixa (troco)', `R$ ${num(h ? h.kept_amount : s.closing_counted ?? 0)}`)}</table>
+    <div class="big">ENVELOPE: R$ ${num(h ? h.declared_amount : 0)}</div>
+    ${h && h.status === 'conferido' ? `<table>${row('Recebido pelo financeiro', `R$ ${num(h.received_amount ?? 0)}`)}${Number(h.difference) ? row('Diferença', `R$ ${num(h.difference ?? 0)}`) : ''}</table>` : ''}
+    <br><br><div class="c">_______________________________<br>Caixa: ${esc(s.opened_by_name)}</div>
+    <br><br><div class="c">_______________________________<br>Financeiro (recebi o envelope)</div>
+    <div class="c sm">Data: ____/____/______</div>
     <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 500); };</script>
   </body></html>`;
   const w = window.open('', '_blank', 'width=420,height=700');
@@ -103,6 +114,19 @@ export function CashReportView({ sessionId }: { sessionId: string }) {
         {diff != null && <div className={`flex justify-between font-semibold ${diff === 0 ? 'text-emerald-700' : 'text-red-600'}`}><span>{diff === 0 ? 'Sem diferença' : diff > 0 ? 'Sobra' : 'Falta'}</span><span className="tabular-nums">{formatMoney(Math.abs(diff).toFixed(2))}</span></div>}
         {s.status === 'cancelada' && <div className="text-red-600">Abertura cancelada: {s.cancel_reason}</div>}
       </div>
+      {r.handover && (
+        <div className="rounded-xl border-2 border-slate-300 p-3">
+          <div className="mb-1 font-semibold">Entrega ao financeiro (envelope)</div>
+          <div className="flex justify-between"><span>Fica no caixa (troco)</span><span className="tabular-nums">{formatMoney(r.handover.kept_amount)}</span></div>
+          <div className="flex justify-between text-lg font-bold"><span>Envelope</span><span className="tabular-nums">{formatMoney(r.handover.declared_amount)}</span></div>
+          {r.handover.denominations?.length ? <div className="mt-1 text-xs text-slate-500">{r.handover.denominations.map((d) => `${d.qty} × ${formatMoney(d.value)}`).join(' · ')}</div> : null}
+          <div className={`mt-1 text-sm ${r.handover.status === 'conferido' ? (Number(r.handover.difference) ? 'text-red-600' : 'text-emerald-700') : 'text-amber-700'}`}>
+            {r.handover.status === 'conferido'
+              ? `Conferido pelo financeiro (${r.handover.confirmed_by_name}): recebido ${formatMoney(r.handover.received_amount ?? '0')}${Number(r.handover.difference) ? ` · diferença ${formatMoney(r.handover.difference ?? '0')} — ${r.handover.reason}` : ' · sem diferença'}`
+              : 'Aguardando conferência do financeiro'}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

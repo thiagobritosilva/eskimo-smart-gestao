@@ -77,3 +77,36 @@ describe('números financeiros só para Proprietário, Gerente e Financeiro', ()
     await app.inject({ method: 'POST', url: `/api/pos/terminals/${t.id}/close`, headers: { cookie: a.cookie }, payload: { counted: '10.00' } });
   });
 });
+
+describe('fechamento com entrega ao financeiro', () => {
+  it('fica o fundo de troco (R$ 100), o excedente vai para a tesouraria e o financeiro confere o envelope', async () => {
+    const owner = await asRole(app, 'PROPRIETARIO');
+    const call = (cookie: string, method: 'GET' | 'POST', url: string, payload?: unknown) =>
+      app.inject({ method, url: `/api${url}`, payload: payload as Record<string, unknown>, headers: { cookie } });
+    const t = (await call(owner.cookie, 'POST', '/pos/terminals', {})).json();
+    const op = await asRole(app, 'FUNCIONARIO');
+    expect((await call(op.cookie, 'POST', `/pos/terminals/${t.id}/open`, { counted: '100.00' })).statusCode).toBe(201);
+    // contagem por cédulas precisa bater com o total
+    const bad = await call(op.cookie, 'POST', `/pos/terminals/${t.id}/close`, { counted: '380.00', denominations: [{ value: '100', qty: 3 }] });
+    expect(bad.statusCode).toBe(400);
+    // esperado 100 (sem vendas); contado 380 → sobra 280; entrega 280; fica 100
+    const c = await call(op.cookie, 'POST', `/pos/terminals/${t.id}/close`, { counted: '380.00', denominations: [{ value: '100', qty: 3 }, { value: '50', qty: 1 }, { value: '20', qty: 1 }, { value: '10', qty: 1 }] });
+    expect(c.statusCode, c.body).toBe(200);
+    expect(c.json()).toMatchObject({ difference: '280.00', kept: '100.00', handover: { amount: '280.00' } });
+    const rep = (await call(op.cookie, 'GET', `/pos/sessions/${c.json().sessionId}/report`)).json();
+    expect(rep.handover).toMatchObject({ status: 'pendente', declared_amount: '280.00', kept_amount: '100.00' });
+
+    // operador não confere; financeiro confere e registra a falta com motivo
+    const list = (await call(owner.cookie, 'GET', '/finance/cash-handovers')).json();
+    const h = list.find((x: { session_id: string }) => x.session_id === c.json().sessionId);
+    expect(h).toBeTruthy();
+    expect((await call(op.cookie, 'POST', `/finance/cash-handovers/${h.id}/confirm`, { received: '280.00' })).statusCode).toBe(403);
+    expect((await call(owner.cookie, 'POST', `/finance/cash-handovers/${h.id}/confirm`, { received: '270.00' })).statusCode).toBe(422);
+    const ok = await call(owner.cookie, 'POST', `/finance/cash-handovers/${h.id}/confirm`, { received: '270.00', reason: 'faltou uma nota de 10 no envelope' });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json().difference).toBe('-10.00');
+    expect((await call(owner.cookie, 'POST', `/finance/cash-handovers/${h.id}/confirm`, { received: '270.00' })).statusCode).toBe(409);
+    const tes = (await getPool().query(`SELECT b.balance::text FROM financial_accounts a JOIN financial_account_balances b ON b.account_id = a.id WHERE lower(a.name) = 'tesouraria (cofre)'`)).rows[0];
+    expect(Number(tes.balance)).toBeGreaterThanOrEqual(270);
+  });
+});
