@@ -10,6 +10,7 @@ import { useLocations } from '../components/stock';
 import { Alert, Field, Logo, Modal, Spinner } from '../components/ui';
 import { CashReportView, printCashReport, type CashReport } from '../components/cash-report';
 import { OrderForm } from './IfoodPage';
+import { SaleNoteForm, type SaleNote } from '../components/sale-notes';
 
 // ------------------------------------------------------------------ tipos
 interface Terminal { id: string; code: string; name: string; is_active: boolean; location_codes: string[] | null; open_session: { id: string; number: string; opened_at: string; opened_by: string } | null }
@@ -672,8 +673,9 @@ function ReceiptView({ r, onClose }: { r: ReceiptData; onClose: () => void }) {
 
 function SessionSales({ terminalId, owner }: { terminalId: string; owner: boolean }) {
   const qc = useQueryClient();
-  const list = useQuery({ queryKey: ['pos', 'sales', terminalId], queryFn: () => api.get<{ id: string; number: string; sold_at: string; net_amount: string; status: string; payments: string | null; operator_name: string | null }[]>(`/pos/terminals/${terminalId}/sales`) });
+  const list = useQuery({ queryKey: ['pos', 'sales', terminalId], queryFn: () => api.get<{ id: string; number: string; sold_at: string; net_amount: string; status: string; payments: string | null; operator_name: string | null; notes?: SaleNote[] }[]>(`/pos/terminals/${terminalId}/sales`) });
   const [cancelId, setCancelId] = useState<string | null>(null);
+  const [noteFor, setNoteFor] = useState<{ id: string; number: string } | null>(null);
   const [reason, setReason] = useState('');
   const cancel = useMutation({
     mutationFn: () => api.post(`/pos/sales/${cancelId}/cancel`, { reason }),
@@ -690,15 +692,20 @@ function SessionSales({ terminalId, owner }: { terminalId: string; owner: boolea
           <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setCancelId(null)}>Voltar</button><button className="btn-danger" disabled={cancel.isPending}>Cancelar venda</button></div>
         </form>
       )}
+      {noteFor && <SaleNoteForm saleId={noteFor.id} saleNumber={noteFor.number} onDone={() => setNoteFor(null)} />}
       <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
         <table className="min-w-full text-sm">
           <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2 text-left">Nº</th><th className="px-3 py-2 text-left">Hora</th><th className="px-3 py-2 text-left">Pagamento</th><th className="px-3 py-2 text-right">Total</th><th /></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {list.data?.map((s) => (
               <tr key={s.id} className={clsx(s.status === 'cancelada' && 'text-slate-400 line-through')}>
-                <td className="px-3 py-2">{s.number}</td><td className="px-3 py-2">{formatDateTime(s.sold_at)}</td><td className="px-3 py-2">{s.payments}</td>
+                <td className="px-3 py-2">{s.number}</td><td className="px-3 py-2">{formatDateTime(s.sold_at)}</td>
+                <td className="px-3 py-2">{s.payments}
+                  {s.notes?.map((n) => <div key={n.id} className={clsx('mt-1 rounded px-2 py-0.5 text-xs no-underline', n.resolvedAt ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900')}>💬 {n.note}{n.resolvedAt ? ` — resolvido: ${n.resolution}` : ' — aguardando financeiro'}</div>)}
+                </td>
                 <td className="px-3 py-2 text-right font-semibold">{formatMoney(s.net_amount)}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right no-underline">
+                  <button className="btn-ghost px-2 py-1 text-xs" onClick={() => setNoteFor({ id: s.id, number: s.number })}>Comentar</button>
                   <button className="btn-ghost px-2 py-1 text-xs" onClick={() => void reprint(s.id)}>2ª via</button>
                   {owner && s.status === 'concluida' && <button className="btn-ghost px-2 py-1 text-xs text-red-700" onClick={() => setCancelId(s.id)}>Cancelar</button>}
                 </td>
@@ -708,7 +715,7 @@ function SessionSales({ terminalId, owner }: { terminalId: string; owner: boolea
           </tbody>
         </table>
       </div>
-      {!owner && <p className="text-xs text-slate-500">Cancelar venda: somente o Proprietário.</p>}
+      <p className="text-xs text-slate-500">Registrou a forma de pagamento errada (ex.: débito no lugar de crédito)? Use <strong>Comentar</strong>: o financeiro vê e corrige. {!owner && 'Cancelar venda: somente o Proprietário.'}</p>
     </div>
   );
 }
@@ -723,6 +730,8 @@ function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { 
   const [counted, setCounted] = useState('');
   const [notes, setNotes] = useState('');
   const [result, setResult] = useState<CloseResult | null>(null);
+  const [review, setReview] = useState(false);
+  const owner = useIsOwner();
   const report = useQuery({ queryKey: ['cash-report', sessionId], queryFn: () => api.get<CashReport>(`/pos/sessions/${sessionId}/report`), enabled: !!result });
   // contagem por cédula/moeda: soma em centavos
   const noteTotal = DENOMS.reduce((t, d) => t + Math.round(Number(d) * 100) * (parseInt(qty[d] || '0', 10) || 0), 0);
@@ -759,6 +768,12 @@ function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { 
     );
   }
   return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-slate-200 p-2 text-sm">
+        <button type="button" className="btn-ghost px-2 py-1 text-sm" onClick={() => setReview(!review)}>{review ? '▾' : '▸'} Revisar as vendas do turno e comentar (Pix/cartão)</button>
+        <p className="px-2 text-xs text-slate-500">Você confere só o dinheiro. Se alguma venda foi registrada com a forma errada (ex.: débito × crédito), deixe um comentário para o financeiro.</p>
+        {review && <div className="mt-2"><SessionSales terminalId={terminalId} owner={owner} /></div>}
+      </div>
     <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
       {hasCart && <Alert kind="warning">Há uma venda em andamento na tela. Finalize ou limpe antes de fechar.</Alert>}
       <p className="text-sm text-slate-600">Conte <strong>todo</strong> o dinheiro da gaveta (inclusive o troco). O sistema compara com o esperado, mostra se o caixa está OK, com falta ou com sobra, e calcula o que vai para o financeiro.</p>
@@ -783,6 +798,7 @@ function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { 
       <Field label={otherName ? `Motivo (caixa de ${otherName}) *` : 'Observação'}><input className="input" required={!!otherName} minLength={otherName ? 3 : undefined} maxLength={300} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={otherName ? 'Ex.: operador esqueceu de fechar' : ''} /></Field>
       <div className="flex justify-end"><button className="btn-primary" disabled={m.isPending || hasCart}>Fechar caixa</button></div>
     </form>
+    </div>
   );
 }
 

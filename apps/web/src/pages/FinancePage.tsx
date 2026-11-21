@@ -19,6 +19,7 @@ import { ConciliationTab } from '../components/conciliation';
 import { CashReportView } from '../components/cash-report';
 import { LateSaleForm } from '../components/late-sale';
 import { CashFundSetting, HandoversPanel } from '../components/handovers';
+import { OpenSaleNotesPanel } from '../components/sale-notes';
 
 type Tab = 'geral' | 'pagar' | 'receber' | 'fixas' | 'caixa' | 'conciliacao' | 'extrato' | 'fluxo' | 'dre' | 'socios' | 'config';
 const TABS: [Tab, string][] = [
@@ -269,6 +270,7 @@ function CashTab() {
         ))}
       </div>
       <CashFundSetting />
+      <OpenSaleNotesPanel />
       <HandoversPanel />
       {ownerAction && <CashOwnerAction action={ownerAction} onClose={() => setOwnerAction(null)} onDone={() => invalidateFinance(qc)} />}
       <section>

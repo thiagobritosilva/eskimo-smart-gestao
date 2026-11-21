@@ -128,4 +128,27 @@ export async function posRoutes(app: FastifyInstance) {
     const { reason } = parse(z.object({ reason: z.string().trim().min(3, 'Informe o motivo do cancelamento.').max(300) }), req.body);
     return svc.cancelSale(actorOf(req), id, reason);
   });
+
+  // comentário do caixa na venda (ex.: "registrei débito, passou crédito") — operador da sessão, financeiro ou gerente
+  app.post('/pos/sales/:id/notes', { preHandler: requireAuth() }, async (req, reply) => {
+    const { id } = parse(idParams, req.params);
+    const b = parse(z.object({ note: z.string().trim().min(3, 'Escreva o comentário.').max(500) }), req.body);
+    reply.code(201);
+    return svc.addSaleNote(actorOf(req), id, b.note);
+  });
+  // correção da forma de pagamento (somente financeiro/Proprietário — verificado no serviço)
+  app.post('/pos/sales/:id/payment-correction', { preHandler: requireAuth() }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const b = parse(z.object({
+      paymentId: uuidSchema, toMethod: z.string().regex(/^[a-z_]+$/),
+      reason: z.string().trim().min(3, 'Informe o motivo.').max(300), noteId: uuidSchema.nullable().optional(),
+    }), req.body);
+    return svc.correctSalePayment(actorOf(req), id, b);
+  });
+  app.get('/pos/sale-notes', { preHandler: requirePermission('finance.view') }, async () => svc.listOpenSaleNotes());
+  app.post('/pos/sale-notes/:id/resolve', { preHandler: requireAuth() }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const b = parse(z.object({ resolution: z.string().trim().min(3, 'Informe a resolução.').max(300) }), req.body);
+    return svc.resolveSaleNote(actorOf(req), id, b.resolution);
+  });
 }

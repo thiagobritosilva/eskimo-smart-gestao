@@ -290,6 +290,7 @@ export async function sessionReport(sessionId: string) {
   )).rows[0] ?? null;
   return {
     session: s, methods, sales, movements: moves.filter((m) => !m.description.startsWith('Entrega ao financeiro')), handover,
+    saleList: await sessionSaleDetails(sessionId),
     ifood: { count: ifoodOrders.filter((o) => !o.cancelled).length, amount: fromCents(ifoodTotal), orders: ifoodOrders },
     grandTotal: fromCents(toCents(sales.total) + ifoodTotal),
   };
@@ -509,7 +510,9 @@ export async function listSessionSales(terminalId: string) {
   if (!session) return [];
   const { rows } = await db.query(
     `SELECT s.id, s.document_number AS number, s.sold_at, s.net_amount::text, s.status, s.stock_status, s.operator_name,
-            (SELECT string_agg(pm.name, ' + ') FROM sale_payments p JOIN payment_methods pm ON pm.code = p.method_code WHERE p.sale_id = s.id) AS payments
+            (SELECT string_agg(pm.name, ' + ') FROM sale_payments p JOIN payment_methods pm ON pm.code = p.method_code WHERE p.sale_id = s.id) AS payments,
+            coalesce((SELECT json_agg(json_build_object('id', n.id, 'note', n.note, 'at', n.created_at, 'resolvedAt', n.resolved_at, 'resolution', n.resolution) ORDER BY n.created_at)
+                      FROM sale_notes n WHERE n.sale_id = s.id), '[]') AS notes
      FROM sales s WHERE s.cash_session_id = $1 ORDER BY s.sold_at DESC LIMIT 200`, [session.id],
   );
   return rows;
@@ -558,4 +561,124 @@ export async function cancelSale(actor: Actor, saleId: string, reason: string) {
     await writeAudit(db, actor.audit, { action: 'pos.sale_cancelled', entity: 'sale', entityId: saleId, metadata: { number: s.document_number, total: s.net_amount, reason } });
     return { cancelled: true };
   });
+}
+
+// ------------------------------------------------------------------ comentários e correção da forma de pagamento
+/**
+ * O caixa não altera vendas. Se registrou uma forma e passou outra na maquininha (ex.: débito × crédito),
+ * deixa um COMENTÁRIO na venda — durante o turno ou no fechamento. O financeiro/Proprietário vê, corrige a forma
+ * de pagamento (com motivo, histórico e auditoria) e marca o comentário como resolvido.
+ * Dinheiro não entra na correção: ele é conferido na gaveta e já está lançado no caixa.
+ */
+const NON_CASH = new Set(['pix', 'debito', 'credito', 'outros', 'transferencia']);
+const canFix = (actor: Actor) => actor.permissions.includes('finance.manage') || actor.roleCode === OWNER_ROLE;
+
+async function saleForNotes(db: { query: ReturnType<typeof getPool>['query'] }, saleId: string) {
+  const s = (await db.query<{ id: string; document_number: string; status: string; consolidated_at: string | null; cash_session_id: string | null; opened_by: string | null }>(
+    `SELECT v.id, v.document_number, v.status, v.consolidated_at, v.cash_session_id, cs.opened_by
+     FROM sales v LEFT JOIN cash_sessions cs ON cs.id = v.cash_session_id WHERE v.id = $1 AND v.document_model = 'CAIXA'`, [saleId],
+  )).rows[0];
+  if (!s) throw Errors.notFound('Venda do caixa não encontrada.');
+  return s;
+}
+
+export async function addSaleNote(actor: Actor, saleId: string, note: string) {
+  const db = getPool();
+  const s = await saleForNotes(db, saleId);
+  const allowed = s.opened_by === actor.userId || actor.permissions.includes('pos.manage') || actor.permissions.includes('finance.view');
+  if (!allowed) throw Errors.forbidden('Somente o operador do caixa desta venda, o financeiro ou o gerente podem comentar.');
+  return withTransaction(async (tx) => {
+    const r = (await tx.query<{ id: string; created_at: string }>(
+      'INSERT INTO sale_notes (sale_id, note, created_by) VALUES ($1, $2, $3) RETURNING id, created_at', [saleId, note, actor.userId],
+    )).rows[0]!;
+    await writeAudit(tx, actor.audit, { action: 'pos.sale_note', entity: 'sale', entityId: saleId, metadata: { number: s.document_number, noteId: r.id } });
+    return { id: r.id, createdAt: r.created_at };
+  });
+}
+
+export async function resolveSaleNote(actor: Actor, noteId: string, resolution: string) {
+  if (!canFix(actor)) throw Errors.forbidden('Somente o financeiro ou o Proprietário resolvem comentários de venda.');
+  return withTransaction(async (db) => {
+    const n = (await db.query<{ sale_id: string; resolved_at: string | null }>('SELECT sale_id, resolved_at FROM sale_notes WHERE id = $1 FOR UPDATE', [noteId])).rows[0];
+    if (!n) throw Errors.notFound('Comentário não encontrado.');
+    if (n.resolved_at) throw Errors.conflict('Comentário já resolvido.');
+    await db.query('UPDATE sale_notes SET resolved_at = now(), resolved_by = $2, resolution = $3 WHERE id = $1', [noteId, actor.userId, resolution]);
+    await writeAudit(db, actor.audit, { action: 'pos.sale_note_resolved', entity: 'sale', entityId: n.sale_id, metadata: { noteId, resolution } });
+    return { resolved: true };
+  });
+}
+
+export async function correctSalePayment(actor: Actor, saleId: string, input: { paymentId: string; toMethod: string; reason: string; noteId?: string | null }) {
+  if (!canFix(actor)) throw Errors.forbidden('Somente o financeiro ou o Proprietário corrigem a forma de pagamento.');
+  return withTransaction(async (db) => {
+    const s = (await db.query<{ document_number: string; status: string; consolidated_at: string | null }>(
+      `SELECT document_number, status, consolidated_at FROM sales WHERE id = $1 AND document_model = 'CAIXA' FOR UPDATE`, [saleId],
+    )).rows[0];
+    if (!s) throw Errors.notFound('Venda do caixa não encontrada.');
+    if (s.status !== 'concluida') throw Errors.businessRule('Venda cancelada não tem forma de pagamento a corrigir.');
+    if (s.consolidated_at) throw Errors.businessRule('Esta venda já foi consolidada em Contas a receber. Ajuste o recebível no Financeiro (Receber).');
+    const p = (await db.query<{ method_code: string; amount: string; settled_title_id: string | null }>(
+      'SELECT method_code, amount::text, settled_title_id FROM sale_payments WHERE id = $1 AND sale_id = $2', [input.paymentId, saleId],
+    )).rows[0];
+    if (!p) throw Errors.notFound('Pagamento não encontrado nesta venda.');
+    if (p.method_code === input.toMethod) throw Errors.businessRule('A forma de pagamento já é essa.');
+    if (!NON_CASH.has(p.method_code) || !NON_CASH.has(input.toMethod) || p.settled_title_id) {
+      throw Errors.businessRule('A correção vale só entre Pix, débito, crédito e outros. Dinheiro é conferido na gaveta (use sangria/suprimento ou cancele a venda).');
+    }
+    const m = (await db.query('SELECT 1 FROM payment_methods WHERE code = $1', [input.toMethod])).rowCount;
+    if (!m) throw Errors.businessRule('Forma de pagamento inválida.');
+    if (input.noteId) {
+      const n = (await db.query('SELECT 1 FROM sale_notes WHERE id = $1 AND sale_id = $2', [input.noteId, saleId])).rowCount;
+      if (!n) throw Errors.businessRule('Comentário não pertence a esta venda.');
+    }
+    await db.query(`SELECT set_config('eskimo.payment_correction', 'on', true)`);
+    await db.query('UPDATE sale_payments SET method_code = $2, nfce_code = $3, card_brand = NULL WHERE id = $1', [input.paymentId, input.toMethod, NFCE_CODE[input.toMethod] ?? '99']);
+    await db.query(`SELECT set_config('eskimo.payment_correction', 'off', true)`);
+    const c = (await db.query<{ id: string }>(
+      `INSERT INTO sale_payment_corrections (sale_id, payment_id, from_method, to_method, amount, reason, note_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [saleId, input.paymentId, p.method_code, input.toMethod, p.amount, input.reason, input.noteId ?? null, actor.userId],
+    )).rows[0]!;
+    if (input.noteId) {
+      await db.query(
+        'UPDATE sale_notes SET resolved_at = now(), resolved_by = $2, resolution = $3 WHERE id = $1 AND resolved_at IS NULL',
+        [input.noteId, actor.userId, `Forma de pagamento corrigida: ${p.method_code} → ${input.toMethod}. ${input.reason}`],
+      );
+    }
+    await writeAudit(db, actor.audit, {
+      action: 'pos.sale_payment_corrected', entity: 'sale', entityId: saleId,
+      metadata: { number: s.document_number, paymentId: input.paymentId, from: p.method_code, to: input.toMethod, amount: p.amount, reason: input.reason },
+    });
+    return { id: c.id, from: p.method_code, to: input.toMethod, amount: p.amount };
+  });
+}
+
+/** Detalhe de todas as vendas de uma sessão (formas de pagamento, comentários e correções). */
+export async function sessionSaleDetails(sessionId: string) {
+  const { rows } = await getPool().query(
+    `SELECT v.id, v.document_number AS number, v.sold_at, v.net_amount::text, v.status, v.late_reason,
+       coalesce((SELECT json_agg(json_build_object('id', p.id, 'method', p.method_code, 'name', pm.name, 'amount', p.amount::text) ORDER BY pm.sort_order)
+                 FROM sale_payments p JOIN payment_methods pm ON pm.code = p.method_code WHERE p.sale_id = v.id), '[]') AS payments,
+       coalesce((SELECT json_agg(json_build_object('id', n.id, 'note', n.note, 'by', u.name, 'at', n.created_at, 'resolvedAt', n.resolved_at,
+                                                   'resolution', n.resolution, 'resolvedBy', ru.name) ORDER BY n.created_at)
+                 FROM sale_notes n JOIN users u ON u.id = n.created_by LEFT JOIN users ru ON ru.id = n.resolved_by WHERE n.sale_id = v.id), '[]') AS notes,
+       coalesce((SELECT json_agg(json_build_object('from', fm.name, 'to', tm.name, 'amount', c.amount::text, 'reason', c.reason, 'by', cu.name, 'at', c.created_at) ORDER BY c.created_at)
+                 FROM sale_payment_corrections c JOIN payment_methods fm ON fm.code = c.from_method JOIN payment_methods tm ON tm.code = c.to_method
+                 JOIN users cu ON cu.id = c.created_by WHERE c.sale_id = v.id), '[]') AS corrections,
+       v.consolidated_at IS NOT NULL AS consolidated
+     FROM sales v WHERE v.cash_session_id = $1 ORDER BY v.sold_at, v.document_number`, [sessionId],
+  );
+  return rows;
+}
+
+/** Comentários pendentes (para o financeiro): venda, caixa, operador. */
+export async function listOpenSaleNotes() {
+  const { rows } = await getPool().query(
+    `SELECT n.id, n.note, n.created_at, u.name AS by_name, v.id AS sale_id, v.document_number AS sale_number, v.sold_at, v.net_amount::text,
+            v.cash_session_id AS session_id, cs.number::text AS session_number, t.name AS terminal_name
+     FROM sale_notes n JOIN sales v ON v.id = n.sale_id JOIN users u ON u.id = n.created_by
+     LEFT JOIN cash_sessions cs ON cs.id = v.cash_session_id LEFT JOIN pos_terminals t ON t.cash_account_id = cs.account_id
+     WHERE n.resolved_at IS NULL ORDER BY n.created_at`,
+  );
+  return rows;
 }

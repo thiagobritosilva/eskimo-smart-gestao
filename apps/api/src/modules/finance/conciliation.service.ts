@@ -186,6 +186,11 @@ export async function conciliation(db: Queryable, from: string, to: string) {
   )).rows[0]!;
   if (envDiff.n) add({ area: 'Caixa', item: `${envDiff.n} envelope(s) com diferença na conferência`, expected: null, actual: null, difference: envDiff.v, status: 'atencao', detail: 'Valor recebido pelo financeiro diferente do declarado pelo caixa (motivo registrado).', link: '/financeiro?aba=caixa' });
 
+  // comentários do caixa nas vendas (ex.: forma de pagamento trocada) aguardando o financeiro
+  const notes = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM sale_notes WHERE resolved_at IS NULL`)).rows[0]!;
+  if (notes.n) add({ area: 'Caixa', item: `${notes.n} comentário(s) de venda aguardando o financeiro`, expected: null, actual: null, difference: null,
+    status: 'pendente', detail: 'O caixa sinalizou vendas (ex.: registrou débito e passou crédito). Corrija a forma de pagamento ou resolva o comentário.', link: '/financeiro?aba=caixa' });
+
   // títulos vencidos no período e não pagos (contas a pagar esquecidas)
   const overduePay = (await db.query<{ n: number; v: string }>(
     `SELECT count(*)::int AS n, coalesce(sum(i.amount - i.settled), 0)::text AS v FROM financial_installments i JOIN financial_titles t ON t.id = i.title_id

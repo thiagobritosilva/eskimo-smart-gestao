@@ -3,6 +3,7 @@ import { Printer } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { formatDateTime, formatMoney } from '../lib/format';
 import { Alert, Spinner } from './ui';
+import { SessionSaleList, type SaleDetail } from './sale-notes';
 
 export interface CashReport {
   session: {
@@ -15,6 +16,7 @@ export interface CashReport {
   movements: { kind: string; direction: string; amount: string; description: string; occurred_at: string }[];
   ifood: { count: number; amount: string; orders: { order_code: string; sold_at: string; amount: string; items: string | null; cancelled: boolean }[] };
   grandTotal: string;
+  saleList?: SaleDetail[];
   handover?: { number: string; status: string; declared_amount: string; kept_amount: string; denominations: { value: string; qty: number }[] | null; received_amount: string | null; difference: string | null; reason: string | null; confirmed_by_name: string | null } | null;
 }
 const KIND: Record<string, string> = { sangria: 'Sangria', suprimento: 'Suprimento', transferencia: 'Transferência', estorno: 'Estorno', ajuste_caixa: 'Ajuste (quebra/sobra)' };
@@ -44,6 +46,8 @@ export function printCashReport(r: CashReport) {
     ${Number(r.sales.discount) ? row('Descontos concedidos', `R$ ${num(r.sales.discount)}`) : ''}
     ${r.sales.cancelled ? row(`Canceladas (${r.sales.cancelled})`, `R$ ${num(r.sales.cancelled_total)}`) : ''}
     ${r.sales.late ? row(`Lançadas após o fechamento (${r.sales.late})`, `R$ ${num(r.sales.late_total ?? 0)}`) : ''}</table><hr>
+    ${r.saleList?.length ? `<div class="b">TODAS AS VENDAS DO TURNO</div><table class="sm">${r.saleList.map((v) => `<tr><td>${esc(v.number)} ${dt(v.sold_at).slice(-5)}${v.status === 'cancelada' ? ' CANC.' : ''}<br>${esc(v.payments.map((p) => `${p.name.replace('Cartão de ', '')} ${num(p.amount)}`).join(' + '))}${v.notes.map((n) => `<br>* ${esc(n.note)}${n.resolvedAt ? ' (resolvido)' : ''}`).join('')}${v.corrections.map((c) => `<br>Corrigido: ${esc(c.from)} > ${esc(c.to)}`).join('')}</td><td class="r">${num(v.net_amount)}</td></tr>`).join('')}</table>
+    <div class="sm">Pix/cartão: o caixa não confere; divergência vai como comentário para o financeiro.</div><hr>` : ''}
     <div class="b">iFOOD DESPACHADO NO TURNO</div>
     <table>${r.ifood.orders.filter((o) => !o.cancelled).map((o) => row(`#${o.order_code} ${dt(o.sold_at).slice(-5)}`, `R$ ${num(o.amount)}`)).join('') || '<tr><td class="sm">Nenhum pedido</td></tr>'}
     ${row(`Total iFood (${r.ifood.count} pedido(s))`, `R$ ${num(r.ifood.amount)}`, true)}</table>
@@ -114,6 +118,7 @@ export function CashReportView({ sessionId }: { sessionId: string }) {
         {diff != null && <div className={`flex justify-between font-semibold ${diff === 0 ? 'text-emerald-700' : 'text-red-600'}`}><span>{diff === 0 ? 'Sem diferença' : diff > 0 ? 'Sobra' : 'Falta'}</span><span className="tabular-nums">{formatMoney(Math.abs(diff).toFixed(2))}</span></div>}
         {s.status === 'cancelada' && <div className="text-red-600">Abertura cancelada: {s.cancel_reason}</div>}
       </div>
+      {r.saleList && <SessionSaleList sales={r.saleList} />}
       {r.handover && (
         <div className="rounded-xl border-2 border-slate-300 p-3">
           <div className="mb-1 font-semibold">Entrega ao financeiro (envelope)</div>

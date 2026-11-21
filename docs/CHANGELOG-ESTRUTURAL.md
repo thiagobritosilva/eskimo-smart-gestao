@@ -357,3 +357,16 @@ com impacto e estratégia de preservação de dados.
   vendas por forma de pagamento, iFood, conferência do dinheiro, cédulas, envelope e linhas de assinatura.
 - **Financeiro › Caixa › Envelopes:** conferir (valor recebido; diferença exige motivo e vira quebra/sobra na
   tesouraria). Pendências aparecem na Conciliação. `closeCashSession` ganhou a versão `closeCashSessionInDb`.
+
+## 0026_comentario_venda — comentário do caixa na venda e correção da forma de pagamento (2026-11-21)
+- **O quê:** tabelas `sale_notes` (comentário do caixa; imutável, só a resolução é registrada uma vez) e
+  `sale_payment_corrections` (histórico imutável das correções). O trigger de `sale_payments` passa a aceitar
+  somente a troca de `method_code`/`nfce_code`/`card_brand` feita pela operação de correção (variável de transação
+  `eskimo.payment_correction`); qualquer outra alteração ou exclusão continua bloqueada.
+- **Regra:** o caixa confere só o dinheiro. Pix/débito/crédito errado → o operador comenta a venda (durante o turno
+  em "Vendas" ou no fechamento em "Revisar as vendas"). Só financeiro (`finance.manage`) ou Proprietário corrigem a
+  forma de pagamento, com motivo, auditoria (`pos.sale_payment_corrected`) e resolução do comentário. Valor da venda
+  não muda; dinheiro não é corrigido por aqui; venda já consolidada em Contas a receber é ajustada no recebível.
+- **Relatório/comprovante do caixa:** passa a listar todas as vendas do turno (formas, comentários e correções).
+  Comentários pendentes aparecem em Financeiro › Caixa e na Conciliação.
+- **Impacto:** somente tabelas novas e troca do trigger de `sale_payments`; nenhum dado alterado.

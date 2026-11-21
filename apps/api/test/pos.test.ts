@@ -244,4 +244,71 @@ describe('frente de caixa', () => {
     const audit = await getPool().query(`SELECT metadata FROM audit_log WHERE action = 'pos.terminal_deleted' AND entity_id = $1`, [t.id]);
     expect(audit.rows[0].metadata.reason).toBe('cadastrado por engano');
   });
+
+  it('comentário na venda: o caixa comenta; só financeiro/Proprietário corrige a forma (Pix/cartão), com histórico e auditoria', async () => {
+    const t = (await call(owner.cookie, { method: 'POST', url: '/api/pos/terminals', payload: {} })).json();
+    const op = await asRole(app, 'FUNCIONARIO');
+    const outro = await asRole(app, 'FUNCIONARIO');
+    const ger = await asRole(app, 'GERENTE');
+    expect((await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/open`, payload: { counted: '100.00' } })).statusCode).toBe(201);
+    const v = await call(op.cookie, { method: 'POST', url: '/api/pos/sales', payload: { terminalId: t.id, idempotencyKey: randomUUID(), items: [{ productId: p1, quantity: '2' }], payments: [{ methodCode: 'debito', amount: '10.00' }] } });
+    expect(v.statusCode, v.body).toBe(201);
+    const cash = await call(op.cookie, { method: 'POST', url: '/api/pos/sales', payload: { terminalId: t.id, idempotencyKey: randomUUID(), items: [{ productId: p1, quantity: '1' }], payments: [{ methodCode: 'dinheiro', amount: '5.00' }] } });
+    const saleId = v.json().id as string;
+
+    // operador do turno comenta; outro operador não
+    expect((await call(outro.cookie, { method: 'POST', url: `/api/pos/sales/${saleId}/notes`, payload: { note: 'teste' } })).statusCode).toBe(403);
+    const n = await call(op.cookie, { method: 'POST', url: `/api/pos/sales/${saleId}/notes`, payload: { note: 'Registrei débito, mas passou no crédito.' } });
+    expect(n.statusCode, n.body).toBe(201);
+    const sales = (await call(op.cookie, { method: 'GET', url: `/api/pos/terminals/${t.id}/sales` })).json();
+    expect(sales.find((x: { id: string }) => x.id === saleId).notes[0]).toMatchObject({ note: 'Registrei débito, mas passou no crédito.', resolvedAt: null });
+    expect((await call(owner.cookie, { method: 'GET', url: '/api/pos/sale-notes' })).json().some((x: { id: string }) => x.id === n.json().id)).toBe(true);
+
+    const pay = (await getPool().query('SELECT id FROM sale_payments WHERE sale_id = $1', [saleId])).rows[0].id as string;
+    const body = { paymentId: pay, toMethod: 'credito', reason: 'Conferido no extrato da maquininha', noteId: n.json().id };
+    // operador e gerente (sem finance.manage) não corrigem
+    expect((await call(op.cookie, { method: 'POST', url: `/api/pos/sales/${saleId}/payment-correction`, payload: body })).statusCode).toBe(403);
+    expect((await call(ger.cookie, { method: 'POST', url: `/api/pos/sales/${saleId}/payment-correction`, payload: body })).statusCode).toBe(403);
+    // banco não deixa alterar o pagamento fora da operação auditada
+    await expect(getPool().query(`UPDATE sale_payments SET method_code = 'credito' WHERE id = $1`, [pay])).rejects.toThrow(/imutável/);
+    // dinheiro não é corrigido aqui
+    const cashPay = (await getPool().query('SELECT id FROM sale_payments WHERE sale_id = $1', [cash.json().id])).rows[0].id;
+    expect((await call(owner.cookie, { method: 'POST', url: `/api/pos/sales/${cash.json().id}/payment-correction`, payload: { paymentId: cashPay, toMethod: 'pix', reason: 'teste' } })).statusCode).toBe(422);
+
+    const before = (await call(owner.cookie, { method: 'GET', url: `/api/pos/sessions/${(await getPool().query('SELECT cash_session_id FROM sales WHERE id = $1', [saleId])).rows[0].cash_session_id}/report` })).json();
+    const m = (code: string, r: { methods: { code: string; amount: string }[] }) => r.methods.find((x) => x.code === code)?.amount;
+    expect([m('debito', before), m('credito', before)]).toEqual(['10.00', '0']);
+    const c = await call(owner.cookie, { method: 'POST', url: `/api/pos/sales/${saleId}/payment-correction`, payload: body });
+    expect(c.statusCode, c.body).toBe(200);
+    expect(c.json()).toMatchObject({ from: 'debito', to: 'credito', amount: '10.00' });
+    const after = (await call(owner.cookie, { method: 'GET', url: `/api/pos/sessions/${before.session.id}/report` })).json();
+    expect([m('debito', after), m('credito', after)]).toEqual(['0', '10.00']);
+    expect(after.sales.total).toBe(before.sales.total); // valor não muda
+    // relatório traz todas as vendas, com comentário resolvido e a correção
+    const line = after.saleList.find((x: { id: string }) => x.id === saleId);
+    expect(after.saleList).toHaveLength(2);
+    expect(line.payments[0]).toMatchObject({ method: 'credito', amount: '10.00' });
+    expect(line.notes[0].resolvedAt).not.toBeNull();
+    expect(line.corrections[0]).toMatchObject({ from: 'Cartão de débito', to: 'Cartão de crédito' });
+    expect((await getPool().query(`SELECT nfce_code FROM sale_payments WHERE id = $1`, [pay])).rows[0].nfce_code).toBe('03');
+    const audit = await getPool().query(`SELECT metadata FROM audit_log WHERE action = 'pos.sale_payment_corrected' AND entity_id = $1`, [saleId]);
+    expect(audit.rows[0].metadata).toMatchObject({ from: 'debito', to: 'credito', reason: 'Conferido no extrato da maquininha' });
+    // histórico imutável
+    await expect(getPool().query('DELETE FROM sale_payment_corrections WHERE sale_id = $1', [saleId])).rejects.toThrow();
+    await expect(getPool().query(`UPDATE sale_notes SET note = 'outro' WHERE id = $1`, [n.json().id])).rejects.toThrow(/imutável/);
+
+    // resolver comentário sem correção: só financeiro/Proprietário
+    const n2 = (await call(op.cookie, { method: 'POST', url: `/api/pos/sales/${saleId}/notes`, payload: { note: 'Confere de novo, por favor.' } })).json();
+    expect((await call(op.cookie, { method: 'POST', url: `/api/pos/sale-notes/${n2.id}/resolve`, payload: { resolution: 'ok, conferi' } })).statusCode).toBe(403);
+    expect((await call(owner.cookie, { method: 'POST', url: `/api/pos/sale-notes/${n2.id}/resolve`, payload: { resolution: 'Conferido, correto.' } })).statusCode).toBe(200);
+    expect((await call(owner.cookie, { method: 'POST', url: `/api/pos/sale-notes/${n2.id}/resolve`, payload: { resolution: 'de novo' } })).statusCode).toBe(409);
+
+    // venda já consolidada em contas a receber: correção bloqueada (ajusta o recebível)
+    await getPool().query('UPDATE sales SET consolidated_at = now() WHERE id = $1', [saleId]);
+    const blocked = await call(owner.cookie, { method: 'POST', url: `/api/pos/sales/${saleId}/payment-correction`, payload: { paymentId: pay, toMethod: 'pix', reason: 'teste' } });
+    expect(blocked.statusCode).toBe(422);
+    expect(blocked.json().error?.message ?? blocked.body).toMatch(/consolidada/);
+    await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/close`, payload: { counted: '105.00' } });
+    await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${t.id}`, payload: { isActive: false } });
+  });
 });
