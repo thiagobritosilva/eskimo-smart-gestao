@@ -394,3 +394,11 @@ com impacto e estratégia de preservação de dados.
   recusa e orienta a permitir a localização; impossibilidade técnica → pedido de ajuste ao gestor. Fora do raio da
   loja: a marcação é registrada e sinalizada (alerta no espelho, alfinete vermelho), nunca bloqueada.
 - **Impacto:** colunas novas e nulas; nenhum dado existente alterado.
+
+## 0029_ponto_so_proprietario — gestão do ponto exclusiva do Proprietário (2026-11-21)
+- **O quê:** remove `timeclock.manage` do Gerente (e de concessões individuais). No servidor, a gestão do ponto passa a
+  ser verificada pelo PERFIL Proprietário (permissão individual não libera): quadro "Equipe hoje", ajustes
+  (lançar/aprovar/recusar), espelho e comprovantes de outros usuários, local da loja e conferência da corrente.
+- **Demais usuários (inclusive Gerente):** apenas "Meu ponto" — bater o próprio ponto, ver o próprio espelho e
+  comprovantes e pedir ajuste do próprio ponto.
+- **Impacto:** só permissões; nenhuma marcação ou pedido de ajuste alterado.

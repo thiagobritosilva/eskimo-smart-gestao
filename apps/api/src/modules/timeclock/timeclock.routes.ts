@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { actorOf } from '../../lib/actor.js';
-import { requirePermission } from '../../lib/http.js';
+import { requireOwner, requirePermission } from '../../lib/http.js';
 import { parse, uuidSchema } from '../../lib/validation.js';
 import * as svc from './timeclock.service.js';
 
@@ -10,7 +10,8 @@ const idParams = z.object({ id: uuidSchema });
 
 export async function timeclockRoutes(app: FastifyInstance) {
   const punch = requirePermission('timeclock.punch');
-  const manage = requirePermission('timeclock.manage');
+  // gestão do ponto: somente o Proprietário (pelo perfil)
+  const manage = requireOwner('Somente o Proprietário vê e gerencia o ponto de todos.');
   app.get('/timeclock/me', { preHandler: punch }, async (req) => svc.myToday(actorOf(req)));
   // o navegador não envia horário: a hora é a do servidor
   app.post('/timeclock/punch', { preHandler: punch }, async (req, reply) => {
@@ -46,7 +47,7 @@ export async function timeclockRoutes(app: FastifyInstance) {
     return svc.decideAdjustment(actorOf(req), id, b.approve, b.reason ?? null);
   });
   app.get('/timeclock/today', { preHandler: manage }, async (req) => svc.todayBoard(actorOf(req)));
-  app.get('/timeclock/params', { preHandler: punch }, async () => svc.getTimeclockParams());
+  app.get('/timeclock/params', { preHandler: manage }, async () => svc.getTimeclockParams());
   app.put('/timeclock/params', { preHandler: manage }, async (req) => {
     const b = parse(z.object({
       storeLatitude: z.number().min(-90).max(90).nullable(), storeLongitude: z.number().min(-180).max(180).nullable(), radiusMeters: z.number().int().min(20).max(50000).nullable(),

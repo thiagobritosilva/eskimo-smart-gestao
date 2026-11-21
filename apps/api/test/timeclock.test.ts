@@ -52,15 +52,17 @@ describe('ponto', () => {
     expect((await call(func.cookie, 'GET', '/timeclock/me')).json().next).toBe('saida');
     // comprovante: dono e gestor veem; outro funcionário não
     expect((await call(func.cookie, 'GET', `/timeclock/punches/${e.json().id}`)).statusCode).toBe(200);
-    expect((await call(gerente.cookie, 'GET', `/timeclock/punches/${e.json().id}`)).statusCode).toBe(200);
+    expect((await call(owner.cookie, 'GET', `/timeclock/punches/${e.json().id}`)).statusCode).toBe(200);
+    expect((await call(gerente.cookie, 'GET', `/timeclock/punches/${e.json().id}`)).statusCode).toBe(403); // gerente: só o próprio
     expect((await call(outro.cookie, 'GET', `/timeclock/punches/${e.json().id}`)).statusCode).toBe(403);
   });
 
   it('local da loja (opcional): marcação fora do raio fica registrada e sinalizada; banco exige localização na marcação do app', async () => {
-    expect((await call(func.cookie, 'GET', '/timeclock/params')).json()).toEqual({ storeLatitude: null, storeLongitude: null, radiusMeters: null });
+    expect((await call(func.cookie, 'GET', '/timeclock/params')).statusCode).toBe(403);
+    expect((await call(owner.cookie, 'GET', '/timeclock/params')).json()).toEqual({ storeLatitude: null, storeLongitude: null, radiusMeters: null });
     expect((await call(func.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: LOJA.longitude, radiusMeters: 200 })).statusCode).toBe(403);
-    expect((await call(gerente.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: null, radiusMeters: 200 })).statusCode).toBe(400);
-    expect((await call(gerente.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: LOJA.longitude, radiusMeters: 200 })).statusCode).toBe(200);
+    expect((await call(owner.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: null, radiusMeters: 200 })).statusCode).toBe(400);
+    expect((await call(owner.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: LOJA.longitude, radiusMeters: 200 })).statusCode).toBe(200);
     // ~1,1 km ao norte
     const longe = await call(outro.cookie, 'POST', '/timeclock/punch', { kind: 'entrada', location: { latitude: -23.54052, longitude: -46.633308, accuracy: 30 } });
     expect(longe.statusCode, longe.body).toBe(201);
@@ -70,7 +72,7 @@ describe('ponto', () => {
     expect(sheet.days.at(-1).alerts.join(' ')).toMatch(/Entrada marcada a 11\d\d m da loja/);
     expect(sheet.days.at(-1).punches[0]).toMatchObject({ latitude: -23.54052, outside: true });
     await expect(getPool().query(`INSERT INTO time_punches (user_id, kind, work_date, origin, hash) VALUES ($1, 'saida', current_date, 'app', 'x')`, [outro.id])).rejects.toThrow(/time_punches_app_location/);
-    await call(gerente.cookie, 'PUT', '/timeclock/params', { storeLatitude: null, storeLongitude: null, radiusMeters: null });
+    await call(owner.cookie, 'PUT', '/timeclock/params', { storeLatitude: null, storeLongitude: null, radiusMeters: null });
   });
 
   it('marcação é imutável no banco e a corrente de hashes detecta adulteração', async () => {
@@ -95,17 +97,17 @@ describe('ponto', () => {
     }
     // funcionário não decide
     expect((await call(func.cookie, 'POST', `/timeclock/adjustments/${ids[0]}/decide`, { approve: true })).statusCode).toBe(403);
-    const pend = (await call(gerente.cookie, 'GET', '/timeclock/adjustments')).json();
+    const pend = (await call(owner.cookie, 'GET', '/timeclock/adjustments')).json();
     expect(pend.filter((a: { user_id: string }) => a.user_id === func.id)).toHaveLength(4);
-    for (const id of ids) expect((await call(gerente.cookie, 'POST', `/timeclock/adjustments/${id}/decide`, { approve: true })).statusCode).toBe(200);
-    expect((await call(gerente.cookie, 'POST', `/timeclock/adjustments/${ids[0]}/decide`, { approve: true })).statusCode).toBe(409);
+    for (const id of ids) expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${id}/decide`, { approve: true })).statusCode).toBe(200);
+    expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${ids[0]}/decide`, { approve: true })).statusCode).toBe(409);
 
     // recusa exige motivo
     const x = (await call(func.cookie, 'POST', '/timeclock/adjustments', { kind: 'saida', at: '2026-10-06T18:00:00-03:00', reason: 'teste recusa' })).json();
-    expect((await call(gerente.cookie, 'POST', `/timeclock/adjustments/${x.id}/decide`, { approve: false })).statusCode).toBe(422);
-    expect((await call(gerente.cookie, 'POST', `/timeclock/adjustments/${x.id}/decide`, { approve: false, reason: 'Não estava na loja' })).statusCode).toBe(200);
+    expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${x.id}/decide`, { approve: false })).statusCode).toBe(422);
+    expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${x.id}/decide`, { approve: false, reason: 'Não estava na loja' })).statusCode).toBe(200);
 
-    // gerente não aprova o próprio ajuste; Proprietário aprova
+    // gerente pede ajuste do próprio ponto, mas não decide nada; só o Proprietário
     const g = (await call(gerente.cookie, 'POST', '/timeclock/adjustments', { kind: 'entrada', at: '2026-10-07T08:00:00-03:00', reason: 'esqueci' })).json();
     expect((await call(gerente.cookie, 'POST', `/timeclock/adjustments/${g.id}/decide`, { approve: true })).statusCode).toBe(403);
     expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${g.id}/decide`, { approve: true })).statusCode).toBe(200);
@@ -120,17 +122,33 @@ describe('ponto', () => {
     expect(t.adjustments.find((a: { status: string }) => a.status === 'recusado').decision_reason).toBe('Não estava na loja');
     // outro funcionário não vê o espelho; gestor vê
     expect((await call(outro.cookie, 'GET', `/timeclock/timesheet?month=2026-10&userId=${func.id}`)).statusCode).toBe(403);
-    expect((await call(gerente.cookie, 'GET', `/timeclock/timesheet?month=2026-10&userId=${func.id}`)).statusCode).toBe(200);
+    expect((await call(owner.cookie, 'GET', `/timeclock/timesheet?month=2026-10&userId=${func.id}`)).statusCode).toBe(200);
+    expect((await call(gerente.cookie, 'GET', `/timeclock/timesheet?month=2026-10&userId=${func.id}`)).statusCode).toBe(403);
+    expect((await call(gerente.cookie, 'GET', '/timeclock/timesheet?month=2026-10')).statusCode).toBe(200); // o próprio espelho
     expect((await call(owner.cookie, 'GET', '/timeclock/verify')).json().ok).toBe(true);
   });
 
-  it('quadro do dia para o gestor', async () => {
-    const b = (await call(gerente.cookie, 'GET', '/timeclock/today')).json();
+  it('gestão do ponto é exclusiva do Proprietário, mesmo com permissão individual concedida', async () => {
+    for (const [m, u] of [['GET', '/timeclock/today'], ['GET', '/timeclock/adjustments'], ['GET', '/timeclock/verify'], ['GET', '/timeclock/params']] as const) {
+      expect((await call(gerente.cookie, m, u)).statusCode, u).toBe(403);
+    }
+    expect((await call(gerente.cookie, 'PUT', '/timeclock/params', { storeLatitude: null, storeLongitude: null, radiusMeters: null })).statusCode).toBe(403);
+    const perm = (await getPool().query(`SELECT id FROM permissions WHERE code = 'timeclock.manage'`)).rows[0].id;
+    await getPool().query(`INSERT INTO user_permission_overrides (user_id, permission_id, effect, granted_by) VALUES ($1, $2, 'grant', $3) ON CONFLICT DO NOTHING`, [gerente.id, perm, owner.id]);
+    expect((await call(gerente.cookie, 'GET', '/timeclock/today')).statusCode).toBe(403);
+    await getPool().query('DELETE FROM user_permission_overrides WHERE user_id = $1 AND permission_id = $2', [gerente.id, perm]);
+    // gerente continua batendo o próprio ponto
+    expect((await call(gerente.cookie, 'GET', '/timeclock/me')).statusCode).toBe(200);
+  });
+
+  it('quadro do dia para o Proprietário', async () => {
+    const b = (await call(owner.cookie, 'GET', '/timeclock/today')).json();
     const f = b.find((u: { id: string }) => u.id === func.id);
     expect(f.status).toBe('trabalhando');
     expect(f.punches).toHaveLength(3);
     expect(f.punches[0].latitude).toBe(-23.55052);
     expect((await call(func.cookie, 'GET', '/timeclock/today')).statusCode).toBe(403);
+    expect((await call(gerente.cookie, 'GET', '/timeclock/today')).statusCode).toBe(403);
   });
 
   it('alertas legais do espelho: intervalo < 1h, > 2h, sem intervalo, > 10h, descanso < 11h', () => {

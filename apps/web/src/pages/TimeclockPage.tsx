@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Clock, Coffee, LogIn, LogOut, MapPin, Printer, UtensilsCrossed } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage, qs } from '../lib/api';
-import { useAuth } from '../lib/auth';
+import { useAuth, useIsOwner } from '../lib/auth';
 import { formatDate, formatDateTime } from '../lib/format';
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
 
@@ -23,7 +23,7 @@ const msg = (e: unknown) => (e instanceof GeoError ? e.message : errorMessage(e)
 /** Lê a posição do aparelho só no momento da marcação (sem rastreamento contínuo). */
 function getLocation(): Promise<Geo> {
   return new Promise((resolve, reject) => {
-    if (!('geolocation' in navigator)) { reject(new GeoError('Este aparelho/navegador não informa a localização. Use outro aparelho ou peça ajuste ao gestor.')); return; }
+    if (!('geolocation' in navigator)) { reject(new GeoError('Este aparelho/navegador não informa a localização. Use outro aparelho ou peça ajuste ao Proprietário.')); return; }
     navigator.geolocation.getCurrentPosition(
       (p) => resolve({ latitude: Number(p.coords.latitude.toFixed(6)), longitude: Number(p.coords.longitude.toFixed(6)), accuracy: Math.round(p.coords.accuracy * 10) / 10 }),
       (e) => reject(new GeoError(e.code === e.PERMISSION_DENIED
@@ -101,14 +101,14 @@ function printTimesheet(s: Sheet) {
     <table><thead><tr><th>Data</th><th>Entrada</th><th>Saída almoço</th><th>Volta almoço</th><th>Saída</th><th>Intervalo</th><th>Trabalhado</th><th>Observações</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="8">Nenhuma marcação no mês.</td></tr>'}</tbody>
     <tfoot><tr><th colspan="6">Total do mês (${s.totals.days} dia(s))</th><th class="r">${dur(s.totals.workedMinutes)}</th><th></th></tr></tfoot></table>
-    <p class="sm">* marcação incluída por ajuste aprovado pelo gestor (com motivo registrado). † marcação fora do raio da loja (localização registrada). Horários do servidor (Brasília); localização do aparelho no momento da marcação.</p>
+    <p class="sm">* marcação incluída por ajuste aprovado pelo Proprietário (com motivo registrado). † marcação fora do raio da loja (localização registrada). Horários do servidor (Brasília); localização do aparelho no momento da marcação.</p>
     ${s.adjustments.length ? `<b>Ajustes do mês</b><table><tr><th>Nº</th><th>Marcação</th><th>Horário</th><th>Motivo</th><th>Decisão</th></tr>${s.adjustments.map((a) => `<tr><td>${a.number}</td><td>${KIND[a.kind]}</td><td>${formatDateTime(a.requested_at)}</td><td>${esc(a.reason)}</td><td>${a.status}${a.decided_by_name ? ` (${esc(a.decided_by_name)})` : ''}${a.decision_reason ? ` — ${esc(a.decision_reason)}` : ''}</td></tr>`).join('')}</table>` : ''}
     <div class="sig"><div>Empregado: ${esc(s.user.name)}</div><div>Empregador</div></div>`, 900);
 }
 
 export function TimeclockPage() {
-  const { can } = useAuth();
-  const manage = can('timeclock.manage');
+  // gestão do ponto (equipe, ajustes, espelhos, local): somente o Proprietário; os demais veem só "Meu ponto"
+  const manage = useIsOwner();
   const [params, setParams] = useSearchParams();
   type Tab = 'meu' | 'equipe' | 'ajustes' | 'espelho' | 'local';
   const tab = (params.get('aba') as Tab) || 'meu';
@@ -257,7 +257,7 @@ function AdjustmentForm({ userId, onDone }: { userId?: string; onDone: () => voi
         <Field label="Horário *"><input type="time" className="input" required value={time} onChange={(e) => setTime(e.target.value)} /></Field>
       </div>
       <Field label="Motivo *"><input className="input" required minLength={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex.: esqueci de bater a volta do almoço" /></Field>
-      <p className="text-xs text-slate-500">O pedido vai para o gestor. Se aprovado, entra no espelho como marcação incluída por ajuste; as marcações originais nunca são alteradas.</p>
+      <p className="text-xs text-slate-500">O pedido vai para o Proprietário. Se aprovado, entra no espelho como marcação incluída por ajuste; as marcações originais nunca são alteradas.</p>
       <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onDone}>Voltar</button><button className="btn-primary" disabled={m.isPending}>Enviar pedido</button></div>
     </form>
   );
@@ -325,7 +325,6 @@ function TeamToday() {
 
 function Adjustments() {
   const qc = useQueryClient();
-  const { user } = useAuth();
   const [status, setStatus] = useState<'pendente' | 'todos'>('pendente');
   const [deciding, setDeciding] = useState<{ a: Adjustment; approve: boolean } | null>(null);
   const [reason, setReason] = useState('');
@@ -351,10 +350,9 @@ function Adjustments() {
                 <td className="td">{KIND[a.kind]}</td><td className="td whitespace-nowrap">{formatDateTime(a.requested_at)}</td><td className="td">{a.reason}</td>
                 <td className="td">{a.status}{a.decided_by_name && <div className="text-xs text-slate-500">{a.decided_by_name}{a.decision_reason ? ` — ${a.decision_reason}` : ''}</div>}</td>
                 <td className="td whitespace-nowrap text-right">
-                  {a.status === 'pendente' && (a.user_id !== user?.id || user?.roleCode === 'PROPRIETARIO') && <>
+                  {a.status === 'pendente' && <>
                     <button className="btn-primary px-2 py-1 text-xs" onClick={() => setDeciding({ a, approve: true })}>Aprovar</button>{' '}
                     <button className="btn-secondary px-2 py-1 text-xs text-red-700" onClick={() => setDeciding({ a, approve: false })}>Recusar</button></>}
-                  {a.status === 'pendente' && a.user_id === user?.id && user?.roleCode !== 'PROPRIETARIO' && <span className="text-xs text-slate-400">outro gestor decide</span>}
                 </td>
               </tr>
             ))}
@@ -385,7 +383,7 @@ function AdjustForOther({ onDone }: { onDone: () => void }) {
     <div className="space-y-3">
       <Field label="Empregado *"><select className="input" value={userId} onChange={(e) => setUserId(e.target.value)}><option value="">Selecione…</option>{users.data?.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>
       {userId && <AdjustmentForm key={userId} userId={userId} onDone={onDone} />}
-      <p className="text-xs text-slate-500">O ajuste lançado pelo gestor também precisa ser aprovado (por outro gestor ou pelo Proprietário quando for o próprio).</p>
+      <p className="text-xs text-slate-500">O ajuste lançado fica registrado com o motivo e depois é aprovado aqui mesmo, em Ajustes.</p>
     </div>
   );
 }

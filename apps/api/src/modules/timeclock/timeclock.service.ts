@@ -9,8 +9,8 @@ import type { Actor } from '../stock/stock.service.js';
  * - Hora SEMPRE do servidor; marcação imutável, numerada (NSR) e encadeada por hash SHA-256.
  * - Sequência do dia: entrada → saída para o almoço → volta do almoço → saída. O sistema sugere a próxima marcação,
  *   mas não impede nenhuma (a Portaria MTP 671/2021 veda restrições à marcação): irregularidades viram ALERTAS no espelho.
- * - Esquecimento/erro: pedido de ajuste com motivo; gestor aprova ou recusa. Ninguém aprova o próprio ajuste
- *   (exceto o Proprietário). A marcação original nunca é alterada; o ajuste aprovado entra como marcação "incluída".
+ * - Esquecimento/erro: pedido de ajuste com motivo; o Proprietário aprova ou recusa.
+ * - Gestão (ponto de todos, ajustes, espelhos, local da loja): somente o Proprietário. Demais: só o próprio ponto. A marcação original nunca é alterada; o ajuste aprovado entra como marcação "incluída".
  */
 export const KINDS = ['entrada', 'saida_almoco', 'volta_almoco', 'saida'] as const;
 export type PunchKind = (typeof KINDS)[number];
@@ -20,7 +20,9 @@ const DOUBLE_TAP_SECONDS = 120;
 const LUNCH_MIN = 60; // art. 71 da CLT: jornada acima de 6h → intervalo mínimo de 1 hora
 const LUNCH_MAX = 120; // art. 71: máximo de 2 horas, salvo acordo escrito ou convenção coletiva
 const need = (a: Actor, p: string) => { if (!a.permissions.includes(p)) throw Errors.forbidden(); };
-const canManage = (a: Actor) => a.permissions.includes('timeclock.manage');
+/** Gestão do ponto: exclusiva do Proprietário (pelo perfil — não pode ser liberada por permissão individual). */
+const canManage = (a: Actor) => a.roleCode === OWNER_ROLE;
+const needOwner = (a: Actor) => { if (!canManage(a)) throw Errors.forbidden('Somente o Proprietário vê e gerencia o ponto de todos.'); };
 
 /** Grava a marcação com NSR e hash encadeado (bloqueio para manter a corrente em ordem). */
 export interface GeoPoint { latitude: number; longitude: number; accuracy?: number | null }
@@ -70,7 +72,7 @@ export async function myToday(actor: Actor) {
 
 export async function punch(actor: Actor, kind: PunchKind | null, meta: { ip?: string | null; userAgent?: string | null; geo?: GeoPoint | null }) {
   need(actor, 'timeclock.punch');
-  if (!meta.geo) throw Errors.businessRule('Localização obrigatória: permita o acesso à localização do aparelho para bater o ponto. Se não for possível, peça ajuste ao gestor.');
+  if (!meta.geo) throw Errors.businessRule('Localização obrigatória: permita o acesso à localização do aparelho para bater o ponto. Se não for possível, peça ajuste ao Proprietário.');
   return withTransaction(async (db) => {
     await db.query(`SELECT pg_advisory_xact_lock(hashtext('time_punch_user:' || $1))`, [actor.userId]);
     const today = (await db.query<{ d: string }>(`SELECT ${todaySPSql} AS d`)).rows[0]!.d;
@@ -140,14 +142,13 @@ export async function requestAdjustment(actor: Actor, input: { userId?: string |
 }
 
 export async function decideAdjustment(actor: Actor, id: string, approve: boolean, reason: string | null) {
-  need(actor, 'timeclock.manage');
+  needOwner(actor);
   return withTransaction(async (db) => {
     const a = (await db.query<{ user_id: string; kind: PunchKind; requested_at: string; status: string }>(
       'SELECT user_id, kind, requested_at, status FROM time_punch_adjustments WHERE id = $1 FOR UPDATE', [id],
     )).rows[0];
     if (!a) throw Errors.notFound('Pedido de ajuste não encontrado.');
     if (a.status !== 'pendente') throw Errors.conflict('Pedido já decidido.');
-    if (a.user_id === actor.userId && actor.roleCode !== OWNER_ROLE) throw Errors.forbidden('Ninguém aprova o ajuste do próprio ponto. Peça a outro gestor ou ao Proprietário.');
     if (!approve && !reason?.trim()) throw Errors.businessRule('Informe o motivo da recusa.');
     let punchId: string | null = null;
     if (approve) punchId = (await insertPunch(db, { userId: a.user_id, kind: a.kind, at: a.requested_at, origin: 'ajuste', adjustmentId: id })).id;
@@ -161,7 +162,7 @@ export async function decideAdjustment(actor: Actor, id: string, approve: boolea
 }
 
 export async function listAdjustments(actor: Actor, status: 'pendente' | 'todos') {
-  need(actor, 'timeclock.manage');
+  needOwner(actor);
   const { rows } = await getPool().query(
     `SELECT a.id, a.number::text, a.kind, a.requested_at, a.reason, a.status, a.created_at, a.decided_at, a.decision_reason,
             a.user_id, u.name AS user_name, rb.name AS requested_by_name, db.name AS decided_by_name
@@ -249,7 +250,7 @@ export async function timesheet(actor: Actor, userId: string, month: string) {
 
 /** Quadro do dia para o gestor: quem está trabalhando, em almoço, encerrou ou não marcou. */
 export async function todayBoard(actor: Actor) {
-  need(actor, 'timeclock.manage');
+  needOwner(actor);
   const db = getPool();
   const { rows } = await db.query<{ id: string; name: string; role_name: string; punches: { kind: PunchKind; at: string; origin: string }[] }>(
     `SELECT u.id, u.name, r.name AS role_name,
@@ -269,7 +270,7 @@ export async function todayBoard(actor: Actor) {
 
 /** Confere a corrente de hashes: qualquer marcação alterada/removida direto no banco é detectada. */
 export async function verifyChain(actor: Actor) {
-  need(actor, 'timeclock.manage');
+  needOwner(actor);
   const { rows } = await getPool().query<{ nsr: string; ok: boolean; link_ok: boolean }>(
     `SELECT nsr::text,
             hash = encode(sha256(convert_to(concat_ws('|', coalesce(prev_hash, 'GENESIS'), user_id::text, kind,
@@ -288,7 +289,7 @@ export async function getTimeclockParams(db: Queryable = getPool()): Promise<Tim
   return { storeLatitude: v.storeLatitude ?? null, storeLongitude: v.storeLongitude ?? null, radiusMeters: v.radiusMeters ?? null };
 }
 export async function setTimeclockParams(actor: Actor, input: TimeclockParams) {
-  need(actor, 'timeclock.manage');
+  needOwner(actor);
   return withTransaction(async (db) => {
     const before = await getTimeclockParams(db);
     await db.query(`INSERT INTO app_settings (key, value, updated_by) VALUES ('timeclock.params', $1, $2)
