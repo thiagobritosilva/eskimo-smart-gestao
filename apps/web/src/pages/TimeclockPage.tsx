@@ -191,7 +191,7 @@ function MyPunch() {
             {(Object.keys(KIND) as Kind[]).filter((k) => k !== d.next).map((k) => <button key={k} className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setConfirm(k)}>{KIND[k]}</button>)}
           </div>
         </details>
-        <p className="text-xs text-slate-500">O horário registrado é o do servidor, não o do celular/computador. A <b>localização é obrigatória</b> (permita o acesso quando o navegador pedir). A marcação não pode ser apagada; se errar ou esquecer, peça ajuste.</p>
+        <p className="text-xs text-slate-500">O horário registrado é o do servidor, não o do celular/computador. A <b>localização é obrigatória</b> e o ponto <b>só pode ser batido na loja</b>. A marcação não pode ser apagada; se errar ou esquecer, peça ajuste.</p>
       </section>
       <section className="min-w-0 space-y-4">
         <div className="card p-4">
@@ -234,7 +234,7 @@ function MyPunch() {
             <div className="flex justify-center gap-2"><button className="btn-secondary" onClick={() => setConfirm(null)}>Voltar</button>
               <button className="btn-primary" autoFocus disabled={m.isPending} onClick={() => m.mutate(confirm)}>{locating ? 'Obtendo localização…' : 'Confirmar'}</button></div>
             {m.error && <Alert>{msg(m.error)}</Alert>}
-            <p className="text-xs text-slate-500"><MapPin className="mr-1 inline h-3 w-3" />A localização do aparelho é obrigatória e é lida só neste momento, para registrar onde o ponto foi batido.</p>
+            <p className="text-xs text-slate-500"><MapPin className="mr-1 inline h-3 w-3" />A localização do aparelho é lida só neste momento. O ponto só é aceito dentro da loja.</p>
           </div>
         )}
       </Modal>
@@ -359,7 +359,7 @@ function TeamToday() {
         <h3 className="font-semibold">Onde o ponto foi batido hoje</h3>
         {points.length ? <PunchMap points={points} store={store} focusId={focus} height={380} /> : <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Nenhuma marcação com localização hoje.</div>}
         <MapLegend />
-        {!store && <p className="text-xs text-slate-500">Dica: configure o local da loja (aba “Local da loja”) para ver o raio no mapa e destacar marcações fora dele.</p>}
+        {!store && <Alert kind="warning">Local da loja não configurado: ninguém consegue bater o ponto. Configure na aba “Local da loja”.</Alert>}
       </section>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {q.data!.map((u) => (
@@ -473,7 +473,9 @@ function StoreLocation() {
   const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')));
   return (
     <section className="card max-w-xl space-y-3 p-5 text-sm">
-      <p className="text-slate-600">Opcional. Com o local da loja configurado, o espelho sinaliza em <b className="text-red-600">vermelho</b> as marcações feitas fora do raio. A marcação nunca é bloqueada (o vendedor externo trabalha na rua) — fica registrada com a localização para conferência.</p>
+      <p className="text-slate-600"><b>Obrigatório.</b> O ponto pelo app só é aceito <b>dentro do raio da loja</b>, para todos (inclusive vendedor externo). Sem o local configurado, ninguém consegue bater o ponto. A precisão do GPS do aparelho é considerada como tolerância (até 100 m).</p>
+      <p className="text-xs text-slate-500">Fora da loja (ex.: rota externa, GPS sem sinal), o empregado pede ajuste com motivo e você aprova ou recusa em “Ajustes”.</p>
+      {q.data && q.data.storeLatitude == null && <Alert kind="warning">Local da loja não configurado: o ponto está bloqueado para todos até você salvar.</Alert>}
       {(m.error || err) && <Alert>{err ?? errorMessage(m.error)}</Alert>}
       {m.isSuccess && <Alert kind="success">Local da loja salvo.</Alert>}
       <button type="button" className="btn-secondary" onClick={() => void here()}><MapPin className="h-4 w-4" /> Usar minha localização atual (estando na loja)</button>
@@ -481,10 +483,9 @@ function StoreLocation() {
         <Field label="Latitude"><input className="input" inputMode="decimal" value={lat} onChange={(e) => setLat(e.target.value)} /></Field>
         <Field label="Longitude"><input className="input" inputMode="decimal" value={lng} onChange={(e) => setLng(e.target.value)} /></Field>
       </div>
-      <Field label="Raio (metros)"><input className="input" inputMode="numeric" value={radius} onChange={(e) => setRadius(e.target.value.replace(/\D/g, ''))} placeholder="ex.: 200" /></Field>
+      <Field label="Raio permitido (metros)"><input className="input" inputMode="numeric" value={radius} onChange={(e) => setRadius(e.target.value.replace(/\D/g, ''))} placeholder="ex.: 200" /></Field>
       {lat && lng && <a className="text-brand-700 underline" href={mapUrl(Number(lat), Number(lng))} target="_blank" rel="noreferrer">Conferir no mapa</a>}
       <div className="flex justify-end gap-2">
-        <button className="btn-secondary" onClick={() => m.mutate({ storeLatitude: null, storeLongitude: null, radiusMeters: null })}>Remover local</button>
         <button className="btn-primary" disabled={m.isPending} onClick={() => m.mutate({ storeLatitude: num(lat), storeLongitude: num(lng), radiusMeters: num(radius) })}>Salvar</button>
       </div>
     </section>

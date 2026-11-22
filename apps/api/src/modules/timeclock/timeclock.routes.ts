@@ -49,9 +49,11 @@ export async function timeclockRoutes(app: FastifyInstance) {
   app.get('/timeclock/today', { preHandler: manage }, async (req) => svc.todayBoard(actorOf(req)));
   app.get('/timeclock/params', { preHandler: manage }, async () => svc.getTimeclockParams());
   app.put('/timeclock/params', { preHandler: manage }, async (req) => {
+    // local da loja é obrigatório (cerca virtual do ponto): não pode ser apagado, só alterado
     const b = parse(z.object({
-      storeLatitude: z.number().min(-90).max(90).nullable(), storeLongitude: z.number().min(-180).max(180).nullable(), radiusMeters: z.number().int().min(20).max(50000).nullable(),
-    }).refine((v) => (v.storeLatitude == null) === (v.storeLongitude == null) && (v.storeLatitude == null) === (v.radiusMeters == null), 'Informe latitude, longitude e raio juntos (ou deixe os três em branco).'), req.body);
+      storeLatitude: z.number({ message: 'Informe a latitude.' }).min(-90).max(90), storeLongitude: z.number({ message: 'Informe a longitude.' }).min(-180).max(180),
+      radiusMeters: z.number({ message: 'Informe o raio.' }).int().min(20).max(5000),
+    }), req.body);
     return svc.setTimeclockParams(actorOf(req), b);
   });
   app.get('/timeclock/verify', { preHandler: manage }, async (req) => svc.verifyChain(actorOf(req)));

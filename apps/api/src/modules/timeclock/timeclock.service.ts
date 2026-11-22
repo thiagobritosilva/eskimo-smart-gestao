@@ -10,6 +10,7 @@ import type { Actor } from '../stock/stock.service.js';
  * - Sequência do dia: entrada → saída para o almoço → volta do almoço → saída. O sistema sugere a próxima marcação,
  *   mas não impede nenhuma (a Portaria MTP 671/2021 veda restrições à marcação): irregularidades viram ALERTAS no espelho.
  * - Esquecimento/erro: pedido de ajuste com motivo; o Proprietário aprova ou recusa.
+ * - Cerca virtual: pelo app, o ponto só é aceito dentro do raio da loja (todos os perfis); fora dele, só por ajuste.
  * - Gestão (ponto de todos, ajustes, espelhos, local da loja): somente o Proprietário. Demais: só o próprio ponto. A marcação original nunca é alterada; o ajuste aprovado entra como marcação "incluída".
  */
 export const KINDS = ['entrada', 'saida_almoco', 'volta_almoco', 'saida'] as const;
@@ -84,6 +85,13 @@ export async function punch(actor: Actor, kind: PunchKind | null, meta: { ip?: s
       [actor.userId, k, DOUBLE_TAP_SECONDS],
     )).rows[0];
     if (dup) return { ...(await receiptInDb(db, dup.id)), duplicate: true };
+    // cerca virtual: ponto pelo app só dentro do raio da loja (todos os perfis, inclusive vendedor externo)
+    const params = await getTimeclockParams(db);
+    const dist = distanceToStore(params, meta.geo!);
+    if (dist == null) throw Errors.businessRule('O local da loja ainda não foi configurado pelo Proprietário (Ponto › Local da loja). Sem ele não é possível bater o ponto.');
+    if (!insideStore(params, meta.geo!, dist)) {
+      throw Errors.businessRule(`Você está a ${fmtDist(dist)} da loja (raio permitido: ${params.radiusMeters} m). O ponto só pode ser batido na loja. Se estiver na loja, aguarde o GPS melhorar e tente de novo; se não for possível, peça ajuste ao Proprietário.`);
+    }
     const p = await insertPunch(db, { userId: actor.userId, kind: k, at: null, origin: 'app', ip: meta.ip, userAgent: meta.userAgent, geo: meta.geo });
     const warnings: string[] = [];
     if (k !== nextKind(punches.map((x) => x.kind))) warnings.push(`Marcação fora da sequência esperada (esperado: ${KIND_LABEL[nextKind(punches.map((x) => x.kind))]}). Ficou registrada; se foi engano, peça ajuste.`);
@@ -94,9 +102,6 @@ export async function punch(actor: Actor, kind: PunchKind | null, meta: { ip?: s
         if (mins < LUNCH_MIN) warnings.push(`Intervalo de almoço de ${mins} min — inferior a 1 hora (art. 71 da CLT).`);
       }
     }
-    const params = await getTimeclockParams(db);
-    const dist = distanceToStore(params, meta.geo!);
-    if (dist != null && dist > params.radiusMeters!) warnings.push(`Marcação a ${Math.round(dist)} m da loja (fora do raio de ${params.radiusMeters} m). Ficou registrada e aparece sinalizada no espelho.`);
     return { ...(await receiptInDb(db, p.id)), duplicate: false, warnings };
   });
 }
@@ -313,3 +318,12 @@ export function distanceToStore(p: TimeclockParams, g: GeoPoint): number | null 
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(p.storeLatitude)) * Math.cos(rad(g.latitude)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
+
+/** Tolerância do GPS: considera a precisão informada pelo aparelho, limitada a 100 m. */
+export const GPS_TOLERANCE_MAX = 100;
+export function insideStore(p: TimeclockParams, g: GeoPoint, dist = distanceToStore(p, g)): boolean {
+  if (dist == null) return false;
+  const tol = Math.min(Math.max(g.accuracy ?? 0, 0), GPS_TOLERANCE_MAX);
+  return dist - tol <= p.radiusMeters!;
+}
+const fmtDist = (d: number) => (d < 1000 ? `${Math.round(d)} m` : `${(d / 1000).toFixed(1).replace('.', ',')} km`);

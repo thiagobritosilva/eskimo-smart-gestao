@@ -30,6 +30,11 @@ describe('ponto', () => {
     const semGps = await call(func.cookie, 'POST', '/timeclock/punch', { kind: null });
     expect(semGps.statusCode).toBe(422);
     expect(semGps.body).toMatch(/Localização obrigatória/);
+    // local da loja ainda não configurado: ninguém bate ponto
+    const semLoja = await call(func.cookie, 'POST', '/timeclock/punch', { kind: null, location: LOJA });
+    expect(semLoja.statusCode).toBe(422);
+    expect(semLoja.body).toMatch(/local da loja ainda não foi configurado/);
+    expect((await call(owner.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: LOJA.longitude, radiusMeters: 200 })).statusCode).toBe(200);
     const before = Date.now();
     const e = await call(func.cookie, 'POST', '/timeclock/punch', { kind: null, location: LOJA });
     expect(e.statusCode, e.body).toBe(201);
@@ -57,22 +62,32 @@ describe('ponto', () => {
     expect((await call(outro.cookie, 'GET', `/timeclock/punches/${e.json().id}`)).statusCode).toBe(403);
   });
 
-  it('local da loja (opcional): marcação fora do raio fica registrada e sinalizada; banco exige localização na marcação do app', async () => {
+  it('cerca virtual: fora do raio da loja o ponto é recusado para todos (inclusive vendedor externo); dentro, aceito', async () => {
     expect((await call(func.cookie, 'GET', '/timeclock/params')).statusCode).toBe(403);
-    expect((await call(owner.cookie, 'GET', '/timeclock/params')).json()).toEqual({ storeLatitude: null, storeLongitude: null, radiusMeters: null });
     expect((await call(func.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: LOJA.longitude, radiusMeters: 200 })).statusCode).toBe(403);
     expect((await call(owner.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: null, radiusMeters: 200 })).statusCode).toBe(400);
-    expect((await call(owner.cookie, 'PUT', '/timeclock/params', { storeLatitude: LOJA.latitude, storeLongitude: LOJA.longitude, radiusMeters: 200 })).statusCode).toBe(200);
-    // ~1,1 km ao norte
-    const longe = await call(outro.cookie, 'POST', '/timeclock/punch', { kind: 'entrada', location: { latitude: -23.54052, longitude: -46.633308, accuracy: 30 } });
-    expect(longe.statusCode, longe.body).toBe(201);
-    expect(longe.json().warnings.join(' ')).toMatch(/fora do raio de 200 m/);
-    const month = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
-    const sheet = (await call(outro.cookie, 'GET', `/timeclock/timesheet?month=${month}`)).json();
-    expect(sheet.days.at(-1).alerts.join(' ')).toMatch(/Entrada marcada a 11\d\d m da loja/);
-    expect(sheet.days.at(-1).punches[0]).toMatchObject({ latitude: -23.54052, outside: true });
+    expect((await call(owner.cookie, 'GET', '/timeclock/params')).json()).toEqual({ storeLatitude: LOJA.latitude, storeLongitude: LOJA.longitude, radiusMeters: 200 });
+    const vendedor = await asRole(app, 'VENDEDOR_EXTERNO');
+    const longe = { latitude: -23.54052, longitude: -46.633308, accuracy: 30 }; // ~1,1 km ao norte
+    for (const u of [outro, vendedor, owner]) {
+      const r = await call(u.cookie, 'POST', '/timeclock/punch', { kind: 'entrada', location: longe });
+      expect(r.statusCode, r.body).toBe(422);
+      expect(r.body).toMatch(/1,1 km da loja .*só pode ser batido na loja/);
+    }
+    expect((await getPool().query('SELECT count(*)::int AS n FROM time_punches WHERE user_id = $1', [vendedor.id])).rows[0].n).toBe(0);
+    // ~250 m da loja, mas GPS com precisão de ±80 m: dentro da tolerância
+    const tolerancia = await call(vendedor.cookie, 'POST', '/timeclock/punch', { kind: 'entrada', location: { latitude: -23.548272, longitude: -46.633308, accuracy: 80 } });
+    expect(tolerancia.statusCode, tolerancia.body).toBe(201);
+    // a mesma distância com GPS preciso (±10 m): fora
+    const fora = await call(outro.cookie, 'POST', '/timeclock/punch', { kind: 'entrada', location: { latitude: -23.548272, longitude: -46.633308, accuracy: 10 } });
+    expect(fora.statusCode).toBe(422);
+    // na loja: aceito
+    expect((await call(outro.cookie, 'POST', '/timeclock/punch', { kind: 'entrada', location: LOJA })).statusCode).toBe(201);
+    // banco continua exigindo localização na marcação do app
     await expect(getPool().query(`INSERT INTO time_punches (user_id, kind, work_date, origin, hash) VALUES ($1, 'saida', current_date, 'app', 'x')`, [outro.id])).rejects.toThrow(/time_punches_app_location/);
-    await call(owner.cookie, 'PUT', '/timeclock/params', { storeLatitude: null, storeLongitude: null, radiusMeters: null });
+    // fora da loja só por ajuste aprovado pelo Proprietário (ex.: vendedor que começou na rua)
+    const aj = (await call(vendedor.cookie, 'POST', '/timeclock/adjustments', { kind: 'saida', at: new Date(Date.now() - 60000).toISOString(), reason: 'Encerrei a rota no cliente, longe da loja' })).json();
+    expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${aj.id}/decide`, { approve: true })).statusCode).toBe(200);
   });
 
   it('marcação é imutável no banco e a corrente de hashes detecta adulteração', async () => {

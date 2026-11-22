@@ -410,3 +410,12 @@ com impacto e estratégia de preservação de dados.
 - **Segurança:** a política de conteúdo (CSP) libera apenas imagens de `https://tile.openstreetmap.org`.
   Os dados das marcações continuam saindo só do servidor do sistema e só para o Proprietário.
 - **Dependência nova:** `leaflet` 1.9.4 (web).
+
+## Cerca virtual do ponto (sem migration) (2026-11-22)
+- **Regra:** pelo app, o ponto só é aceito dentro do raio da loja, para TODOS os perfis (inclusive vendedor externo).
+  Tolerância = precisão informada pelo GPS do aparelho, limitada a 100 m (distância − tolerância ≤ raio).
+  Fora do raio: marcação recusada (nada é gravado) com a distância na mensagem. Sem local da loja configurado:
+  ninguém bate ponto (mensagem orienta o Proprietário).
+- **Local da loja** passa a ser obrigatório: `PUT /timeclock/params` exige latitude, longitude e raio (20 a 5.000 m);
+  não pode ser apagado, só alterado (auditado).
+- **Exceção legítima** (rota externa, GPS sem sinal): pedido de ajuste com motivo, decidido pelo Proprietário.
