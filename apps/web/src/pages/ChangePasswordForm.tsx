@@ -35,8 +35,8 @@ export function ChangePasswordForm({ onDone }: { onDone: () => void }) {
       <Field label="Senha atual">
         <input className="input" type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
       </Field>
-      <Field label="Nova senha" hint="Mínimo de 10 caracteres, com letras e números.">
-        <input className="input" type="password" autoComplete="new-password" required minLength={10} value={next} onChange={(e) => setNext(e.target.value)} />
+      <Field label="Nova senha" hint="Mínimo de 4 caracteres (pode ser só números).">
+        <input className="input" type="password" autoComplete="new-password" required minLength={4} value={next} onChange={(e) => setNext(e.target.value)} />
       </Field>
       <Field label="Confirmar nova senha">
         <input className="input" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />

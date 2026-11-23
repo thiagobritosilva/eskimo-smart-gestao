@@ -436,3 +436,5 @@ com impacto e estratégia de preservação de dados.
 - A senha criada pela pessoa no cadastro por link passa a exigir apenas 4 caracteres (sem exigência de letras e
   números), a pedido do Proprietário (`signupPasswordSchema`). Continua guardada só como hash Argon2id; o login segue
   protegido por limite de tentativas por IP e bloqueio temporário após tentativas erradas.
+- **Troca de senha (Perfil e 1º acesso):** também passa a aceitar a partir de 4 caracteres, sem exigência de tipos.
+  A regra forte (10+ caracteres, letras e números) fica só no script de instalação que cria o primeiro Proprietário.

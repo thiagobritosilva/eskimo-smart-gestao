@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { env } from '../../config/env.js';
 import { auditCtx, requireAuth } from '../../lib/http.js';
-import { emailSchema, parse, passwordSchema } from '../../lib/validation.js';
+import { emailSchema, parse, signupPasswordSchema } from '../../lib/validation.js';
 import * as auth from './auth.service.js';
 
 function publicUser(u: auth.AuthUser) {
@@ -50,7 +50,7 @@ export async function authRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const body = parse(
-        z.object({ currentPassword: z.string().min(1).max(128), newPassword: passwordSchema }),
+        z.object({ currentPassword: z.string().min(1).max(128), newPassword: signupPasswordSchema }),
         req.body,
       );
       await auth.changeOwnPassword(req.auth!, body.currentPassword, body.newPassword, auditCtx(req));

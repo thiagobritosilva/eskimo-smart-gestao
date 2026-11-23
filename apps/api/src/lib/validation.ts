@@ -20,7 +20,7 @@ export const passwordSchema = z
 
 /**
  * Senha PROVISÓRIA (definida pelo gestor ao criar/redefinir o usuário): a partir de 4 caracteres (ex.: 4 números).
- * O usuário é obrigado a trocá-la no primeiro acesso por uma senha definitiva (passwordSchema).
+ * O usuário é obrigado a trocá-la no primeiro acesso por uma senha definitiva (signupPasswordSchema).
  */
 export const temporaryPasswordSchema = z
   .string()
@@ -46,7 +46,7 @@ export const decimalSchema = (maxDecimals: number, message = 'Valor numérico in
 export const optionalDecimal = (maxDecimals: number) =>
   z.union([decimalSchema(maxDecimals), z.null(), z.literal('').transform(() => null)]).optional();
 
-/** Senha criada pela própria pessoa no cadastro por link: a partir de 4 caracteres, sem exigência de tipos. */
+/** Senha escolhida pelo próprio usuário (cadastro por link e troca de senha): a partir de 4 caracteres, sem exigência de tipos. */
 export const signupPasswordSchema = z
   .string()
   .min(4, 'A senha deve ter pelo menos 4 caracteres.')
