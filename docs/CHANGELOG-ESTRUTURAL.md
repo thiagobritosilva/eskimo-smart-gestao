@@ -431,3 +431,8 @@ com impacto e estratégia de preservação de dados.
 - **Segurança:** rotas públicas com limite de tentativas por IP; nenhum acesso é liberado sem aprovação; perfil IA não
   pode ser atribuído; e-mail já cadastrado ou com pedido pendente é recusado. Gestão exclusiva do Proprietário (perfil).
 - **Também:** alerta de ajustes de ponto pendentes em Notificações (Proprietário).
+
+## Senha do cadastro por link (sem migration) (2026-11-23)
+- A senha criada pela pessoa no cadastro por link passa a exigir apenas 4 caracteres (sem exigência de letras e
+  números), a pedido do Proprietário (`signupPasswordSchema`). Continua guardada só como hash Argon2id; o login segue
+  protegido por limite de tentativas por IP e bloqueio temporário após tentativas erradas.

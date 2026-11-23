@@ -45,3 +45,9 @@ export const decimalSchema = (maxDecimals: number, message = 'Valor numérico in
 
 export const optionalDecimal = (maxDecimals: number) =>
   z.union([decimalSchema(maxDecimals), z.null(), z.literal('').transform(() => null)]).optional();
+
+/** Senha criada pela própria pessoa no cadastro por link: a partir de 4 caracteres, sem exigência de tipos. */
+export const signupPasswordSchema = z
+  .string()
+  .min(4, 'A senha deve ter pelo menos 4 caracteres.')
+  .max(128, 'A senha deve ter no máximo 128 caracteres.');

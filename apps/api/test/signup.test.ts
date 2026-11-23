@@ -10,7 +10,7 @@ const call = (cookie: string | null, method: 'GET' | 'POST', url: string, payloa
   app.inject({ method, url: `/api${url}`, payload: payload as Record<string, unknown>, headers: cookie ? { cookie } : {} });
 const tokenOf = (url: string) => url.split('/cadastro/')[1]!;
 const tag = String(Math.floor(1000 + Math.random() * 9000));
-const pessoa = (n: string) => ({ name: `Pessoa ${n} ${tag}`, email: `cadastro.${n}.${tag}@teste.local`, phone: '(11) 90000-0000', password: 'SenhaForte123', consent: true });
+const pessoa = (n: string) => ({ name: `Pessoa ${n} ${tag}`, email: `cadastro.${n}.${tag}@teste.local`, phone: '(11) 90000-0000', password: '1234', consent: true });
 
 beforeAll(async () => {
   app = await setupApp();
@@ -29,7 +29,7 @@ describe('cadastro por link', () => {
     expect((await call(null, 'GET', `/public/signup/${token}`)).json().valid).toBe(true);
     expect((await call(null, 'GET', '/public/signup/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')).json()).toEqual({ valid: false, company: null });
     // senha fraca e sem consentimento: recusados
-    expect((await call(null, 'POST', `/public/signup/${token}`, { ...pessoa('a'), password: '1234' })).statusCode).toBe(400);
+    expect((await call(null, 'POST', `/public/signup/${token}`, { ...pessoa('a'), password: '123' })).statusCode).toBe(400);
     expect((await call(null, 'POST', `/public/signup/${token}`, { ...pessoa('a'), consent: false })).statusCode).toBe(400);
     expect((await call(null, 'POST', `/public/signup/${token}`, pessoa('a'))).statusCode).toBe(201);
     // limite de 1 uso

@@ -64,9 +64,9 @@ export function SignupPage() {
               <Field label="Nome completo *"><input className="input" required minLength={2} maxLength={120} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} /></Field>
               <Field label="E-mail *"><input className="input" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
               <Field label="Celular"><input className="input" type="tel" maxLength={30} autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(00) 00000-0000" /></Field>
-              <Field label="Crie uma senha *"><input className="input" type="password" required minLength={10} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
-              <Field label="Repita a senha *"><input className="input" type="password" required minLength={10} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
-              <p className="-mt-2 text-xs text-slate-500">Mínimo de 10 caracteres, com letras e números.</p>
+              <Field label="Crie uma senha *"><input className="input" type="password" required minLength={4} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+              <Field label="Repita a senha *"><input className="input" type="password" required minLength={4} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
+              <p className="-mt-2 text-xs text-slate-500">Mínimo de 4 caracteres (pode ser só números).</p>
               <label className="flex items-start gap-2 text-xs text-slate-600">
                 <input type="checkbox" className="mt-0.5" required checked={consent} onChange={(e) => setConsent(e.target.checked)} />
                 <span>Concordo que meus dados (nome, e-mail e celular) sejam usados pela empresa para criar e administrar meu acesso ao sistema interno, inclusive o registro de ponto, nos termos da LGPD (Lei 13.709/2018).</span>

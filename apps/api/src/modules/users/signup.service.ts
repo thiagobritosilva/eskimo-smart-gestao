@@ -116,7 +116,7 @@ export async function approveRequest(actor: AuthUser, id: string, roleCode: stri
     if ((await db.query('SELECT 1 FROM users WHERE lower(email) = lower($1)', [s.email])).rowCount) {
       throw Errors.conflict('Já existe um usuário com este e-mail. Recuse este pedido.');
     }
-    // a pessoa definiu a própria senha (política completa) — não precisa trocar no primeiro acesso
+    // a pessoa definiu a própria senha no cadastro (mínimo de 4 caracteres) — não precisa trocar no primeiro acesso
     const u = (await db.query<{ id: string }>(
       `INSERT INTO users (name, email, phone, password_hash, role_id, must_change_password, created_by)
        VALUES ($1, $2, $3, $4, $5, false, $6) RETURNING id`,

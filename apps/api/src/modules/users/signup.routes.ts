@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { env } from '../../config/env.js';
 import { auditCtx, requireOwner } from '../../lib/http.js';
-import { emailSchema, parse, passwordSchema, uuidSchema } from '../../lib/validation.js';
+import { emailSchema, parse, signupPasswordSchema, uuidSchema } from '../../lib/validation.js';
 import * as svc from './signup.service.js';
 
 const tokenParams = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{20,100}$/, 'Link inválido.') });
@@ -20,7 +20,7 @@ export async function signupRoutes(app: FastifyInstance) {
       name: z.string().trim().min(2, 'Informe o nome completo.').max(120),
       email: emailSchema,
       phone: z.string().trim().max(30).nullable().optional(),
-      password: passwordSchema,
+      password: signupPasswordSchema,
       consent: z.literal(true, { message: 'É preciso concordar com o uso dos dados para o cadastro.' }),
     }), req.body);
     reply.code(201);
