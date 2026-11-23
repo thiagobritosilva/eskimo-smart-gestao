@@ -323,4 +323,16 @@ describe('frente de caixa', () => {
     )).rows[0].c;
     expect(perms).toEqual(['ifood.operate', 'pos.operate', 'timeclock.punch']);
   });
+
+  it('Estoquista também pode ser caixa: abre o próprio caixa e vende; continua sem financeiro', async () => {
+    const est = await asRole(app, 'ESTOQUISTA');
+    const t = (await call(owner.cookie, { method: 'POST', url: '/api/pos/terminals', payload: {} })).json();
+    expect((await call(est.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/open`, payload: { counted: '100.00' } })).statusCode).toBe(201);
+    const v = await call(est.cookie, { method: 'POST', url: '/api/pos/sales', payload: { terminalId: t.id, idempotencyKey: randomUUID(), items: [{ productId: p1, quantity: '1' }], payments: [{ methodCode: 'dinheiro', amount: '5.00' }] } });
+    expect(v.statusCode, v.body).toBe(201);
+    expect((await call(est.cookie, { method: 'GET', url: '/api/stock/balances' })).statusCode).toBe(200); // mantém o estoque
+    expect((await call(est.cookie, { method: 'GET', url: '/api/finance/accounts' })).statusCode).toBe(403);
+    expect((await call(est.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/close`, payload: { counted: '105.00' } })).statusCode).toBe(200);
+    await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${t.id}`, payload: { isActive: false } });
+  });
 });

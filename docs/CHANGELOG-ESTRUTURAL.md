@@ -447,3 +447,8 @@ com impacto e estratégia de preservação de dados.
   Concessões individuais (Usuários › Permissões) não foram alteradas.
 - **Tela inicial:** quem não tem Dashboard vê "Início" com dois botões grandes — **Bater ponto** (com a próxima
   marcação e a última do dia) e **Abrir caixa**. Quem tem Dashboard vê os mesmos atalhos no topo dele.
+
+## 0032_estoquista_caixa — Estoquista também opera caixa (2026-11-23)
+- **O quê:** perfil Estoquista recebe `pos.operate` e `ifood.operate` (mantém as permissões de estoque). No caixa,
+  vale a mesma regra dos demais operadores: só o próprio turno, sem financeiro. Os atalhos "Bater ponto" e
+  "Abrir caixa" aparecem no topo do dashboard dele.
