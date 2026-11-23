@@ -1,6 +1,6 @@
 import {
   BarChart3, Bell, Bike, Bot, Boxes, ClipboardCheck, FileText, LayoutDashboard, Package, Plug, Settings, ShieldCheck,
-  Clock, IceCreamCone, Route, ScanBarcode, ShoppingCart, Snowflake, Users, Wallet, type LucideIcon,
+  Clock, Home, IceCreamCone, Route, ScanBarcode, ShoppingCart, Snowflake, Users, Wallet, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -8,12 +8,15 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   permission?: string;
+  /** Esconde o item de quem TEM esta permissão (ex.: "Início" some para quem vê o Dashboard). */
+  hideWhen?: string;
   /** Fase em que o módulo será entregue; ausente = disponível. */
   phase?: number;
   section: 'Visão geral' | 'Operação' | 'Gestão' | 'Sistema';
 }
 
 export const NAV_ITEMS: NavItem[] = [
+  { to: '/', label: 'Início', icon: Home, hideWhen: 'dashboard.view', section: 'Visão geral' },
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard.view', section: 'Visão geral' },
   { to: '/notificacoes', label: 'Notificações', icon: Bell, permission: 'alerts.view', section: 'Visão geral' },
   { to: '/ponto', label: 'Ponto', icon: Clock, permission: 'timeclock.punch', section: 'Visão geral' },

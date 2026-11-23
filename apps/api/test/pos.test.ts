@@ -311,4 +311,16 @@ describe('frente de caixa', () => {
     await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/close`, payload: { counted: '105.00' } });
     await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${t.id}`, payload: { isActive: false } });
   });
+
+  it('Funcionário (caixa) vende e consulta preço pelo caixa, mas não acessa estoque, produtos, financeiro nem dashboard', async () => {
+    for (const url of ['/api/stock/balances', '/api/locations', '/api/products', '/api/finance/accounts', '/api/dashboard/summary', '/api/alerts', '/api/external/visits']) {
+      expect((await call(operador.cookie, { method: 'GET', url })).statusCode, url).toBe(403);
+    }
+    expect((await call(operador.cookie, { method: 'GET', url: `/api/pos/products/lookup?code=${G1}` })).statusCode).toBe(200);
+    expect((await call(operador.cookie, { method: 'GET', url: '/api/timeclock/me' })).statusCode).toBe(200);
+    const perms = (await getPool().query(
+      `SELECT array_agg(p.code ORDER BY p.code) AS c FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id JOIN roles r ON r.id = rp.role_id WHERE r.code = 'FUNCIONARIO'`,
+    )).rows[0].c;
+    expect(perms).toEqual(['ifood.operate', 'pos.operate', 'timeclock.punch']);
+  });
 });

@@ -42,7 +42,7 @@ async function payable(description: string, due: string) {
 beforeAll(async () => {
   app = await setupApp();
   owner = await asRole(app, 'PROPRIETARIO');
-  funcionario = await asRole(app, 'FUNCIONARIO');
+  funcionario = await asRole(app, 'ESTOQUISTA'); // perfil operacional com estoque (Funcionário/caixa não vê notificações)
   for (const r of (await getPool().query('SELECT id, code FROM locations')).rows) loc[r.code] = r.id;
   for (const r of (await getPool().query('SELECT id, name FROM financial_categories')).rows) cat[r.name] = r.id;
 });
@@ -104,5 +104,7 @@ describe('central de alertas', () => {
     expect(groups.some((g) => g.key === 'stock_fragile')).toBe(true);
     const put = await call(funcionario.cookie, { method: 'PUT', url: '/api/alerts/params', payload: { payablesDueDays: 1, fragileStockPercent: 5 } });
     expect(put.statusCode).toBe(403);
+    const caixa = await asRole(app, 'FUNCIONARIO');
+    expect((await call(caixa.cookie, { method: 'GET', url: '/api/alerts' })).statusCode).toBe(403);
   });
 });

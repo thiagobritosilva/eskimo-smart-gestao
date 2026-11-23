@@ -438,3 +438,12 @@ com impacto e estratégia de preservação de dados.
   protegido por limite de tentativas por IP e bloqueio temporário após tentativas erradas.
 - **Troca de senha (Perfil e 1º acesso):** também passa a aceitar a partir de 4 caracteres, sem exigência de tipos.
   A regra forte (10+ caracteres, letras e números) fica só no script de instalação que cria o primeiro Proprietário.
+
+## 0031_funcionario_so_caixa_e_ponto — tela inicial do Funcionário (2026-11-23)
+- **Permissões:** o perfil Funcionário (caixa/atendente) fica só com `timeclock.punch`, `pos.operate` e
+  `ifood.operate`. Saem `dashboard.view`, `alerts.view`, `stock.view`, `stock.move`, `products.view` e
+  `external.operate`. A venda continua baixando o estoque e lançando o dinheiro no caixa (o sistema faz isso
+  internamente); dentro do caixa ele continua com consulta de preço, pedido do iFood, comentários e fechamento.
+  Concessões individuais (Usuários › Permissões) não foram alteradas.
+- **Tela inicial:** quem não tem Dashboard vê "Início" com dois botões grandes — **Bater ponto** (com a próxima
+  marcação e a última do dia) e **Abrir caixa**. Quem tem Dashboard vê os mesmos atalhos no topo dele.

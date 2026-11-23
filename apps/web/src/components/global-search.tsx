@@ -33,7 +33,7 @@ export function GlobalSearch({ autoFocus, onNavigate, compact }: { autoFocus?: b
   });
   const pages: Hit[] = useMemo(() => {
     if (!q.trim()) return [];
-    return NAV_ITEMS.filter((i) => (!i.permission || can(i.permission)) && norm(i.label).includes(norm(q.trim())))
+    return NAV_ITEMS.filter((i) => (!i.permission || can(i.permission)) && !(i.hideWhen && can(i.hideWhen)) && norm(i.label).includes(norm(q.trim())))
       .map((i) => ({ type: 'Tela', id: i.to, title: i.label, subtitle: i.section, to: i.to }));
   }, [q, can]);
   const hits = [...pages, ...(dq.length >= 2 && dq === q.trim() ? remote.data?.results ?? [] : [])];

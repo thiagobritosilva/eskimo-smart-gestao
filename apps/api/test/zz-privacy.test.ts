@@ -15,7 +15,9 @@ describe('números financeiros só para Proprietário, Gerente e Financeiro', ()
   const SENSITIVE = ['revenue_today', 'revenue_period', 'sales_count', 'avg_ticket', 'cogs', 'gross_profit', 'net_profit_estimate', 'cash_balance', 'bank_balance', 'stock_cost_value', 'stock_sale_value'];
 
   it('dashboard: perfis operacionais não veem faturamento, lucro, saldos nem valor do estoque', async () => {
-    for (const role of ['FUNCIONARIO', 'ESTOQUISTA', 'VENDEDOR_EXTERNO'] as const) {
+    // Funcionário (caixa) nem acessa o dashboard
+    expect((await get((await asRole(app, 'FUNCIONARIO')).cookie, '/dashboard/summary')).statusCode).toBe(403);
+    for (const role of ['ESTOQUISTA', 'VENDEDOR_EXTERNO'] as const) {
       const u = await asRole(app, role);
       const d = (await get(u.cookie, '/dashboard/summary')).json();
       const keys = [...d.indicators.map((i: { key: string }) => i.key), ...d.charts.map((c: { key: string }) => c.key)];
@@ -57,7 +59,8 @@ describe('números financeiros só para Proprietário, Gerente e Financeiro', ()
     const r = await app.inject({ method: 'POST', url: `/api/carts/${cart.id}/rentals`, headers: { cookie: owner.cookie },
       payload: { renterName: 'Locatário Teste', startedOn: '2026-10-01', amount: '150.00', createReceivable: false, idempotencyKey: randomUUID() } });
     expect([200, 201], r.body).toContain(r.statusCode);
-    const fn = await asRole(app, 'FUNCIONARIO');
+    expect((await get((await asRole(app, 'FUNCIONARIO')).cookie, '/carts')).statusCode).toBe(403); // caixa não vê estoque/carrinhos
+    const fn = await asRole(app, 'ESTOQUISTA');
     const seen = (await get(fn.cookie, '/carts')).json().find((c: { id: string }) => c.id === cart.id);
     expect(seen.open_rental.renter_name).toBe('Locatário Teste');
     expect(seen.open_rental).not.toHaveProperty('amount');

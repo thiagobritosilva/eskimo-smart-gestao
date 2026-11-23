@@ -6,6 +6,7 @@ import { api, qs } from '../lib/api';
 import { firstDayOfMonthYMD, formatDate, formatDateTime, formatMoney, formatNumber, todayYMD } from '../lib/format';
 import type { DashboardSummary, Indicator } from '../lib/types';
 import { Alert, PageHeader, Spinner } from '../components/ui';
+import { QuickActions } from '../components/quick-start';
 import { AlertsStrip } from './NotificationsPage';
 import { StockChart } from './DashboardCharts';
 import { useAuth } from '../lib/auth';
@@ -69,6 +70,7 @@ export function DashboardPage() {
           </div>
         }
       />
+      <div className="mb-4"><QuickActions /></div>
       <div className="mb-6"><GlobalSearch /></div>
 
       {isLoading && <div className="flex justify-center py-20"><Spinner className="h-8 w-8" /></div>}

@@ -11,7 +11,7 @@ import { GlobalSearch } from '../components/global-search';
 
 function useVisibleNav(): NavItem[] {
   const { can } = useAuth();
-  return NAV_ITEMS.filter((i) => !i.permission || can(i.permission));
+  return NAV_ITEMS.filter((i) => (!i.permission || can(i.permission)) && !(i.hideWhen && can(i.hideWhen)));
 }
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {

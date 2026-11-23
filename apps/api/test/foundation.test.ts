@@ -300,7 +300,7 @@ describe('dashboard', () => {
   });
 
   it('esconde indicadores financeiros de quem não tem permissão', async () => {
-    const func = await asRole(app, 'FUNCIONARIO');
+    const func = await asRole(app, 'ESTOQUISTA');
     const res = await app.inject({ method: 'GET', url: '/api/dashboard/summary', headers: { cookie: func.cookie } });
     const keys = res.json().indicators.map((i: { key: string }) => i.key);
     expect(keys).not.toContain('revenue_today');

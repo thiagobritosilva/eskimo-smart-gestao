@@ -17,8 +17,8 @@ const visit = (cookie: string, body: Record<string, unknown>) => req(cookie, 'PO
 beforeAll(async () => {
   app = await setupApp();
   owner = await asRole(app, 'PROPRIETARIO');
-  seller = await asRole(app, 'FUNCIONARIO');
-  other = await asRole(app, 'FUNCIONARIO');
+  seller = await asRole(app, 'VENDEDOR_EXTERNO');
+  other = await asRole(app, 'VENDEDOR_EXTERNO');
 });
 afterAll(async () => { await app.close(); await closePool(); });
 

@@ -10,6 +10,7 @@ import { IfoodPage } from './pages/IfoodPage';
 import { ExternalPage } from './pages/ExternalPage';
 import { TimeclockPage } from './pages/TimeclockPage';
 import { SignupPage } from './pages/SignupPage';
+import { QuickStartPage } from './components/quick-start';
 import { UsersPage } from './pages/UsersPage';
 import { AuditPage } from './pages/AuditPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -46,6 +47,12 @@ function RequirePermission({ permission, children }: { permission: string; child
   return <>{children}</>;
 }
 
+/** Início: quem tem dashboard vê o dashboard; os demais (ex.: caixa) veem os atalhos de Ponto e Caixa. */
+function Home() {
+  const { can } = useAuth();
+  return can('dashboard.view') ? <DashboardPage /> : <QuickStartPage />;
+}
+
 const FUTURE = [
   { path: 'assistente', title: 'Assistente IA', phase: 6, perm: 'ai.chat', desc: 'Consultas em linguagem natural via Claude e ChatGPT, somente leitura, sobre os dados reais da loja.' },
   { path: 'indicadores', title: 'Rentabilidade', phase: 7, perm: 'reports.view', desc: 'Margens, giro, valor parado em estoque e ponto de equilíbrio.' },
@@ -60,7 +67,7 @@ export function App() {
       {/* frente de caixa em tela cheia (sem o menu lateral) */}
       <Route path="/caixa" element={<Protected><RequirePermission permission="pos.operate"><PosPage /></RequirePermission></Protected>} />
       <Route element={<Protected><AppLayout /></Protected>}>
-        <Route index element={<RequirePermission permission="dashboard.view"><DashboardPage /></RequirePermission>} />
+        <Route index element={<Home />} />
         <Route path="usuarios" element={<RequirePermission permission="users.view"><UsersPage /></RequirePermission>} />
         <Route path="auditoria" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
         <Route path="configuracoes" element={<RequirePermission permission="settings.manage"><SettingsPage /></RequirePermission>} />
