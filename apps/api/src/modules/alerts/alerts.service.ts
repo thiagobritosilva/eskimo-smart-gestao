@@ -216,6 +216,35 @@ async function productsNeedGtin(db: Queryable): Promise<AlertGroup[]> {
   }];
 }
 
+/** Cadastros feitos pelo link aguardando aprovação (somente o Proprietário decide). */
+async function signupsPending(db: Queryable): Promise<AlertGroup[]> {
+  const { rows } = await db.query<{ id: string; name: string; email: string; created_at: string }>(
+    `SELECT id, name, email, created_at FROM signup_requests WHERE status = 'pendente' ORDER BY created_at`,
+  );
+  if (!rows.length) return [];
+  return [{
+    key: 'signups_pending', title: 'Cadastros aguardando aprovação', severity: 'atencao',
+    description: 'Pessoas que se cadastraram pelo link. Aprove escolhendo a função ou recuse com motivo.',
+    count: rows.length, link: '/usuarios?aba=cadastros',
+    rows: rows.slice(0, LIMIT).map((r) => ({ id: r.id, label: r.name, detail: r.email, date: r.created_at, link: '/usuarios?aba=cadastros', severity: 'atencao' as Severity })),
+  }];
+}
+
+/** Pedidos de ajuste de ponto pendentes (somente o Proprietário decide). */
+async function timeAdjustmentsPending(db: Queryable): Promise<AlertGroup[]> {
+  const { rows } = await db.query<{ id: string; name: string; kind: string; requested_at: string }>(
+    `SELECT a.id, u.name, a.kind, a.requested_at FROM time_punch_adjustments a JOIN users u ON u.id = a.user_id WHERE a.status = 'pendente' ORDER BY a.created_at`,
+  );
+  if (!rows.length) return [];
+  const K: Record<string, string> = { entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída' };
+  return [{
+    key: 'time_adjustments_pending', title: 'Ajustes de ponto aguardando decisão', severity: 'atencao',
+    description: 'Pedidos de inclusão de marcação (esquecimento, fora da loja). Aprove ou recuse com motivo.',
+    count: rows.length, link: '/ponto?aba=ajustes',
+    rows: rows.slice(0, LIMIT).map((r) => ({ id: r.id, label: `${r.name} · ${K[r.kind] ?? r.kind}`, detail: 'Pedido de ajuste de ponto', date: r.requested_at, link: '/ponto?aba=ajustes', severity: 'atencao' as Severity })),
+  }];
+}
+
 async function cartsLate(db: Queryable): Promise<AlertGroup[]> {
   const { rows } = await db.query<{ id: string; code: string; renter_name: string; expected_return: string; days: number }>(
     `SELECT r.id, l.code, r.renter_name, r.expected_return::text, ($1::date - r.expected_return)::int AS days
@@ -271,7 +300,7 @@ async function pdvIssues(db: Queryable): Promise<AlertGroup[]> {
 
 const ORDER: Record<Severity, number> = { critico: 0, atencao: 1, info: 2 };
 
-export async function listAlerts(db: Queryable, permissions: string[]) {
+export async function listAlerts(db: Queryable, permissions: string[], isOwner = false) {
   const can = (p: string) => permissions.includes(p);
   const params = await getAlertParams(db);
   const groups: AlertGroup[] = [];
@@ -280,6 +309,7 @@ export async function listAlerts(db: Queryable, permissions: string[]) {
   }
   if (can('stock.view')) groups.push(...(await stockAlerts(db, params)), ...(await cartsLate(db)));
   if (can('products.view')) groups.push(...(await productsNeedGtin(db)));
+  if (isOwner) groups.push(...(await signupsPending(db)), ...(await timeAdjustmentsPending(db)));
   if (can('sales.view')) groups.push(...(await pdvIssues(db)));
   groups.sort((a, b) => ORDER[a.severity] - ORDER[b.severity]);
   const actionable = groups.filter((g) => g.severity !== 'info');

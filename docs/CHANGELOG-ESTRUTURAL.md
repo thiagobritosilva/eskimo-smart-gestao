@@ -419,3 +419,15 @@ com impacto e estratégia de preservação de dados.
 - **Local da loja** passa a ser obrigatório: `PUT /timeclock/params` exige latitude, longitude e raio (20 a 5.000 m);
   não pode ser apagado, só alterado (auditado).
 - **Exceção legítima** (rota externa, GPS sem sinal): pedido de ajuste com motivo, decidido pelo Proprietário.
+
+## 0030_cadastro_por_link — cadastro de usuário por link com aprovação do Proprietário (2026-11-23)
+- **O quê:** `signup_links` (link com validade de 1 a 30 dias e limite opcional de usos; guardado cifrado AES-256-GCM
+  e procurado pelo hash SHA-256; pode ser desativado) e `signup_requests` (pedido com nome, e-mail, celular,
+  hash Argon2id da senha escolhida pela pessoa, consentimento LGPD, IP/navegador; imutável — só a decisão é registrada).
+- **Fluxo:** Proprietário gera o link em Usuários › Cadastro por link (copiar ou enviar por WhatsApp). A pessoa abre
+  `/cadastro/<token>`, preenche e cria a senha (política completa: 10+ caracteres, letras e números). O pedido fica
+  pendente (alerta em Notificações, só para o Proprietário). Aprovar = escolher a função (perfil) → usuário criado e
+  auditado (`user.created`, origem "cadastro por link"); recusar = motivo obrigatório e o hash da senha é apagado.
+- **Segurança:** rotas públicas com limite de tentativas por IP; nenhum acesso é liberado sem aprovação; perfil IA não
+  pode ser atribuído; e-mail já cadastrado ou com pedido pendente é recusado. Gestão exclusiva do Proprietário (perfil).
+- **Também:** alerta de ajustes de ponto pendentes em Notificações (Proprietário).

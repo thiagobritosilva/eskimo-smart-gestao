@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, LogOut, Pencil, Plus, Power, ShieldPlus } from 'lucide-react';
 import clsx from 'clsx';
@@ -7,6 +8,7 @@ import { useAuth } from '../lib/auth';
 import { formatDateTime } from '../lib/format';
 import type { Permission, Role, User } from '../lib/types';
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
+import { SignupAdmin } from '../components/signup-admin';
 
 const ASSIGNABLE = (r: Role, isOwner: boolean) => r.code !== 'IA' && (isOwner || r.code !== 'PROPRIETARIO');
 
@@ -140,6 +142,9 @@ export function UsersPage() {
   const [actionError, setActionError] = useState('');
   const users = useQuery({ queryKey: ['users'], queryFn: () => api.get<User[]>('/users') });
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get<Role[]>('/roles') });
+  const [params, setParams] = useSearchParams();
+  const tab = isOwner && params.get('aba') === 'cadastros' ? 'cadastros' : 'usuarios';
+  const pendingSignups = useQuery({ queryKey: ['signup', 'requests', 'pendente'], queryFn: () => api.get<unknown[]>('/signup-requests?status=pendente'), enabled: isOwner });
 
   const action = useMutation({
     mutationFn: ({ id, op }: { id: string; op: 'activate' | 'deactivate' | 'revoke-sessions' }) => api.post(`/users/${id}/${op}`),
@@ -157,8 +162,18 @@ export function UsersPage() {
       <PageHeader
         title="Usuários"
         subtitle="Logins individuais. Usuários não são excluídos — apenas desativados, preservando a auditoria."
-        actions={manage && <button className="btn-primary" onClick={() => setDialog({ kind: 'create' })}><Plus className="h-4 w-4" /> Novo usuário</button>}
+        actions={manage && tab === 'usuarios' && <button className="btn-primary" onClick={() => setDialog({ kind: 'create' })}><Plus className="h-4 w-4" /> Novo usuário</button>}
       />
+      {isOwner && (
+        <div className="mb-5 flex gap-1 overflow-x-auto border-b border-slate-200">
+          {([['usuarios', 'Usuários'], ['cadastros', 'Cadastro por link']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setParams(k === 'usuarios' ? {} : { aba: k })} className={clsx('-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium', tab === k ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700')}>
+              {l}{k === 'cadastros' && !!pendingSignups.data?.length && <span className="rounded-full bg-accent-400 px-1.5 text-xs font-bold text-ink-900">{pendingSignups.data.length}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {tab === 'cadastros' ? (roles.data ? <SignupAdmin roles={roles.data} /> : <Spinner />) : <>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <input className="input sm:max-w-xs" placeholder="Buscar por nome, e-mail ou perfil" value={search} onChange={(e) => setSearch(e.target.value)} />
         <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> Mostrar inativos</label>
@@ -203,6 +218,7 @@ export function UsersPage() {
           </table>
         </div>
       )}
+      </>}
       <Modal open={dialog?.kind === 'create' || dialog?.kind === 'edit'} title={dialog?.kind === 'edit' ? 'Editar usuário' : 'Novo usuário'} onClose={close}>
         {roles.data && (dialog?.kind === 'create' || dialog?.kind === 'edit') && <UserForm key={dialog.kind === 'edit' ? dialog.user.id : 'new'} user={dialog.kind === 'edit' ? dialog.user : undefined} roles={roles.data} onClose={close} />}
       </Modal>

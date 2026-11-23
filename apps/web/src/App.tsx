@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { IfoodPage } from './pages/IfoodPage';
 import { ExternalPage } from './pages/ExternalPage';
 import { TimeclockPage } from './pages/TimeclockPage';
+import { SignupPage } from './pages/SignupPage';
 import { UsersPage } from './pages/UsersPage';
 import { AuditPage } from './pages/AuditPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -54,6 +55,8 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* cadastro pelo link enviado pelo Proprietário (público; o acesso só é liberado após aprovação) */}
+      <Route path="/cadastro/:token" element={<SignupPage />} />
       {/* frente de caixa em tela cheia (sem o menu lateral) */}
       <Route path="/caixa" element={<Protected><RequirePermission permission="pos.operate"><PosPage /></RequirePermission></Protected>} />
       <Route element={<Protected><AppLayout /></Protected>}>

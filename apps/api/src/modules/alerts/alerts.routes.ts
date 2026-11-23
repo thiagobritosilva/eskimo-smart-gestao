@@ -1,3 +1,4 @@
+import { OWNER_ROLE } from '../auth/permissions.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool, withTransaction } from '../../db/pool.js';
@@ -12,7 +13,7 @@ const paramsSchema = z.object({
 });
 
 export async function alertsRoutes(app: FastifyInstance) {
-  app.get('/alerts', { preHandler: requirePermission('alerts.view') }, async (req) => listAlerts(getPool(), req.auth!.permissions));
+  app.get('/alerts', { preHandler: requirePermission('alerts.view') }, async (req) => listAlerts(getPool(), req.auth!.permissions, req.auth!.roleCode === OWNER_ROLE));
 
   app.get('/alerts/params', { preHandler: requirePermission('alerts.view') }, async () => getAlertParams(getPool()));
 

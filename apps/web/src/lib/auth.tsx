@@ -34,7 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh();
     const onUnauthorized = () => {
       setUser(null);
-      qc.clear();
+      // descarta os dados de quem estava logado; páginas públicas (chave "public-…") continuam funcionando
+      qc.removeQueries({ predicate: (q) => !String(q.queryKey[0]).startsWith('public-') });
     };
     window.addEventListener('esg:unauthorized', onUnauthorized);
     return () => window.removeEventListener('esg:unauthorized', onUnauthorized);
