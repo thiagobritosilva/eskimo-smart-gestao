@@ -54,9 +54,10 @@ services:
       DOMAIN: ${DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/caddy-sites:/etc/caddy/sites:ro
       - caddy_data:/data
       - caddy_config:/config
-    networks: [internal]
+    networks: [internal, edge]
 
 volumes:
   pgdata:
@@ -65,3 +66,6 @@ volumes:
 
 networks:
   internal:
+  # Rede compartilhada com outros sistemas do servidor que o Caddy publica (ver Caddyfile).
+  edge:
+    name: edge
