@@ -4,8 +4,11 @@ import { Bike, Clock, ScanBarcode } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
-type Kind = 'entrada' | 'saida_almoco' | 'volta_almoco' | 'saida';
-const KIND: Record<Kind, string> = { entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída' };
+type Kind = 'entrada' | 'saida_almoco' | 'volta_almoco' | 'saida' | 'entrada_extra' | 'saida_extra';
+const KIND: Record<Kind, string> = {
+  entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída',
+  entrada_extra: 'Entrada de hora extra', saida_extra: 'Saída de hora extra',
+};
 interface Me { punches: { kind: Kind; punched_at: string }[]; next: Kind }
 const hm = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
 

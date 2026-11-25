@@ -236,7 +236,7 @@ async function timeAdjustmentsPending(db: Queryable): Promise<AlertGroup[]> {
     `SELECT a.id, u.name, a.kind, a.requested_at FROM time_punch_adjustments a JOIN users u ON u.id = a.user_id WHERE a.status = 'pendente' ORDER BY a.created_at`,
   );
   if (!rows.length) return [];
-  const K: Record<string, string> = { entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída' };
+  const K: Record<string, string> = { entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída', entrada_extra: 'Entrada de hora extra', saida_extra: 'Saída de hora extra' };
   return [{
     key: 'time_adjustments_pending', title: 'Ajustes de ponto aguardando decisão', severity: 'atencao',
     description: 'Pedidos de inclusão de marcação (esquecimento, fora da loja). Aprove ou recuse com motivo.',

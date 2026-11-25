@@ -167,6 +167,32 @@ describe('ponto', () => {
     expect((await call(gerente.cookie, 'GET', '/timeclock/today')).statusCode).toBe(403);
   });
 
+  it('hora extra: depois da saída, sugere entrada e saída de hora extra; espelho separa horas normais e extras', async () => {
+    const u = await asRole(app, 'FUNCIONARIO');
+    for (const k of ['entrada', 'saida_almoco', 'volta_almoco', 'saida']) {
+      expect((await call(u.cookie, 'POST', '/timeclock/punch', { location: LOJA })).json().kind).toBe(k);
+    }
+    expect((await call(u.cookie, 'GET', '/timeclock/me')).json().next).toBe('entrada_extra');
+    const ee = await call(u.cookie, 'POST', '/timeclock/punch', { location: LOJA });
+    expect(ee.json()).toMatchObject({ kind: 'entrada_extra', label: 'Entrada de hora extra' });
+    expect((await call(owner.cookie, 'GET', '/timeclock/today')).json().find((x: { id: string }) => x.id === u.id).status).toBe('hora_extra');
+    expect((await call(u.cookie, 'GET', '/timeclock/me')).json().next).toBe('saida_extra');
+    expect((await call(u.cookie, 'POST', '/timeclock/punch', { location: LOJA })).json().kind).toBe('saida_extra');
+    expect((await call(owner.cookie, 'GET', '/timeclock/today')).json().find((x: { id: string }) => x.id === u.id).status).toBe('encerrado');
+    // dia completo por ajuste: 08:00–12:00, 13:00–17:00 (8h normais) + extra 17:10–19:40 (2h30)
+    const day = [['entrada', '08:00'], ['saida_almoco', '12:00'], ['volta_almoco', '13:00'], ['saida', '17:00'], ['entrada_extra', '17:10'], ['saida_extra', '19:40']] as const;
+    for (const [kind, hm] of day) {
+      const a = (await call(u.cookie, 'POST', '/timeclock/adjustments', { kind, at: `2026-10-09T${hm}:00-03:00`, reason: 'Teste de hora extra' })).json();
+      expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${a.id}/decide`, { approve: true })).statusCode).toBe(200);
+    }
+    const t = (await call(u.cookie, 'GET', '/timeclock/timesheet?month=2026-10')).json();
+    const d = t.days.find((x: { date: string }) => x.date === '2026-10-09');
+    expect(d).toMatchObject({ regularMinutes: 480, extraMinutes: 150, workedMinutes: 630, lunchMinutes: 60 });
+    expect(d.alerts.join(' ')).toMatch(/Hora extra de 2h30 — acima de 2h/);
+    expect(t.totals).toMatchObject({ regularMinutes: 480, extraMinutes: 150 });
+    expect((await call(owner.cookie, 'GET', '/timeclock/verify')).json().ok).toBe(true);
+  });
+
   it('alertas legais do espelho: intervalo < 1h, > 2h, sem intervalo, > 10h, descanso < 11h', () => {
     const p = (kind: string, iso: string) => ({ id: iso, nsr: '1', kind: kind as 'entrada', punched_at: iso, origin: 'app' });
     const curto = computeDay('2026-10-01', [p('entrada', '2026-10-01T11:00:00Z'), p('saida_almoco', '2026-10-01T15:00:00Z'), p('volta_almoco', '2026-10-01T15:30:00Z'), p('saida', '2026-10-01T20:00:00Z')], null);

@@ -458,3 +458,11 @@ com impacto e estratégia de preservação de dados.
   (padrão de segurança) e a política de uso do OpenStreetMap exige identificar o site de origem.
 - **Correção:** só as imagens do mapa (Leaflet `referrerPolicy: 'strict-origin-when-cross-origin'`) enviam a ORIGEM
   do site (ex.: `https://eskimovicentepires.tech/`), sem caminho nem dados da página. O restante continua sem referer.
+
+## 0033_ponto_hora_extra — marcações de hora extra (2026-11-25)
+- **O quê:** novos tipos de marcação `entrada_extra` e `saida_extra` (marcações e pedidos de ajuste). Depois da
+  Saída, o botão do ponto sugere "Entrada de hora extra" e, em seguida, "Saída de hora extra" (pode repetir).
+- **Espelho:** novas colunas "Hora extra" (ex.: 17:10–19:40), "Normais", "Extras" e "Total", também na impressão;
+  totais do mês separados. Alerta quando a hora extra do dia passa de 2h (art. 59 da CLT). O quadro "Equipe hoje"
+  mostra "Em hora extra". Descanso entre jornadas passa a contar a partir da última saída (normal ou de hora extra).
+- **Impacto:** só amplia os tipos aceitos; nenhuma marcação existente é alterada.

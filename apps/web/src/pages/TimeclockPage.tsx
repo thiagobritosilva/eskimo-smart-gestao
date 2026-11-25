@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Clock, Coffee, LogIn, LogOut, MapPin, Printer, UtensilsCrossed } from 'lucide-react';
+import { AlertTriangle, Clock, Coffee, LogIn, LogOut, MapPin, Printer, Timer, TimerOff, UtensilsCrossed } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage, qs } from '../lib/api';
 import { useAuth, useIsOwner } from '../lib/auth';
@@ -9,9 +9,12 @@ import { formatDate, formatDateTime } from '../lib/format';
 import { Alert, Field, Modal, PageHeader, Spinner } from '../components/ui';
 import { KIND_COLOR, PunchMap, type MapPoint } from '../components/punch-map';
 
-type Kind = 'entrada' | 'saida_almoco' | 'volta_almoco' | 'saida';
-const KIND: Record<Kind, string> = { entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída' };
-const ICON = { entrada: LogIn, saida_almoco: UtensilsCrossed, volta_almoco: Coffee, saida: LogOut } as const;
+type Kind = 'entrada' | 'saida_almoco' | 'volta_almoco' | 'saida' | 'entrada_extra' | 'saida_extra';
+const KIND: Record<Kind, string> = {
+  entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída',
+  entrada_extra: 'Entrada de hora extra', saida_extra: 'Saída de hora extra',
+};
+const ICON = { entrada: LogIn, saida_almoco: UtensilsCrossed, volta_almoco: Coffee, saida: LogOut, entrada_extra: Timer, saida_extra: TimerOff } as const;
 interface Geo { latitude: number; longitude: number; accuracy?: number | null }
 interface Punch { id: string; nsr: string; kind: Kind; punched_at: string; origin: string; latitude?: number | null; longitude?: number | null; accuracy?: number | null; distance?: number | null; outside?: boolean }
 interface Params { storeLatitude: number | null; storeLongitude: number | null; radiusMeters: number | null }
@@ -45,13 +48,13 @@ function PinLink({ p, onFocus }: { p: { latitude?: number | null; longitude?: nu
 }
 interface Receipt { id: string; nsr: string; kind: Kind; label: string; punchedAt: string; workDate: string; origin: string; hash: string; userName: string; location: Geo | null; company: { name: string | null; cnpj: string | null }; duplicate?: boolean; warnings?: string[] }
 interface Me { date: string; serverTime: string; punches: Punch[]; next: Kind; adjustments: { id: string; number: string; kind: Kind; requested_at: string; reason: string; status: string }[] }
-interface Day { date: string; punches: Punch[]; workedMinutes: number; lunchMinutes: number | null; alerts: string[] }
+interface Day { date: string; punches: Punch[]; workedMinutes: number; regularMinutes: number; extraMinutes: number; lunchMinutes: number | null; alerts: string[] }
 interface Sheet {
   user: { id: string; name: string; role_name: string }; month: string; days: Day[];
   adjustments: { number: string; kind: Kind; requested_at: string; reason: string; status: string; decision_reason: string | null; decided_by_name: string | null }[];
-  totals: { days: number; workedMinutes: number; alerts: number };
+  totals: { days: number; workedMinutes: number; regularMinutes: number; extraMinutes: number; alerts: number };
 }
-interface BoardUser { id: string; name: string; role_name: string; status: 'sem_marcacao' | 'trabalhando' | 'almoco' | 'encerrado'; punches: { id: string; kind: Kind; at: string; origin: string; latitude: number | null; longitude: number | null; accuracy: number | null; distance: number | null; outside: boolean }[] }
+interface BoardUser { id: string; name: string; role_name: string; status: 'sem_marcacao' | 'trabalhando' | 'almoco' | 'hora_extra' | 'encerrado'; punches: { id: string; kind: Kind; at: string; origin: string; latitude: number | null; longitude: number | null; accuracy: number | null; distance: number | null; outside: boolean }[] }
 const distTxt = (d?: number | null) => (d != null ? ` · ${d < 1000 ? `${Math.round(d)} m` : `${(d / 1000).toFixed(1)} km`} da loja` : '');
 /** Local da loja para o mapa (somente o Proprietário consulta). */
 function useStore() {
@@ -77,7 +80,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const thisMonth = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
 const STATUS: Record<BoardUser['status'], { label: string; cls: string }> = {
   sem_marcacao: { label: 'Sem marcação hoje', cls: 'bg-slate-100 text-slate-600' }, trabalhando: { label: 'Trabalhando', cls: 'bg-emerald-100 text-emerald-800' },
-  almoco: { label: 'No almoço', cls: 'bg-amber-100 text-amber-900' }, encerrado: { label: 'Encerrou', cls: 'bg-sky-100 text-sky-800' },
+  almoco: { label: 'No almoço', cls: 'bg-amber-100 text-amber-900' }, hora_extra: { label: 'Em hora extra', cls: 'bg-violet-100 text-violet-800' }, encerrado: { label: 'Encerrou', cls: 'bg-sky-100 text-sky-800' },
 };
 
 function openPrint(title: string, body: string, width = 420) {
@@ -108,19 +111,28 @@ export function printPunchReceipt(r: Receipt) {
     <div class="sm" style="margin-top:6px">Controle interno de jornada — horário do servidor; registro imutável.</div></div>`);
 }
 
+/** Período(s) de hora extra do dia para a impressão (ex.: 17:10–19:40). */
+function extraRange(d: Day) {
+  const ins = d.punches.filter((p) => p.kind === 'entrada_extra');
+  const outs = d.punches.filter((p) => p.kind === 'saida_extra');
+  if (!ins.length && !outs.length) return '—';
+  const f = (p?: Punch) => (p ? `${hm(p.punched_at)}${p.origin === 'ajuste' ? '*' : ''}${p.outside ? '†' : ''}` : '?');
+  return Array.from({ length: Math.max(ins.length, outs.length) }, (_, i) => `${f(ins[i])}–${f(outs[i])}`).join(' / ');
+}
+
 function printTimesheet(s: Sheet) {
   const [y, m] = s.month.split('-');
   const rows = s.days.map((d) => {
     const at = (k: Kind) => d.punches.filter((p) => p.kind === k).map((p) => `${hm(p.punched_at)}${p.origin === 'ajuste' ? '*' : ''}${p.outside ? '†' : ''}`).join(' / ') || '—';
-    return `<tr><td>${formatDate(d.date)}</td><td>${at('entrada')}</td><td>${at('saida_almoco')}</td><td>${at('volta_almoco')}</td><td>${at('saida')}</td>
-      <td class="r">${d.lunchMinutes != null ? dur(d.lunchMinutes) : '—'}</td><td class="r">${dur(d.workedMinutes)}</td><td class="sm">${d.alerts.map(esc).join('<br>')}</td></tr>`;
+    return `<tr><td>${formatDate(d.date)}</td><td>${at('entrada')}</td><td>${at('saida_almoco')}</td><td>${at('volta_almoco')}</td><td>${at('saida')}</td><td>${extraRange(d)}</td>
+      <td class="r">${d.lunchMinutes != null ? dur(d.lunchMinutes) : '—'}</td><td class="r">${dur(d.regularMinutes)}</td><td class="r">${d.extraMinutes ? dur(d.extraMinutes) : '—'}</td><td class="r">${dur(d.workedMinutes)}</td><td class="sm">${d.alerts.map(esc).join('<br>')}</td></tr>`;
   }).join('');
   openPrint(`Espelho de ponto ${s.user.name} ${s.month}`, `
     <h1>ESPELHO DE PONTO — ${m}/${y}</h1>
     <div>Empregado: <b>${esc(s.user.name)}</b> · Função: ${esc(s.user.role_name)}</div><br>
-    <table><thead><tr><th>Data</th><th>Entrada</th><th>Saída almoço</th><th>Volta almoço</th><th>Saída</th><th>Intervalo</th><th>Trabalhado</th><th>Observações</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="8">Nenhuma marcação no mês.</td></tr>'}</tbody>
-    <tfoot><tr><th colspan="6">Total do mês (${s.totals.days} dia(s))</th><th class="r">${dur(s.totals.workedMinutes)}</th><th></th></tr></tfoot></table>
+    <table><thead><tr><th>Data</th><th>Entrada</th><th>Saída almoço</th><th>Volta almoço</th><th>Saída</th><th>Hora extra</th><th>Intervalo</th><th>Normais</th><th>Extras</th><th>Total</th><th>Observações</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="11">Nenhuma marcação no mês.</td></tr>'}</tbody>
+    <tfoot><tr><th colspan="7">Total do mês (${s.totals.days} dia(s))</th><th class="r">${dur(s.totals.regularMinutes)}</th><th class="r">${dur(s.totals.extraMinutes)}</th><th class="r">${dur(s.totals.workedMinutes)}</th><th></th></tr></tfoot></table>
     <p class="sm">* marcação incluída por ajuste aprovado pelo Proprietário (com motivo registrado). † marcação fora do raio da loja (localização registrada). Horários do servidor (Brasília); localização do aparelho no momento da marcação.</p>
     ${s.adjustments.length ? `<b>Ajustes do mês</b><table><tr><th>Nº</th><th>Marcação</th><th>Horário</th><th>Motivo</th><th>Decisão</th></tr>${s.adjustments.map((a) => `<tr><td>${a.number}</td><td>${KIND[a.kind]}</td><td>${formatDateTime(a.requested_at)}</td><td>${esc(a.reason)}</td><td>${a.status}${a.decided_by_name ? ` (${esc(a.decided_by_name)})` : ''}${a.decision_reason ? ` — ${esc(a.decision_reason)}` : ''}</td></tr>`).join('')}</table>` : ''}
     <div class="sig"><div>Empregado: ${esc(s.user.name)}</div><div>Empregador</div></div>`, 900);
@@ -230,6 +242,7 @@ function MyPunch() {
         {confirm && (
           <div className="space-y-4 text-center">
             <div className="text-lg">Registrar <b>{KIND[confirm]}</b> agora?</div>
+            {confirm === 'entrada_extra' && <Alert kind="info">Hora extra: registre só quando o responsável tiver autorizado. Ao terminar, bata <b>Saída de hora extra</b>.</Alert>}
             {confirm !== d.next && <Alert kind="warning">A marcação esperada agora é <b>{KIND[d.next]}</b>. Confirme só se estiver certo.</Alert>}
             <div className="flex justify-center gap-2"><button className="btn-secondary" onClick={() => setConfirm(null)}>Voltar</button>
               <button className="btn-primary" autoFocus disabled={m.isPending} onClick={() => m.mutate(confirm)}>{locating ? 'Obtendo localização…' : 'Confirmar'}</button></div>
@@ -304,7 +317,7 @@ function Timesheet({ userId }: { userId: string | null }) {
         <>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-2 py-2 text-left">Dia</th><th className="px-2 py-2 text-left">Entrada</th><th className="px-2 py-2 text-left">Saída almoço</th><th className="px-2 py-2 text-left">Volta almoço</th><th className="px-2 py-2 text-left">Saída</th><th className="px-2 py-2 text-right">Intervalo</th><th className="px-2 py-2 text-right">Trabalhado</th></tr></thead>
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-2 py-2 text-left">Dia</th><th className="px-2 py-2 text-left">Entrada</th><th className="px-2 py-2 text-left">Saída almoço</th><th className="px-2 py-2 text-left">Volta almoço</th><th className="px-2 py-2 text-left">Saída</th><th className="px-2 py-2 text-left">Hora extra</th><th className="px-2 py-2 text-right">Intervalo</th><th className="px-2 py-2 text-right">Normais</th><th className="px-2 py-2 text-right">Extras</th><th className="px-2 py-2 text-right">Total</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {s!.days.map((d) => {
                   const at = (k: Kind) => d.punches.filter((p) => p.kind === k).map((p) => <span key={p.id} className={clsx('mr-1 tabular-nums', p.origin === 'ajuste' && 'text-violet-700')} title={p.origin === 'ajuste' ? 'Incluída por ajuste aprovado' : `NSR ${p.nsr}`}>{hm(p.punched_at)}{p.origin === 'ajuste' ? '*' : ''}<PinLink p={p} onFocus={showMap ? () => focusOn(p.id) : undefined} /></span>);
@@ -313,14 +326,17 @@ function Timesheet({ userId }: { userId: string | null }) {
                       <td className="whitespace-nowrap px-2 py-2">{formatDate(d.date)}
                         {d.alerts.filter((a) => !a.startsWith('Dia com')).map((a, i) => <div key={i} className="flex items-start gap-1 text-xs text-amber-700"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{a}</div>)}</td>
                       <td className="px-2 py-2">{at('entrada')}</td><td className="px-2 py-2">{at('saida_almoco')}</td><td className="px-2 py-2">{at('volta_almoco')}</td><td className="px-2 py-2">{at('saida')}</td>
+                      <td className="whitespace-nowrap px-2 py-2">{d.punches.some((p) => p.kind === 'entrada_extra' || p.kind === 'saida_extra') ? <>{at('entrada_extra')}<span className="mx-0.5 text-slate-400">–</span>{at('saida_extra')}</> : '—'}</td>
                       <td className="px-2 py-2 text-right tabular-nums">{d.lunchMinutes != null ? dur(d.lunchMinutes) : '—'}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{dur(d.regularMinutes)}</td>
+                      <td className={clsx('px-2 py-2 text-right tabular-nums', d.extraMinutes > 0 && 'font-semibold text-violet-700')}>{d.extraMinutes ? dur(d.extraMinutes) : '—'}</td>
                       <td className="px-2 py-2 text-right font-semibold tabular-nums">{dur(d.workedMinutes)}</td>
                     </tr>
                   );
                 })}
-                {!s!.days.length && <tr><td colSpan={7} className="px-2 py-6 text-center text-slate-500">Nenhuma marcação neste mês.</td></tr>}
+                {!s!.days.length && <tr><td colSpan={10} className="px-2 py-6 text-center text-slate-500">Nenhuma marcação neste mês.</td></tr>}
               </tbody>
-              <tfoot><tr className="border-t border-slate-200 font-semibold"><td colSpan={6} className="px-2 py-2">Total ({s!.totals.days} dia(s)){s!.totals.alerts ? <span className="ml-2 text-xs font-normal text-amber-700">{s!.totals.alerts} alerta(s)</span> : null}</td><td className="px-2 py-2 text-right tabular-nums">{dur(s!.totals.workedMinutes)}</td></tr></tfoot>
+              <tfoot><tr className="border-t border-slate-200 font-semibold"><td colSpan={7} className="px-2 py-2">Total ({s!.totals.days} dia(s)){s!.totals.alerts ? <span className="ml-2 text-xs font-normal text-amber-700">{s!.totals.alerts} alerta(s)</span> : null}</td><td className="px-2 py-2 text-right tabular-nums">{dur(s!.totals.regularMinutes)}</td><td className="px-2 py-2 text-right tabular-nums text-violet-700">{dur(s!.totals.extraMinutes)}</td><td className="px-2 py-2 text-right tabular-nums">{dur(s!.totals.workedMinutes)}</td></tr></tfoot>
             </table>
           </div>
           {showMap && <div ref={mapRef} className="mt-4 space-y-2"><h4 className="text-sm font-semibold">Onde o ponto foi batido no mês</h4><SheetMap sheet={s!} focus={focus} /><MapLegend /></div>}

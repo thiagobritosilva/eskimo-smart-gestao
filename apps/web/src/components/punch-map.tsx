@@ -70,4 +70,4 @@ export function PunchMap({ points, store, focusId, height = 340 }: { points: Map
   return <div ref={el} style={{ height }} className="z-0 w-full overflow-hidden rounded-xl border border-slate-200" />;
 }
 
-export const KIND_COLOR: Record<string, string> = { entrada: '#059669', saida_almoco: '#d97706', volta_almoco: '#0284c7', saida: '#475569' };
+export const KIND_COLOR: Record<string, string> = { entrada: '#059669', saida_almoco: '#d97706', volta_almoco: '#0284c7', saida: '#475569', entrada_extra: '#7c3aed', saida_extra: '#a855f7' };

@@ -13,9 +13,14 @@ import type { Actor } from '../stock/stock.service.js';
  * - Cerca virtual: pelo app, o ponto só é aceito dentro do raio da loja (todos os perfis); fora dele, só por ajuste.
  * - Gestão (ponto de todos, ajustes, espelhos, local da loja): somente o Proprietário. Demais: só o próprio ponto. A marcação original nunca é alterada; o ajuste aprovado entra como marcação "incluída".
  */
-export const KINDS = ['entrada', 'saida_almoco', 'volta_almoco', 'saida'] as const;
+export const KINDS = ['entrada', 'saida_almoco', 'volta_almoco', 'saida', 'entrada_extra', 'saida_extra'] as const;
 export type PunchKind = (typeof KINDS)[number];
-export const KIND_LABEL: Record<PunchKind, string> = { entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída' };
+export const KIND_LABEL: Record<PunchKind, string> = {
+  entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída',
+  entrada_extra: 'Entrada de hora extra', saida_extra: 'Saída de hora extra',
+};
+const OPENS = new Set<PunchKind>(['entrada', 'volta_almoco', 'entrada_extra']);
+const EXTRA_LIMIT = 120; // art. 59 da CLT: no máximo 2 horas extras por dia
 const TZ = `'America/Sao_Paulo'`;
 const DOUBLE_TAP_SECONDS = 120;
 const LUNCH_MIN = 60; // art. 71 da CLT: jornada acima de 6h → intervalo mínimo de 1 hora
@@ -53,7 +58,10 @@ const todaySPSql = `(now() AT TIME ZONE ${TZ})::date::text`;
 
 function nextKind(kinds: PunchKind[]): PunchKind {
   const last = kinds[kinds.length - 1];
-  if (!last || last === 'saida') return 'entrada';
+  if (!last) return 'entrada';
+  // depois da saída do dia, quem continuar trabalhando registra hora extra (entrada/saída de hora extra)
+  if (last === 'saida' || last === 'saida_extra') return 'entrada_extra';
+  if (last === 'entrada_extra') return 'saida_extra';
   if (last === 'entrada') return kinds.includes('saida_almoco') ? 'saida' : 'saida_almoco';
   if (last === 'saida_almoco') return 'volta_almoco';
   return 'saida';
@@ -179,22 +187,30 @@ export async function listAdjustments(actor: Actor, status: 'pendente' | 'todos'
 
 // ------------------------------------------------------------------ espelho
 type PunchRow = { outside?: boolean; id: string; nsr: string; kind: PunchKind; punched_at: string; origin: string; latitude?: number | null; longitude?: number | null; accuracy?: number | null; distance?: number | null };
-interface DayRow { date: string; punches: PunchRow[]; workedMinutes: number; lunchMinutes: number | null; alerts: string[] }
+interface DayRow { date: string; punches: PunchRow[]; workedMinutes: number; regularMinutes: number; extraMinutes: number; lunchMinutes: number | null; alerts: string[] }
 
 /** Calcula horas trabalhadas, intervalo e alertas legais de um dia. */
 export function computeDay(date: string, punches: DayRow['punches'], prevDayLastOut: string | null): DayRow {
   const alerts: string[] = [];
-  let worked = 0;
+  let worked = 0; // total do dia (normal + extra)
+  let extra = 0; // períodos de hora extra (entrada de hora extra → saída de hora extra)
   let openAt: number | null = null;
+  let openExtra = false;
   for (const p of punches) {
     const t = new Date(p.punched_at).getTime();
-    if (p.kind === 'entrada' || p.kind === 'volta_almoco') {
+    if (OPENS.has(p.kind)) {
       if (openAt != null) alerts.push('Duas entradas seguidas sem saída.');
       openAt = t;
+      openExtra = p.kind === 'entrada_extra';
     } else {
       if (openAt == null) alerts.push('Saída sem entrada correspondente.');
-      else worked += (t - openAt) / 60000;
+      else {
+        const mins = (t - openAt) / 60000;
+        worked += mins;
+        if (openExtra) extra += mins;
+      }
       openAt = null;
+      openExtra = false;
     }
   }
   if (openAt != null) alerts.push('Marcação incompleta (falta saída).');
@@ -204,6 +220,7 @@ export function computeDay(date: string, punches: DayRow['punches'], prevDayLast
   if (worked > 360 && (lunch == null || lunch < LUNCH_MIN)) alerts.push(lunch == null ? 'Jornada acima de 6h sem intervalo registrado (art. 71 CLT).' : `Intervalo de ${lunch} min — inferior a 1h (art. 71 CLT).`);
   if (lunch != null && lunch > LUNCH_MAX) alerts.push(`Intervalo de ${lunch} min — superior a 2h (art. 71 CLT; só com acordo escrito/convenção).`);
   if (worked > 600) alerts.push('Jornada acima de 10h no dia (art. 59 CLT: no máximo 2h extras).');
+  if (extra > EXTRA_LIMIT) alerts.push(`Hora extra de ${Math.floor(extra / 60)}h${String(Math.round(extra % 60)).padStart(2, '0')} — acima de 2h no dia (art. 59 CLT).`);
   const firstIn = punches.find((p) => p.kind === 'entrada');
   if (prevDayLastOut && firstIn) {
     const rest = (new Date(firstIn.punched_at).getTime() - new Date(prevDayLastOut).getTime()) / 3600000;
@@ -211,7 +228,7 @@ export function computeDay(date: string, punches: DayRow['punches'], prevDayLast
   }
   for (const p of punches) if (p.distance != null && p.distance > 0 && p.outside) alerts.push(`${KIND_LABEL[p.kind]} marcada a ${Math.round(p.distance)} m da loja (fora do raio).`);
   if (punches.some((p) => p.origin === 'ajuste')) alerts.push('Dia com marcação incluída por ajuste aprovado.');
-  return { date, punches, workedMinutes: Math.round(worked), lunchMinutes: lunch, alerts };
+  return { date, punches, workedMinutes: Math.round(worked), regularMinutes: Math.round(worked - extra), extraMinutes: Math.round(extra), lunchMinutes: lunch, alerts };
 }
 
 export async function timesheet(actor: Actor, userId: string, month: string) {
@@ -238,7 +255,7 @@ export async function timesheet(actor: Actor, userId: string, month: string) {
   for (const date of [...byDay.keys()].sort()) {
     const list = byDay.get(date)!;
     const row = computeDay(date, list, prevOut);
-    const lastOut = [...list].reverse().find((p) => p.kind === 'saida');
+    const lastOut = [...list].reverse().find((p) => p.kind === 'saida' || p.kind === 'saida_extra');
     prevOut = lastOut?.punched_at ?? null;
     if (date >= from && date.slice(0, 7) === month) days.push(row);
   }
@@ -249,7 +266,8 @@ export async function timesheet(actor: Actor, userId: string, month: string) {
   )).rows;
   return {
     user, month, days, adjustments,
-    totals: { days: days.length, workedMinutes: days.reduce((s, d) => s + d.workedMinutes, 0), alerts: days.reduce((s, d) => s + d.alerts.filter((a) => !a.startsWith('Dia com marcação incluída')).length, 0) },
+    totals: { days: days.length, workedMinutes: days.reduce((s, d) => s + d.workedMinutes, 0),
+      regularMinutes: days.reduce((s, d) => s + d.regularMinutes, 0), extraMinutes: days.reduce((s, d) => s + d.extraMinutes, 0), alerts: days.reduce((s, d) => s + d.alerts.filter((a) => !a.startsWith('Dia com marcação incluída')).length, 0) },
   };
 }
 
@@ -273,7 +291,8 @@ export async function todayBoard(actor: Actor) {
       p.outside = p.distance != null && p.distance > params.radiusMeters!;
     }
     const last = u.punches[u.punches.length - 1]?.kind;
-    const status = !last ? 'sem_marcacao' : last === 'saida' ? 'encerrado' : last === 'saida_almoco' ? 'almoco' : 'trabalhando';
+    const status = !last ? 'sem_marcacao' : last === 'saida' || last === 'saida_extra' ? 'encerrado' : last === 'saida_almoco' ? 'almoco'
+      : last === 'entrada_extra' ? 'hora_extra' : 'trabalhando';
     return { ...u, status };
   });
 }
