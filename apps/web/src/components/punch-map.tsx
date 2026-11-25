@@ -24,6 +24,9 @@ export function PunchMap({ points, store, focusId, height = 340 }: { points: Map
     if (!el.current || map.current) return;
     map.current = L.map(el.current, { scrollWheelZoom: false, attributionControl: true });
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      // a política do OpenStreetMap exige identificar o site de origem; o sistema todo usa "no-referrer",
+      // então só as imagens do mapa enviam a ORIGEM (https://dominio/ — sem caminho nem dados da página)
+      referrerPolicy: 'strict-origin-when-cross-origin',
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>',
     }).addTo(map.current);
     layers.current = L.layerGroup().addTo(map.current);

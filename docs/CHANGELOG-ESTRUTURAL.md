@@ -452,3 +452,9 @@ com impacto e estratégia de preservação de dados.
 - **O quê:** perfil Estoquista recebe `pos.operate` e `ifood.operate` (mantém as permissões de estoque). No caixa,
   vale a mesma regra dos demais operadores: só o próprio turno, sem financeiro. Os atalhos "Bater ponto" e
   "Abrir caixa" aparecem no topo do dashboard dele.
+
+## Mapa do ponto: correção do bloqueio do OpenStreetMap (sem migration) (2026-11-25)
+- **Problema:** as imagens do mapa apareciam como "Access blocked". O sistema envia `Referrer-Policy: no-referrer`
+  (padrão de segurança) e a política de uso do OpenStreetMap exige identificar o site de origem.
+- **Correção:** só as imagens do mapa (Leaflet `referrerPolicy: 'strict-origin-when-cross-origin'`) enviam a ORIGEM
+  do site (ex.: `https://eskimovicentepires.tech/`), sem caminho nem dados da página. O restante continua sem referer.
