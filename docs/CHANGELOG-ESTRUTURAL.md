@@ -466,3 +466,15 @@ com impacto e estratégia de preservação de dados.
   totais do mês separados. Alerta quando a hora extra do dia passa de 2h (art. 59 da CLT). O quadro "Equipe hoje"
   mostra "Em hora extra". Descanso entre jornadas passa a contar a partir da última saída (normal ou de hora extra).
 - **Impacto:** só amplia os tipos aceitos; nenhuma marcação existente é alterada.
+
+## 0034_fechamento_outro_sistema — fechamento com vendas feitas no outro sistema (2026-11-26)
+- **Para a fase de implantação:** o operador abre o caixa no Eskimo com o fundo de troco, vende no sistema antigo e,
+  no fechamento, informa os totais do turno por forma (dinheiro, débito, crédito, Pix, outros; nº de vendas e
+  observação opcionais). Tabela `cash_session_declarations` (uma por sessão, imutável, auditada).
+- **Dinheiro:** entra na gaveta antes da conferência (transferência a partir da conta transitória
+  "Vendas do outro sistema (a conciliar)", tipo suprimento — sem efeito na DRE). O fechamento às cegas segue igual:
+  esperado = fundo + dinheiro; fica o fundo (R$ 100) e o restante vai no envelope ao financeiro.
+- **Não é faturamento:** nada vira venda no Eskimo (evita contar em dobro com a importação do PDV). Cartão e Pix
+  ficam registrados para conferência. A conta transitória é excluída da escolha automática de conta.
+- **Relatório/comprovante 80 mm:** bloco "Vendas no outro sistema"; total geral do turno inclui o declarado.
+- **Conciliação:** "Outro sistema — declarado pelos caixas × importado do PDV" por forma de pagamento.

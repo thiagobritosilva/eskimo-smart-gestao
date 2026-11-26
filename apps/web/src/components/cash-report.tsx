@@ -16,6 +16,7 @@ export interface CashReport {
   movements: { kind: string; direction: string; amount: string; description: string; occurred_at: string }[];
   ifood: { count: number; amount: string; orders: { order_code: string; sold_at: string; amount: string; items: string | null; cancelled: boolean }[] };
   grandTotal: string;
+  external?: { cash: string; debit: string; credit: string; pix: string; other: string; total: string; sales_count: number | null; notes: string | null } | null;
   saleList?: SaleDetail[];
   handover?: { number: string; status: string; declared_amount: string; kept_amount: string; denominations: { value: string; qty: number }[] | null; received_amount: string | null; difference: string | null; reason: string | null; confirmed_by_name: string | null } | null;
 }
@@ -48,13 +49,17 @@ export function printCashReport(r: CashReport) {
     ${r.sales.late ? row(`Lançadas após o fechamento (${r.sales.late})`, `R$ ${num(r.sales.late_total ?? 0)}`) : ''}</table><hr>
     ${r.saleList?.length ? `<div class="b">TODAS AS VENDAS DO TURNO</div><table class="sm">${r.saleList.map((v) => `<tr><td>${esc(v.number)} ${dt(v.sold_at).slice(-5)}${v.status === 'cancelada' ? ' CANC.' : ''}<br>${esc(v.payments.map((p) => `${p.name.replace('Cartão de ', '')} ${num(p.amount)}`).join(' + '))}${v.notes.map((n) => `<br>* ${esc(n.note)}${n.resolvedAt ? ' (resolvido)' : ''}`).join('')}${v.corrections.map((c) => `<br>Corrigido: ${esc(c.from)} > ${esc(c.to)}`).join('')}</td><td class="r">${num(v.net_amount)}</td></tr>`).join('')}</table>
     <div class="sm">Pix/cartão: o caixa não confere; divergência vai como comentário para o financeiro.</div><hr>` : ''}
+    ${r.external ? `<div class="b">VENDAS NO OUTRO SISTEMA (DECLARADAS)</div>
+    <table>${row('Dinheiro', `R$ ${num(r.external.cash)}`)}${row('Débito', `R$ ${num(r.external.debit)}`)}${row('Crédito', `R$ ${num(r.external.credit)}`)}${row('Pix', `R$ ${num(r.external.pix)}`)}${Number(r.external.other) ? row('Outros', `R$ ${num(r.external.other)}`) : ''}
+    ${row(`Total outro sistema${r.external.sales_count != null ? ` (${r.external.sales_count} venda(s))` : ''}`, `R$ ${num(r.external.total)}`, true)}</table>
+    ${r.external.notes ? `<div class="sm">${esc(r.external.notes)}</div>` : ''}<hr>` : ''}
     <div class="b">iFOOD DESPACHADO NO TURNO</div>
     <table>${r.ifood.orders.filter((o) => !o.cancelled).map((o) => row(`#${o.order_code} ${dt(o.sold_at).slice(-5)}`, `R$ ${num(o.amount)}`)).join('') || '<tr><td class="sm">Nenhum pedido</td></tr>'}
     ${row(`Total iFood (${r.ifood.count} pedido(s))`, `R$ ${num(r.ifood.amount)}`, true)}</table>
     <div class="sm">Recebido pelo iFood no repasse — não entra na gaveta.</div><hr>
-    ${row('TOTAL GERAL (caixa + iFood)', `R$ ${num(r.grandTotal)}`, true).replace('<tr', '<table><tr').replace('</tr>', '</tr></table>')}<hr>
+    ${row(r.external ? 'TOTAL GERAL (caixa + outro sistema + iFood)' : 'TOTAL GERAL (caixa + iFood)', `R$ ${num(r.grandTotal)}`, true).replace('<tr', '<table><tr').replace('</tr>', '</tr></table>')}<hr>
     <div class="b">CONFERÊNCIA DO DINHEIRO</div>
-    <table>${row('Fundo de troco (abertura)', `R$ ${num(s.opening_counted)}`)}${row('Vendas em dinheiro', `+ R$ ${num(r.methods.find((m) => m.code === 'dinheiro')?.amount ?? 0)}`)}
+    <table>${row('Fundo de troco (abertura)', `R$ ${num(s.opening_counted)}`)}${row('Vendas em dinheiro', `+ R$ ${num(r.methods.find((m) => m.code === 'dinheiro')?.amount ?? 0)}`)}${r.external && Number(r.external.cash) ? row('Dinheiro do outro sistema', `+ R$ ${num(r.external.cash)}`) : ''}
     ${r.movements.filter((m) => m.kind !== 'ajuste_caixa').map((m) => row(`${KIND[m.kind] ?? m.kind}`, `${m.direction === 'saida' ? '−' : '+'} R$ ${num(m.amount)}`)).join('')}
     ${s.closing_expected != null ? row('Esperado na gaveta', `R$ ${num(s.closing_expected)}`) : ''}
     ${s.closing_counted != null ? row('Contado', `R$ ${num(s.closing_counted)}`) : ''}</table>
@@ -107,11 +112,22 @@ export function CashReportView({ sessionId }: { sessionId: string }) {
           <div className="text-xs text-slate-500">Recebido no repasse do iFood — não entra na gaveta.</div>
         </div>
       </div>
-      <div className="flex justify-between rounded-xl bg-slate-50 px-3 py-2 font-semibold"><span>Total geral do turno (caixa + iFood)</span><span className="tabular-nums">{formatMoney(r.grandTotal)}</span></div>
+      {r.external && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+          <div className="mb-1 font-semibold">Vendas no outro sistema (declaradas no fechamento)</div>
+          {([['Dinheiro', r.external.cash], ['Cartão de débito', r.external.debit], ['Cartão de crédito', r.external.credit], ['Pix', r.external.pix], ['Outros', r.external.other]] as const)
+            .filter(([l, v]) => Number(v) || l !== 'Outros').map(([l, v]) => <div key={l} className="flex justify-between"><span>{l}</span><span className="tabular-nums">{formatMoney(v)}</span></div>)}
+          <div className="mt-1 flex justify-between border-t border-amber-200 pt-1 font-semibold"><span>Total{r.external.sales_count != null ? ` (${r.external.sales_count} venda(s))` : ''}</span><span className="tabular-nums">{formatMoney(r.external.total)}</span></div>
+          {r.external.notes && <div className="text-xs text-slate-600">{r.external.notes}</div>}
+          <div className="text-xs text-slate-500">Para conferência com o outro sistema e a maquininha. Não entra como faturamento no Eskimo (evita contar em dobro).</div>
+        </div>
+      )}
+      <div className="flex justify-between rounded-xl bg-slate-50 px-3 py-2 font-semibold"><span>{r.external ? 'Total geral do turno (caixa + outro sistema + iFood)' : 'Total geral do turno (caixa + iFood)'}</span><span className="tabular-nums">{formatMoney(r.grandTotal)}</span></div>
       <div className="rounded-xl border border-slate-200 p-3">
         <div className="mb-1 font-semibold">Conferência do dinheiro</div>
         <div className="flex justify-between"><span>Fundo de troco (abertura)</span><span className="tabular-nums">{formatMoney(s.opening_counted)}</span></div>
         <div className="flex justify-between text-slate-600"><span>Vendas em dinheiro</span><span className="tabular-nums">+{formatMoney(r.methods.find((m) => m.code === 'dinheiro')?.amount ?? '0')}</span></div>
+        {r.external && Number(r.external.cash) > 0 && <div className="flex justify-between text-slate-600"><span>Dinheiro do outro sistema</span><span className="tabular-nums">+{formatMoney(r.external.cash)}</span></div>}
         {r.movements.filter((m) => m.kind !== 'ajuste_caixa').map((m, i) => <div key={i} className="flex justify-between text-slate-600"><span>{KIND[m.kind] ?? m.kind}</span><span className="tabular-nums">{m.direction === 'saida' ? '−' : '+'}{formatMoney(m.amount)}</span></div>)}
         {s.closing_expected != null && <div className="flex justify-between"><span>Esperado na gaveta</span><span className="tabular-nums">{formatMoney(s.closing_expected)}</span></div>}
         {s.closing_counted != null && <div className="flex justify-between"><span>Contado</span><span className="tabular-nums">{formatMoney(s.closing_counted)}</span></div>}

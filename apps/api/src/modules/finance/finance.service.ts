@@ -160,7 +160,7 @@ export async function resolveAccountId(db: Db, actor: Actor, accountId: string |
   await db.query('LOCK TABLE financial_accounts IN SHARE ROW EXCLUSIVE MODE');
   // as gavetas dos caixas (frente de caixa) não contam: o pagamento sem conta vai para a conta da loja
   const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM financial_accounts WHERE is_active AND id NOT IN (SELECT cash_account_id FROM pos_terminals) ORDER BY created_at`);
+    `SELECT id FROM financial_accounts WHERE is_active AND id NOT IN (SELECT cash_account_id FROM pos_terminals) AND lower(name) <> lower('${TRANSIT_ACCOUNT}') ORDER BY created_at`);
   if (rows.length === 1) return rows[0]!.id;
   if (rows.length > 1) throw Errors.badRequest('Escolha a conta do pagamento.');
   const day = occurredAt
@@ -666,7 +666,7 @@ export async function reverseTransactionInDb(db: Db, actor: Actor, id: string, r
  */
 async function storeAccountId(db: Db, actor: Actor): Promise<string> {
   const { rows } = await db.query<{ id: string; name: string; kind: string }>(
-    `SELECT id, name, kind FROM financial_accounts WHERE is_active AND id NOT IN (SELECT cash_account_id FROM pos_terminals) ORDER BY created_at`);
+    `SELECT id, name, kind FROM financial_accounts WHERE is_active AND id NOT IN (SELECT cash_account_id FROM pos_terminals) AND lower(name) <> lower('${TRANSIT_ACCOUNT}') ORDER BY created_at`);
   if (rows.length === 1) return rows[0]!.id;
   const pick = rows.find((r) => r.name.toLowerCase() === 'conta principal') ?? rows.find((r) => r.kind === 'banco') ?? rows[0];
   return pick ? pick.id : resolveAccountId(db, actor, null);
@@ -773,6 +773,42 @@ async function treasuryAccountId(db: Db, actor: Actor): Promise<string> {
 export interface Denomination { value: string; qty: number }
 
 /** Sangria de fechamento: o que passou do fundo de troco sai da gaveta para a tesouraria, aguardando conferência. */
+// =====================================================================
+// Vendas do outro sistema (fase de implantação): dinheiro declarado no fechamento entra na gaveta
+// =====================================================================
+export const TRANSIT_ACCOUNT = 'Vendas do outro sistema (a conciliar)';
+/** Conta transitória: origem do dinheiro das vendas feitas no sistema antigo; o saldo (negativo) é o que falta conciliar. */
+async function transitAccountId(db: Db, actor: Actor): Promise<string> {
+  const found = (await db.query<{ id: string; is_active: boolean }>(`SELECT id, is_active FROM financial_accounts WHERE lower(name) = lower($1) LIMIT 1`, [TRANSIT_ACCOUNT])).rows[0];
+  if (found) {
+    if (!found.is_active) await db.query('UPDATE financial_accounts SET is_active = true WHERE id = $1', [found.id]);
+    return found.id;
+  }
+  const { rows } = await db.query<{ id: string }>(
+    `INSERT INTO financial_accounts (kind, name, opening_balance, opening_date, allow_negative, created_by)
+     VALUES ('caixa', $1, 0, $2, true, $3) RETURNING id`, [TRANSIT_ACCOUNT, todaySP(), actor.userId],
+  );
+  await writeAudit(db, actor.audit, { action: 'finance.account_created', entity: 'financial_account', entityId: rows[0]!.id, after: { name: TRANSIT_ACCOUNT, origem: 'criada no primeiro fechamento com vendas do outro sistema' } });
+  return rows[0]!.id;
+}
+
+/** Coloca na gaveta o dinheiro das vendas feitas no outro sistema (sem efeito na DRE: não é faturamento). */
+export async function externalCashInDb(db: Db, actor: Actor, sessionId: string, amount: string) {
+  const s = (await db.query<{ account_id: string; number: string; status: string }>('SELECT account_id, number::text, status FROM cash_sessions WHERE id = $1', [sessionId])).rows[0];
+  if (!s) throw Errors.notFound('Sessão de caixa não encontrada.');
+  if (s.status !== 'aberta') throw Errors.conflict('Sessão já fechada.');
+  const cents = toCents(amount, 'dinheiro do outro sistema');
+  if (cents <= 0) return null;
+  const drawer = await lockAccount(db, s.account_id);
+  const transit = await transitAccountId(db, actor);
+  await lockAccount(db, transit);
+  const group = (await db.query<{ g: string }>('SELECT gen_random_uuid()::text AS g')).rows[0]!.g;
+  const desc = `Vendas em dinheiro do outro sistema — ${drawer.name} (sessão nº ${s.number})`;
+  await insertTx(db, actor, { accountId: transit, direction: 'saida', amountCents: cents, kind: 'suprimento', description: desc, transferGroup: group });
+  await insertTx(db, actor, { accountId: drawer.id, direction: 'entrada', amountCents: cents, kind: 'suprimento', description: desc, transferGroup: group, cashSessionId: sessionId });
+  return { amount: fromCents(cents) };
+}
+
 export async function cashHandoverInDb(db: Db, actor: Actor, sessionId: string, input: { amount: string; kept: string; denominations?: Denomination[] | null }) {
   const s = (await db.query<{ account_id: string; number: string; status: string }>('SELECT account_id, number::text, status FROM cash_sessions WHERE id = $1', [sessionId])).rows[0];
   if (!s) throw Errors.notFound('Sessão de caixa não encontrada.');

@@ -732,6 +732,10 @@ function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { 
   const [result, setResult] = useState<CloseResult | null>(null);
   const [review, setReview] = useState(false);
   const owner = useIsOwner();
+  // fase de implantação: vendas feitas no outro sistema durante o turno
+  const [ext, setExt] = useState({ cash: '', debit: '', credit: '', pix: '', other: '', count: '', notes: '' });
+  const extC = (k: 'cash' | 'debit' | 'credit' | 'pix' | 'other') => cents(toDecimal(ext[k]) || '0');
+  const extTotal = extC('cash') + extC('debit') + extC('credit') + extC('pix') + extC('other');
   const report = useQuery({ queryKey: ['cash-report', sessionId], queryFn: () => api.get<CashReport>(`/pos/sessions/${sessionId}/report`), enabled: !!result });
   // contagem por cédula/moeda: soma em centavos
   const noteTotal = DENOMS.reduce((t, d) => t + Math.round(Number(d) * 100) * (parseInt(qty[d] || '0', 10) || 0), 0);
@@ -740,6 +744,11 @@ function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { 
     mutationFn: () => api.post<CloseResult>(`/pos/terminals/${terminalId}/close`, {
       counted: (total / 100).toFixed(2), notes: notes.trim() || null,
       denominations: byNote ? DENOMS.filter((d) => parseInt(qty[d] || '0', 10) > 0).map((d) => ({ value: d, qty: parseInt(qty[d]!, 10) })) : null,
+      external: extTotal > 0 ? {
+        cash: (extC('cash') / 100).toFixed(2), debit: (extC('debit') / 100).toFixed(2), credit: (extC('credit') / 100).toFixed(2),
+        pix: (extC('pix') / 100).toFixed(2), other: (extC('other') / 100).toFixed(2),
+        salesCount: ext.count ? parseInt(ext.count, 10) : null, notes: ext.notes.trim() || null,
+      } : null,
     }),
     onSuccess: setResult,
   });
@@ -776,6 +785,23 @@ function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { 
       </div>
     <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
       {hasCart && <Alert kind="warning">Há uma venda em andamento na tela. Finalize ou limpe antes de fechar.</Alert>}
+      <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+        <div className="text-sm font-semibold text-amber-900">Vendas feitas no outro sistema neste turno</div>
+        <p className="text-xs text-amber-900/80">Enquanto as vendas passam no sistema antigo, informe aqui os totais do turno (veja no relatório do outro sistema / maquininha). Preencha primeiro; deixe em branco o que não houve.</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {([['cash', 'Dinheiro'], ['debit', 'Débito'], ['credit', 'Crédito'], ['pix', 'Pix'], ['other', 'Outros']] as const).map(([k, l]) => (
+            <label key={k} className="text-xs text-slate-600">{l}
+              <input className="input mt-0.5 py-1.5 text-right" inputMode="decimal" placeholder="0,00" value={ext[k]} onChange={(e) => setExt({ ...ext, [k]: e.target.value })} />
+            </label>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs text-slate-600">Nº de vendas (opcional)<input className="input mt-0.5 py-1.5" inputMode="numeric" value={ext.count} onChange={(e) => setExt({ ...ext, count: e.target.value.replace(/\D/g, '') })} /></label>
+          <label className="text-xs text-slate-600">Observação<input className="input mt-0.5 py-1.5" maxLength={300} value={ext.notes} onChange={(e) => setExt({ ...ext, notes: e.target.value })} /></label>
+        </div>
+        {extTotal > 0 && <div className="flex justify-between text-sm font-semibold text-amber-900"><span>Total vendido no outro sistema</span><span className="tabular-nums">{formatMoney((extTotal / 100).toFixed(2))}</span></div>}
+        <p className="text-xs text-amber-900/80">O <b>dinheiro</b> informado deve estar na gaveta e entra na conferência abaixo. Cartão e Pix ficam registrados para o financeiro conferir.</p>
+      </div>
       <p className="text-sm text-slate-600">Conte <strong>todo</strong> o dinheiro da gaveta (inclusive o troco). O sistema compara com o esperado, mostra se o caixa está OK, com falta ou com sobra, e calcula o que vai para o financeiro.</p>
       {m.error && <Alert>{errorMessage(m.error)}</Alert>}
       <div className="flex gap-2 text-sm">

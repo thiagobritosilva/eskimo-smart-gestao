@@ -6,7 +6,7 @@ import { Errors } from '../../lib/errors.js';
 import { fromCents, toCents, todaySP } from '../../lib/money.js';
 import { OWNER_ROLE } from '../auth/permissions.js';
 import {
-  cancelCashSessionInDb, cancelTitleInDb, cashHandoverInDb, closeCashSessionInDb, type Denomination, createAccount, createTitleInDb, openCashSession, retireCashAccountInDb, reverseTransactionInDb,
+  cancelCashSessionInDb, cancelTitleInDb, cashHandoverInDb, closeCashSessionInDb, externalCashInDb, type Denomination, createAccount, createTitleInDb, openCashSession, retireCashAccountInDb, reverseTransactionInDb,
 } from '../finance/finance.service.js';
 import { allocateSale } from '../pdv/pdv.service.js';
 import { reverseMovement, type Actor } from '../stock/stock.service.js';
@@ -181,7 +181,10 @@ export async function setPosParams(actor: Actor, input: { cashFund: string }) {
   });
 }
 
-export async function closeSession(actor: Actor, terminalId: string, counted: string, notes: string | null, denominations?: Denomination[] | null) {
+/** Totais vendidos no OUTRO sistema durante o turno (fase de implantação), informados no fechamento. */
+export interface ExternalDeclaration { cash?: string | null; debit?: string | null; credit?: string | null; pix?: string | null; other?: string | null; salesCount?: number | null; notes?: string | null }
+
+export async function closeSession(actor: Actor, terminalId: string, counted: string, notes: string | null, denominations?: Denomination[] | null, external?: ExternalDeclaration | null) {
   need(actor, 'pos.operate');
   const { terminal, session } = await terminalWithSession(getPool(), terminalId);
   if (!session) throw Errors.businessRule('O caixa já está fechado.');
@@ -196,7 +199,23 @@ export async function closeSession(actor: Actor, terminalId: string, counted: st
     if (sum !== toCents(counted)) throw Errors.badRequest(`A soma das cédulas e moedas (R$ ${fromCents(sum).replace('.', ',')}) não confere com o total contado.`);
   }
   const fin = elevate(actor, 'finance.cash');
+  const ext = external ? {
+    cash: toCents(external.cash || '0'), debit: toCents(external.debit || '0'), credit: toCents(external.credit || '0'),
+    pix: toCents(external.pix || '0'), other: toCents(external.other || '0'),
+  } : null;
+  const extTotal = ext ? ext.cash + ext.debit + ext.credit + ext.pix + ext.other : 0;
   return withTransaction(async (db) => {
+    // vendas do outro sistema: registra a declaração e põe o dinheiro na gaveta ANTES de conferir (esperado = fundo + dinheiro)
+    if (ext && extTotal > 0) {
+      await db.query(
+        `INSERT INTO cash_session_declarations (session_id, cash, debit, credit, pix, other, sales_count, notes, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [session.id, fromCents(ext.cash), fromCents(ext.debit), fromCents(ext.credit), fromCents(ext.pix), fromCents(ext.other), external?.salesCount ?? null, external?.notes?.trim() || null, actor.userId],
+      );
+      if (ext.cash > 0) await externalCashInDb(db, fin, session.id, fromCents(ext.cash));
+      await writeAudit(db, actor.audit, { action: 'pos.external_sales_declared', entity: 'cash_session', entityId: session.id,
+        metadata: { cash: fromCents(ext.cash), debit: fromCents(ext.debit), credit: fromCents(ext.credit), pix: fromCents(ext.pix), other: fromCents(ext.other), total: fromCents(extTotal) } });
+    }
     const r = await closeCashSessionInDb(db, fin, session.id, counted,
       other ? `Fechado por outro usuário (caixa de ${session.opened_by_name}): ${notes}` : notes ?? `Fechamento do ${terminal.name}`);
     // fica no caixa só o fundo de troco; o resto vai em envelope para o financeiro
@@ -205,7 +224,8 @@ export async function closeSession(actor: Actor, terminalId: string, counted: st
     const handoverC = Math.max(countedC - fund, 0);
     const keptC = countedC - handoverC;
     const handover = handoverC > 0 ? await cashHandoverInDb(db, fin, session.id, { amount: fromCents(handoverC), kept: fromCents(keptC), denominations: dens.length ? dens : null }) : null;
-    return { ...r, sessionNumber: session.number, sessionId: session.id, cashFund: fromCents(fund), kept: fromCents(keptC), handover: handover ? { ...handover, amount: fromCents(handoverC) } : null };
+    return { ...r, sessionNumber: session.number, sessionId: session.id, cashFund: fromCents(fund), kept: fromCents(keptC), handover: handover ? { ...handover, amount: fromCents(handoverC) } : null,
+      external: ext && extTotal > 0 ? { total: fromCents(extTotal) } : null };
   });
 }
 
@@ -275,6 +295,7 @@ export async function sessionReport(sessionId: string) {
      WHERE cash_session_id = $1 AND kind IN ('sangria', 'suprimento')
        -- o ajuste automático da abertura já está no "fundo de troco" (não listar de novo)
        AND description NOT LIKE 'Fundo de troco na abertura%' AND description NOT LIKE 'Retirada da gaveta antes da abertura%'
+       AND description NOT LIKE 'Vendas em dinheiro do outro sistema%' -- aparece no bloco "outro sistema"
        AND NOT EXISTS (SELECT 1 FROM financial_transactions r WHERE r.reverses_id = financial_transactions.id)
      ORDER BY number`, [sessionId],
   )).rows;
@@ -288,11 +309,16 @@ export async function sessionReport(sessionId: string) {
     `SELECT h.number::text, h.status, h.declared_amount::text, h.kept_amount::text, h.denominations, h.received_amount::text, h.difference::text, h.reason, h.confirmed_at, c.name AS confirmed_by_name
      FROM cash_handovers h LEFT JOIN users c ON c.id = h.confirmed_by WHERE h.session_id = $1`, [sessionId],
   )).rows[0] ?? null;
+  const declared = (await db.query<{ cash: string; debit: string; credit: string; pix: string; other: string; total: string; sales_count: number | null; notes: string | null; created_at: string }>(
+    `SELECT cash::text, debit::text, credit::text, pix::text, other::text, (cash + debit + credit + pix + other)::text AS total, sales_count, notes, created_at
+     FROM cash_session_declarations WHERE session_id = $1`, [sessionId],
+  )).rows[0] ?? null;
   return {
+    external: declared,
     session: s, methods, sales, movements: moves.filter((m) => !m.description.startsWith('Entrega ao financeiro')), handover,
     saleList: await sessionSaleDetails(sessionId),
     ifood: { count: ifoodOrders.filter((o) => !o.cancelled).length, amount: fromCents(ifoodTotal), orders: ifoodOrders },
-    grandTotal: fromCents(toCents(sales.total) + ifoodTotal),
+    grandTotal: fromCents(toCents(sales.total) + ifoodTotal + (declared ? toCents(declared.total) : 0)),
   };
 }
 

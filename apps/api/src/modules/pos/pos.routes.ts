@@ -94,8 +94,14 @@ export async function posRoutes(app: FastifyInstance) {
     const b = parse(z.object({
       counted: money, notes: z.string().trim().max(300).nullable().optional(),
       denominations: z.array(z.object({ value: money, qty: z.number().int().min(0).max(100000) })).max(20).nullable().optional(),
+      // vendas feitas no outro sistema durante o turno (fase de implantação)
+      external: z.object({
+        cash: money.nullable().optional(), debit: money.nullable().optional(), credit: money.nullable().optional(),
+        pix: money.nullable().optional(), other: money.nullable().optional(),
+        salesCount: z.number().int().min(0).max(100000).nullable().optional(), notes: z.string().trim().max(300).nullable().optional(),
+      }).nullable().optional(),
     }), req.body);
-    return svc.closeSession(actorOf(req), id, b.counted, b.notes ?? null, b.denominations ?? null);
+    return svc.closeSession(actorOf(req), id, b.counted, b.notes ?? null, b.denominations ?? null, b.external ?? null);
   });
 
   app.get('/pos/products/lookup', { preHandler: operate }, async (req) => {

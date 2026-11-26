@@ -335,4 +335,38 @@ describe('frente de caixa', () => {
     expect((await call(est.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/close`, payload: { counted: '105.00' } })).statusCode).toBe(200);
     await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${t.id}`, payload: { isActive: false } });
   });
+
+  it('fase de implantação: caixa abre com fundo, vendas passam no outro sistema e são declaradas no fechamento (sem faturar em dobro)', async () => {
+    const t = (await call(owner.cookie, { method: 'POST', url: '/api/pos/terminals', payload: {} })).json();
+    const acc = (await getPool().query('SELECT cash_account_id FROM pos_terminals WHERE id = $1', [t.id])).rows[0].cash_account_id;
+    const op = await asRole(app, 'FUNCIONARIO');
+    expect((await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/open`, payload: { counted: '100.00' } })).statusCode).toBe(201);
+    const salesBefore = (await getPool().query('SELECT count(*)::int AS n FROM sales')).rows[0].n;
+    // fim do expediente: gaveta tem R$ 100 de fundo + R$ 350 das vendas em dinheiro feitas no outro sistema
+    const c = await call(op.cookie, { method: 'POST', url: `/api/pos/terminals/${t.id}/close`, payload: {
+      counted: '450.00', external: { cash: '350.00', debit: '200.00', credit: '150.00', pix: '80.00', salesCount: 42, notes: 'Vendas do sistema antigo' } } });
+    expect(c.statusCode, c.body).toBe(200);
+    expect(c.json()).toMatchObject({ expected: '450.00', counted: '450.00', difference: '0.00', kept: '100.00', handover: { amount: '350.00' }, external: { total: '780.00' } });
+    // nada vira venda/faturamento (evita duplicar com a importação do PDV)
+    expect((await getPool().query('SELECT count(*)::int AS n FROM sales')).rows[0].n).toBe(salesBefore);
+    const session = c.json().sessionId;
+    const kinds = (await getPool().query(`SELECT DISTINCT kind FROM financial_transactions WHERE cash_session_id = $1`, [session])).rows.map((r) => r.kind).sort();
+    expect(kinds).not.toContain('receita');
+    // relatório: bloco do outro sistema, total geral inclui o declarado; dinheiro declarado não aparece como "suprimento" avulso
+    const r = (await call(owner.cookie, { method: 'GET', url: `/api/pos/sessions/${session}/report` })).json();
+    expect(r.external).toMatchObject({ cash: '350.00', debit: '200.00', credit: '150.00', pix: '80.00', other: '0.00', total: '780.00', sales_count: 42 });
+    expect(r.grandTotal).toBe('780.00');
+    expect(r.movements.some((m: { description: string }) => m.description.startsWith('Vendas em dinheiro do outro sistema'))).toBe(false);
+    // conta transitória mostra o dinheiro do outro sistema a conciliar; gaveta fica com o fundo de R$ 100
+    const transit = (await getPool().query(`SELECT b.balance::text FROM financial_accounts a JOIN financial_account_balances b ON b.account_id = a.id WHERE a.name = 'Vendas do outro sistema (a conciliar)'`)).rows[0];
+    expect(Number(transit.balance)).toBeLessThanOrEqual(-350);
+    expect((await getPool().query('SELECT balance::text FROM financial_account_balances WHERE account_id = $1', [acc])).rows[0].balance).toBe('100.00');
+    // declaração imutável
+    await expect(getPool().query('UPDATE cash_session_declarations SET cash = 0 WHERE session_id = $1', [session])).rejects.toThrow();
+    // conciliação do dia mostra declarado × importado
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const conc = (await call(owner.cookie, { method: 'GET', url: `/api/finance/conciliation?period=dia&date=${today}` })).json();
+    expect(JSON.stringify(conc)).toContain('declarado pelos caixas');
+    await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${t.id}`, payload: { isActive: false } });
+  });
 });

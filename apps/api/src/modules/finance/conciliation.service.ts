@@ -71,6 +71,34 @@ export async function conciliation(db: Queryable, from: string, to: string) {
       status: diff === 0 ? 'ok' : 'atencao', detail: diff === 0 ? 'Fechamento sem diferença.' : diff > 0 ? 'Sobra de caixa no fechamento.' : 'Falta (quebra) de caixa no fechamento.', link: '/financeiro?aba=caixa' });
   }
 
+  // ---------------- 2b) fase de implantação: vendas declaradas pelos caixas (feitas no outro sistema) × vendas importadas do PDV
+  const decl = (await db.query<{ n: number; cash: string; debit: string; credit: string; pix: string; other: string }>(
+    `SELECT count(*)::int AS n, coalesce(sum(d.cash), 0)::text AS cash, coalesce(sum(d.debit), 0)::text AS debit, coalesce(sum(d.credit), 0)::text AS credit,
+            coalesce(sum(d.pix), 0)::text AS pix, coalesce(sum(d.other), 0)::text AS other
+     FROM cash_session_declarations d JOIN cash_sessions s ON s.id = d.session_id WHERE ${day('s.opened_at')} BETWEEN $1::date AND $2::date`, [from, to],
+  )).rows[0]!;
+  if (decl.n) {
+    const imported = (await db.query<{ method_code: string; v: string }>(
+      `SELECT p.method_code, sum(p.amount)::text AS v FROM sales s JOIN sale_payments p ON p.sale_id = s.id
+       WHERE s.status = 'concluida' AND s.document_model NOT IN ('CAIXA', 'IFOOD') AND ${day('s.sold_at')} BETWEEN $1::date AND $2::date GROUP BY 1`, [from, to],
+    )).rows;
+    const imp = (codes: string[]) => imported.filter((r) => codes.includes(r.method_code)).reduce((t, r) => t + c(r.v), 0);
+    const hasImport = imported.length > 0;
+    const rows: [string, string, string[]][] = [['Dinheiro', decl.cash, ['dinheiro']], ['Cartão de débito', decl.debit, ['debito']], ['Cartão de crédito', decl.credit, ['credito']], ['Pix', decl.pix, ['pix']], ['Outras formas', decl.other, ['outros', 'transferencia', 'boleto']]];
+    for (const [label, declared, codes] of rows) {
+      const dc = c(declared);
+      const ic = imp(codes);
+      if (!dc && !ic) continue;
+      add({ area: 'Outro sistema', item: `${label}: declarado pelos caixas × importado do PDV`, expected: hasImport ? m(ic) : null, actual: m(dc),
+        difference: hasImport ? m(dc - ic) : null,
+        status: !hasImport ? 'atencao' : dc === ic ? 'ok' : 'atencao',
+        detail: !hasImport
+          ? `Declarado nos fechamentos (${decl.n} turno(s)): ${br(fromCents(dc))}. Sem vendas importadas do PDV no período para comparar — confira com o relatório do outro sistema.`
+          : dc === ic ? 'Declarado pelos caixas confere com as vendas importadas do PDV.' : 'Diferença entre o declarado pelos caixas e as vendas importadas do PDV: confira o relatório do outro sistema.',
+        link: '/financeiro?aba=caixa' });
+    }
+  }
+
   // ---------------- 3) cartão / Pix / outros: vendido × lançado em contas a receber × recebido
   const methods = (await db.query<{ method_code: string; metodo: string; vendido: string; dias_sem_lancar: number; hoje: string; na_hora: string; lancado: string; recebido: string; vencido_aberto: string }>(
     `WITH sold AS (
