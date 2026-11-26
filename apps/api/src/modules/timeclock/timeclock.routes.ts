@@ -4,6 +4,8 @@ import { actorOf } from '../../lib/actor.js';
 import { requireOwner, requirePermission } from '../../lib/http.js';
 import { parse, uuidSchema } from '../../lib/validation.js';
 import * as svc from './timeclock.service.js';
+import { Errors } from '../../lib/errors.js';
+import { OWNER_ROLE } from '../auth/permissions.js';
 
 const kind = z.enum(svc.KINDS);
 const idParams = z.object({ id: uuidSchema });
@@ -33,9 +35,17 @@ export async function timeclockRoutes(app: FastifyInstance) {
     const b = parse(z.object({
       userId: uuidSchema.nullable().optional(), kind, at: z.string().datetime({ offset: true }),
       reason: z.string().trim().min(3, 'Informe o motivo.').max(300),
+      approveNow: z.boolean().optional(), // Proprietário lança e aprova no mesmo passo (ex.: esquecimento confirmado)
     }), req.body);
     reply.code(201);
-    return svc.requestAdjustment(actorOf(req), b);
+    const actor = actorOf(req);
+    if (b.approveNow && actor.roleCode !== OWNER_ROLE) throw Errors.forbidden('Somente o Proprietário aprova ajustes de ponto.');
+    const r = await svc.requestAdjustment(actor, b);
+    if (b.approveNow) {
+      const d = await svc.decideAdjustment(actor, r.id, true, 'Lançado e aprovado pelo Proprietário');
+      return { ...r, ...d };
+    }
+    return r;
   });
   app.get('/timeclock/adjustments', { preHandler: manage }, async (req) => {
     const q = parse(z.object({ status: z.enum(['pendente', 'todos']).default('pendente') }), req.query);

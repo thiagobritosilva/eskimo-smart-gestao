@@ -193,6 +193,31 @@ describe('ponto', () => {
     expect((await call(owner.cookie, 'GET', '/timeclock/verify')).json().ok).toBe(true);
   });
 
+  it('esqueceu de fechar o ponto: Proprietário é avisado e corrige lançando e aprovando o ajuste no mesmo passo', async () => {
+    const u = await asRole(app, 'FUNCIONARIO');
+    // ontem: bateu entrada, almoço e volta, mas esqueceu a saída (incluído por ajuste para simular o dia anterior)
+    const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    for (const [kind, hm] of [['entrada', '08:00'], ['saida_almoco', '12:00'], ['volta_almoco', '13:00']] as const) {
+      await call(owner.cookie, 'POST', '/timeclock/adjustments', { userId: u.id, kind, at: `${yesterday}T${hm}:00-03:00`, reason: 'simulação', approveNow: true });
+    }
+    const alerts = (await call(owner.cookie, 'GET', '/alerts')).json();
+    const g = alerts.groups.find((x: { key: string }) => x.key === 'time_punches_incomplete');
+    const row = g.rows.find((r: { id: string }) => r.id === `${u.id}:${yesterday}`);
+    expect(row.detail).toMatch(/^Falta: Saída \(última marcação: Volta do almoço às 13:00\)$/);
+    expect(row).toMatchObject({ date: yesterday, link: `/ponto?aba=ajustes&corrigir=${u.id}&data=${yesterday}&tipo=saida` });
+    // gerente não vê nem aprova na hora
+    expect(JSON.stringify((await call(gerente.cookie, 'GET', '/alerts')).json())).not.toContain('time_punches_incomplete');
+    expect((await call(gerente.cookie, 'POST', '/timeclock/adjustments', { userId: gerente.id, kind: 'saida', at: `${yesterday}T17:00:00-03:00`, reason: 'teste', approveNow: true })).statusCode).toBe(403);
+    // Proprietário lança e aprova a saída: o dia fecha e o aviso some
+    const fix = await call(owner.cookie, 'POST', '/timeclock/adjustments', { userId: u.id, kind: 'saida', at: `${yesterday}T17:00:00-03:00`, reason: 'Esqueceu de bater; confirmado com o empregado', approveNow: true });
+    expect(fix.statusCode, fix.body).toBe(201);
+    expect(fix.json().status).toBe('aprovado');
+    const after = (await call(owner.cookie, 'GET', '/alerts')).json().groups.find((x: { key: string }) => x.key === 'time_punches_incomplete');
+    expect(after?.rows.some((r: { id: string }) => r.id === `${u.id}:${yesterday}`) ?? false).toBe(false);
+    const t = (await call(owner.cookie, 'GET', `/timeclock/timesheet?userId=${u.id}&month=${yesterday.slice(0, 7)}`)).json();
+    expect(t.days.find((d: { date: string }) => d.date === yesterday)).toMatchObject({ workedMinutes: 480 });
+  });
+
   it('alertas legais do espelho: intervalo < 1h, > 2h, sem intervalo, > 10h, descanso < 11h', () => {
     const p = (kind: string, iso: string) => ({ id: iso, nsr: '1', kind: kind as 'entrada', punched_at: iso, origin: 'app' });
     const curto = computeDay('2026-10-01', [p('entrada', '2026-10-01T11:00:00Z'), p('saida_almoco', '2026-10-01T15:00:00Z'), p('volta_almoco', '2026-10-01T15:30:00Z'), p('saida', '2026-10-01T20:00:00Z')], null);

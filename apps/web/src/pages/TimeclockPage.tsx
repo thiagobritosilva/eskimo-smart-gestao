@@ -271,14 +271,17 @@ function MyPunch() {
   );
 }
 
-function AdjustmentForm({ userId, onDone }: { userId?: string; onDone: () => void }) {
+function AdjustmentForm({ userId, onDone, initialKind, initialDate }: { userId?: string; onDone: () => void; initialKind?: Kind; initialDate?: string }) {
   const qc = useQueryClient();
-  const [kind, setKind] = useState<Kind>('entrada');
-  const [date, setDate] = useState(() => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }));
+  const owner = useIsOwner();
+  const forOther = !!userId && owner; // Proprietário lançando para um empregado
+  const [kind, setKind] = useState<Kind>(initialKind ?? 'entrada');
+  const [date, setDate] = useState(() => initialDate ?? new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }));
   const [time, setTime] = useState('');
   const [reason, setReason] = useState('');
+  const [approveNow, setApproveNow] = useState(true);
   const m = useMutation({
-    mutationFn: () => api.post('/timeclock/adjustments', { userId: userId ?? null, kind, at: `${date}T${time}:00-03:00`, reason }),
+    mutationFn: () => api.post('/timeclock/adjustments', { userId: userId ?? null, kind, at: `${date}T${time}:00-03:00`, reason, approveNow: forOther && approveNow }),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['timeclock'] }); onDone(); },
   });
   return (
@@ -290,8 +293,11 @@ function AdjustmentForm({ userId, onDone }: { userId?: string; onDone: () => voi
         <Field label="Horário *"><input type="time" className="input" required value={time} onChange={(e) => setTime(e.target.value)} /></Field>
       </div>
       <Field label="Motivo *"><input className="input" required minLength={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex.: esqueci de bater a volta do almoço" /></Field>
-      <p className="text-xs text-slate-500">O pedido vai para o Proprietário. Se aprovado, entra no espelho como marcação incluída por ajuste; as marcações originais nunca são alteradas.</p>
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onDone}>Voltar</button><button className="btn-primary" disabled={m.isPending}>Enviar pedido</button></div>
+      {forOther ? (
+        <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={approveNow} onChange={(e) => setApproveNow(e.target.checked)} />
+          <span>Aprovar agora <span className="block text-xs text-slate-500">Use depois de confirmar o horário real com o empregado. A marcação entra no espelho como incluída por ajuste (com o motivo).</span></span></label>
+      ) : <p className="text-xs text-slate-500">O pedido vai para o Proprietário. Se aprovado, entra no espelho como marcação incluída por ajuste; as marcações originais nunca são alteradas.</p>}
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onDone}>Voltar</button><button className="btn-primary" disabled={m.isPending}>{forOther && approveNow ? 'Lançar e aprovar' : forOther ? 'Lançar ajuste' : 'Enviar pedido'}</button></div>
     </form>
   );
 }
@@ -300,6 +306,8 @@ function Timesheet({ userId }: { userId: string | null }) {
   const [month, setMonth] = useState(thisMonth);
   const [focus, setFocus] = useState<string | null>(null);
   const showMap = !!userId; // visão do Proprietário sobre um empregado
+  const [fix, setFix] = useState<{ date: string; kind: Kind } | null>(null);
+  const MISSING: Partial<Record<Kind, Kind>> = { entrada: 'saida', volta_almoco: 'saida', entrada_extra: 'saida_extra', saida_almoco: 'volta_almoco' };
   const mapRef = useRef<HTMLDivElement>(null);
   const focusOn = (id: string) => { setFocus(null); setTimeout(() => setFocus(id), 0); mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   const q = useQuery({ queryKey: ['timeclock', 'sheet', userId, month], queryFn: () => api.get<Sheet>(`/timeclock/timesheet${qs({ month, userId: userId ?? undefined })}`) });
@@ -324,7 +332,12 @@ function Timesheet({ userId }: { userId: string | null }) {
                   return (
                     <tr key={d.date} className="align-top">
                       <td className="whitespace-nowrap px-2 py-2">{formatDate(d.date)}
-                        {d.alerts.filter((a) => !a.startsWith('Dia com')).map((a, i) => <div key={i} className="flex items-start gap-1 text-xs text-amber-700"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{a}</div>)}</td>
+                        {d.alerts.filter((a) => !a.startsWith('Dia com')).map((a, i) => <div key={i} className="flex items-start gap-1 text-xs text-amber-700"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{a}</div>)}
+                        {showMap && d.alerts.some((a) => a.startsWith('Marcação incompleta')) && (() => {
+                          const last = d.punches[d.punches.length - 1];
+                          const k = last ? MISSING[last.kind] : undefined;
+                          return k ? <button className="btn-secondary mt-1 px-2 py-0.5 text-xs" onClick={() => setFix({ date: d.date, kind: k })}>Corrigir: lançar {KIND[k]}</button> : null;
+                        })()}</td>
                       <td className="px-2 py-2">{at('entrada')}</td><td className="px-2 py-2">{at('saida_almoco')}</td><td className="px-2 py-2">{at('volta_almoco')}</td><td className="px-2 py-2">{at('saida')}</td>
                       <td className="whitespace-nowrap px-2 py-2">{d.punches.some((p) => p.kind === 'entrada_extra' || p.kind === 'saida_extra') ? <>{at('entrada_extra')}<span className="mx-0.5 text-slate-400">–</span>{at('saida_extra')}</> : '—'}</td>
                       <td className="px-2 py-2 text-right tabular-nums">{d.lunchMinutes != null ? dur(d.lunchMinutes) : '—'}</td>
@@ -339,6 +352,9 @@ function Timesheet({ userId }: { userId: string | null }) {
               <tfoot><tr className="border-t border-slate-200 font-semibold"><td colSpan={7} className="px-2 py-2">Total ({s!.totals.days} dia(s)){s!.totals.alerts ? <span className="ml-2 text-xs font-normal text-amber-700">{s!.totals.alerts} alerta(s)</span> : null}</td><td className="px-2 py-2 text-right tabular-nums">{dur(s!.totals.regularMinutes)}</td><td className="px-2 py-2 text-right tabular-nums text-violet-700">{dur(s!.totals.extraMinutes)}</td><td className="px-2 py-2 text-right tabular-nums">{dur(s!.totals.workedMinutes)}</td></tr></tfoot>
             </table>
           </div>
+          <Modal open={!!fix} title={`Corrigir ponto — ${s!.user.name}`} onClose={() => setFix(null)}>
+            {fix && userId && <AdjustmentForm userId={userId} initialKind={fix.kind} initialDate={fix.date} onDone={() => setFix(null)} />}
+          </Modal>
           {showMap && <div ref={mapRef} className="mt-4 space-y-2"><h4 className="text-sm font-semibold">Onde o ponto foi batido no mês</h4><SheetMap sheet={s!} focus={focus} /><MapLegend /></div>}
           <p className="mt-2 text-xs text-slate-500"><MapPin className="inline h-3 w-3" /> abre a localização no mapa (vermelho = fora do raio da loja). * incluída por ajuste aprovado. Alertas seguem a CLT: intervalo mínimo de 1h e máximo de 2h (art. 71), até 2h extras/dia (art. 59) e 11h de descanso entre jornadas (art. 66).</p>
         </>
@@ -398,7 +414,12 @@ function Adjustments() {
   const [status, setStatus] = useState<'pendente' | 'todos'>('pendente');
   const [deciding, setDeciding] = useState<{ a: Adjustment; approve: boolean } | null>(null);
   const [reason, setReason] = useState('');
-  const [newFor, setNewFor] = useState(false);
+  // aviso "ponto sem saída" (Notificações) abre o ajuste já preenchido: ?corrigir=<usuário>&data=<dia>&tipo=<marcação>
+  const [params, setParams] = useSearchParams();
+  const fromAlert = params.get('corrigir') ? { userId: params.get('corrigir')!, date: params.get('data') ?? undefined, kind: (params.get('tipo') as Kind | null) ?? undefined } : null;
+  const [newFor, setNewFor] = useState(!!fromAlert);
+  const [initial] = useState(fromAlert);
+  const closeNew = () => { setNewFor(false); if (params.get('corrigir')) setParams({ aba: 'ajustes' }); };
   const q = useQuery({ queryKey: ['timeclock', 'adjustments', status], queryFn: () => api.get<Adjustment[]>(`/timeclock/adjustments?status=${status}`) });
   const m = useMutation({
     mutationFn: () => api.post(`/timeclock/adjustments/${deciding!.a.id}/decide`, { approve: deciding!.approve, reason: reason || null }),
@@ -441,19 +462,18 @@ function Adjustments() {
           </form>
         )}
       </Modal>
-      <Modal open={newFor} title="Ajuste para um empregado" onClose={() => setNewFor(false)}>{newFor && <AdjustForOther onDone={() => setNewFor(false)} />}</Modal>
+      <Modal open={newFor} title="Ajuste para um empregado" onClose={closeNew}>{newFor && <AdjustForOther initial={initial} onDone={closeNew} />}</Modal>
     </div>
   );
 }
 
-function AdjustForOther({ onDone }: { onDone: () => void }) {
+function AdjustForOther({ onDone, initial }: { onDone: () => void; initial?: { userId: string; date?: string; kind?: Kind } | null }) {
   const users = useQuery({ queryKey: ['timeclock', 'today'], queryFn: () => api.get<BoardUser[]>('/timeclock/today') });
-  const [userId, setUserId] = useState('');
+  const [userId, setUserId] = useState(initial?.userId ?? '');
   return (
     <div className="space-y-3">
       <Field label="Empregado *"><select className="input" value={userId} onChange={(e) => setUserId(e.target.value)}><option value="">Selecione…</option>{users.data?.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>
-      {userId && <AdjustmentForm key={userId} userId={userId} onDone={onDone} />}
-      <p className="text-xs text-slate-500">O ajuste lançado fica registrado com o motivo e depois é aprovado aqui mesmo, em Ajustes.</p>
+      {userId && <AdjustmentForm key={userId} userId={userId} onDone={onDone} initialKind={userId === initial?.userId ? initial?.kind : undefined} initialDate={userId === initial?.userId ? initial?.date : undefined} />}
     </div>
   );
 }

@@ -478,3 +478,12 @@ com impacto e estratégia de preservação de dados.
   ficam registrados para conferência. A conta transitória é excluída da escolha automática de conta.
 - **Relatório/comprovante 80 mm:** bloco "Vendas no outro sistema"; total geral do turno inclui o declarado.
 - **Conciliação:** "Outro sistema — declarado pelos caixas × importado do PDV" por forma de pagamento.
+
+## Ponto esquecido: aviso e correção rápida (sem migration) (2026-11-26)
+- **Aviso (Notificações, só Proprietário):** "Ponto sem saída (esquecimento)" — dias dos últimos 30 (antes de hoje)
+  em que a última marcação do empregado ficou aberta (entrada, volta do almoço, entrada de hora extra ou saída para o
+  almoço), com o que falta bater e a última marcação. Some quando já existe ajuste pendente ou o dia é corrigido.
+- **Correção:** cada aviso abre "Ajuste para um empregado" já preenchido (empregado, data e marcação faltante); o
+  Proprietário informa o horário confirmado e o motivo e pode **lançar e aprovar no mesmo passo** (`approveNow`,
+  só Proprietário). No espelho, dia com marcação incompleta mostra o botão "Corrigir".
+- **Notificações:** cada linha com link agora é clicável; datas dos avisos de cadastro/ajuste corrigidas.

@@ -219,7 +219,7 @@ async function productsNeedGtin(db: Queryable): Promise<AlertGroup[]> {
 /** Cadastros feitos pelo link aguardando aprovação (somente o Proprietário decide). */
 async function signupsPending(db: Queryable): Promise<AlertGroup[]> {
   const { rows } = await db.query<{ id: string; name: string; email: string; created_at: string }>(
-    `SELECT id, name, email, created_at FROM signup_requests WHERE status = 'pendente' ORDER BY created_at`,
+    `SELECT id, name, email, (created_at AT TIME ZONE 'America/Sao_Paulo')::date::text AS created_at FROM signup_requests WHERE status = 'pendente' ORDER BY created_at`,
   );
   if (!rows.length) return [];
   return [{
@@ -230,10 +230,39 @@ async function signupsPending(db: Queryable): Promise<AlertGroup[]> {
   }];
 }
 
+/** Dias (últimos 30, antes de hoje) em que o empregado ficou com o ponto aberto — ex.: esqueceu de bater a saída. */
+async function timePunchesIncomplete(db: Queryable): Promise<AlertGroup[]> {
+  const { rows } = await db.query<{ user_id: string; name: string; work_date: string; last_kind: string; last_at: string }>(
+    `SELECT DISTINCT ON (p.user_id, p.work_date) p.user_id, u.name, p.work_date::text, p.kind AS last_kind, p.punched_at AS last_at
+     FROM time_punches p JOIN users u ON u.id = p.user_id
+     WHERE p.work_date < (now() AT TIME ZONE 'America/Sao_Paulo')::date AND p.work_date >= (now() AT TIME ZONE 'America/Sao_Paulo')::date - 30
+     ORDER BY p.user_id, p.work_date, p.punched_at DESC, p.nsr DESC`,
+  );
+  const missing: Record<string, string> = { entrada: 'saida', volta_almoco: 'saida', entrada_extra: 'saida_extra', saida_almoco: 'volta_almoco' };
+  const label: Record<string, string> = { saida: 'Saída', saida_extra: 'Saída de hora extra', volta_almoco: 'Volta do almoço' };
+  const LBL: Record<string, string> = { entrada: 'Entrada', volta_almoco: 'Volta do almoço', entrada_extra: 'Entrada de hora extra', saida_almoco: 'Saída para o almoço' };
+  // sem ajuste pendente para o mesmo dia (já pedido/lançado)
+  const pend = new Set((await db.query<{ k: string }>(
+    `SELECT user_id::text || '|' || (requested_at AT TIME ZONE 'America/Sao_Paulo')::date::text AS k FROM time_punch_adjustments WHERE status = 'pendente'`,
+  )).rows.map((r) => r.k));
+  const open = rows.filter((r) => missing[r.last_kind] && !pend.has(`${r.user_id}|${r.work_date}`)).sort((a, b) => b.work_date.localeCompare(a.work_date));
+  if (!open.length) return [];
+  return [{
+    key: 'time_punches_incomplete', title: 'Ponto sem saída (esquecimento)', severity: 'atencao',
+    description: 'Dias em que o empregado não fechou o ponto. Confirme o horário real com ele e lance o ajuste com o motivo.',
+    count: open.length, link: '/ponto?aba=ajustes',
+    rows: open.slice(0, LIMIT).map((r) => {
+      const k = missing[r.last_kind]!;
+      return { id: `${r.user_id}:${r.work_date}`, label: `${r.name} · ${r.work_date.split('-').reverse().join('/')}`, detail: `Falta: ${label[k]} (última marcação: ${LBL[r.last_kind] ?? r.last_kind} às ${new Date(r.last_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })})`, date: r.work_date,
+        link: `/ponto?aba=ajustes&corrigir=${r.user_id}&data=${r.work_date}&tipo=${k}`, severity: 'atencao' as Severity };
+    }),
+  }];
+}
+
 /** Pedidos de ajuste de ponto pendentes (somente o Proprietário decide). */
 async function timeAdjustmentsPending(db: Queryable): Promise<AlertGroup[]> {
   const { rows } = await db.query<{ id: string; name: string; kind: string; requested_at: string }>(
-    `SELECT a.id, u.name, a.kind, a.requested_at FROM time_punch_adjustments a JOIN users u ON u.id = a.user_id WHERE a.status = 'pendente' ORDER BY a.created_at`,
+    `SELECT a.id, u.name, a.kind, (a.requested_at AT TIME ZONE 'America/Sao_Paulo')::date::text AS requested_at FROM time_punch_adjustments a JOIN users u ON u.id = a.user_id WHERE a.status = 'pendente' ORDER BY a.created_at`,
   );
   if (!rows.length) return [];
   const K: Record<string, string> = { entrada: 'Entrada', saida_almoco: 'Saída para o almoço', volta_almoco: 'Volta do almoço', saida: 'Saída', entrada_extra: 'Entrada de hora extra', saida_extra: 'Saída de hora extra' };
@@ -309,7 +338,7 @@ export async function listAlerts(db: Queryable, permissions: string[], isOwner =
   }
   if (can('stock.view')) groups.push(...(await stockAlerts(db, params)), ...(await cartsLate(db)));
   if (can('products.view')) groups.push(...(await productsNeedGtin(db)));
-  if (isOwner) groups.push(...(await signupsPending(db)), ...(await timeAdjustmentsPending(db)));
+  if (isOwner) groups.push(...(await signupsPending(db)), ...(await timeAdjustmentsPending(db)), ...(await timePunchesIncomplete(db)));
   if (can('sales.view')) groups.push(...(await pdvIssues(db)));
   groups.sort((a, b) => ORDER[a.severity] - ORDER[b.severity]);
   const actionable = groups.filter((g) => g.severity !== 'info');
