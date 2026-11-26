@@ -200,6 +200,7 @@ export async function commitNfe(actor: Actor, input: NfeCommitInput) {
           internalCode: code, barcode: it.gtin, name: (d?.name?.trim() || it.description).slice(0, 200), unitCode: unit,
           qtyPerBox: factor > 1 ? String(factor) : null, costPrice: unitCost(cents, stockQty), salePrice: d?.salePrice || null,
           description: it.ncm ? `NCM ${it.ncm}` : null,
+          ncm: it.ncm && /^\d{8}$/.test(it.ncm) ? it.ncm : null, // sugestão do fornecedor (o contador confirma)
         }, actor.userId, actor.audit);
         productId = (p as { id: string }).id;
         if (!it.gtin) await db.query('UPDATE products SET needs_gtin = true WHERE id = $1', [productId]);

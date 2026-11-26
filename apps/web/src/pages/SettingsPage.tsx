@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { FiscalSettings } from '../components/fiscal-settings';
+import { useIsOwner } from '../lib/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api';
 import { Alert, Field, PageHeader, Spinner } from '../components/ui';
@@ -19,6 +21,7 @@ function useSave<T>(key: string) {
 }
 
 export function SettingsPage() {
+  const owner = useIsOwner();
   const { data, isLoading } = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/settings') });
   const [company, setCompany] = useState<Company>({ tradeName: null, legalName: null, document: null, city: null });
   const [session, setSession] = useState<SessionCfg>({ idleTimeoutMinutes: 480, absoluteTimeoutHours: 168 });
@@ -63,6 +66,7 @@ export function SettingsPage() {
           </Field>
           <button className="btn-primary" disabled={saveSession.isPending}>Salvar</button>
         </form>
+        {owner && <FiscalSettings />}
       </div>
     </>
   );

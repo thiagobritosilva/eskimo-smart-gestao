@@ -36,7 +36,13 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
     alertPercent: fromDecimal(product?.alert_percent),
     tracksExpiry: product?.tracks_expiry ?? false,
     isActive: product?.is_active ?? true,
+    ncm: product?.ncm ?? '',
+    cest: product?.cest ?? '',
+    cfop: product?.cfop ?? '',
+    taxCode: product?.tax_code ?? '',
+    taxOrigin: product?.tax_origin != null ? String(product.tax_origin) : '',
   });
+  const [fiscalOpen, setFiscalOpen] = useState(false);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const cost = Number(toDecimal(f.costPrice));
   const price = Number(toDecimal(f.salePrice));
@@ -54,6 +60,8 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
         minStock: toDecimal(f.minStock) || null,
         maxStock: toDecimal(f.maxStock) || null,
         alertPercent: toDecimal(f.alertPercent) || null,
+        ncm: f.ncm || null, cest: f.cest || null, cfop: f.cfop || null, taxCode: f.taxCode || null,
+        taxOrigin: f.taxOrigin === '' ? null : Number(f.taxOrigin),
       };
       if (!canCost) delete body.costPrice;
       return product ? api.patch(`/products/${product.id}`, body) : api.post('/products', body);
@@ -104,6 +112,28 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
         <Field label="Estoque mínimo (total da loja)"><input className="input" inputMode="decimal" value={f.minStock} onChange={set('minStock')} /></Field>
         <Field label="Estoque máximo (referência)" hint="Base do alerta de estoque frágil."><input className="input" inputMode="decimal" value={f.maxStock} onChange={set('maxStock')} /></Field>
         <Field label="Alerta de estoque frágil (%)" hint="Em branco = padrão geral (20%)."><input className="input" inputMode="decimal" placeholder="padrão" value={f.alertPercent} onChange={set('alertPercent')} /></Field>
+      </div>
+      <div className="rounded-lg border border-slate-200">
+        <button type="button" className="btn-ghost w-full justify-start px-3 py-2 text-sm" onClick={() => setFiscalOpen(!fiscalOpen)}>
+          {fiscalOpen ? '▾' : '▸'} Dados fiscais (nota fiscal){!f.ncm || !f.cfop || !f.taxCode ? <span className="ml-2 rounded bg-amber-100 px-1.5 text-xs text-amber-900">incompleto</span> : <span className="ml-2 rounded bg-emerald-100 px-1.5 text-xs text-emerald-800">ok</span>}
+        </button>
+        {fiscalOpen && (
+          <div className="space-y-3 border-t border-slate-100 p-3">
+            <p className="text-xs text-slate-500">Preencha conforme a tabela do contador. O NCM pode já vir da nota do fornecedor — confira.</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="NCM (8 dígitos)"><input className="input" inputMode="numeric" placeholder="ex.: 21050010" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value.replace(/\D/g, '').slice(0, 8) })} /></Field>
+              <Field label="CFOP"><input className="input" inputMode="numeric" placeholder="ex.: 5102" value={f.cfop} onChange={(e) => setF({ ...f, cfop: e.target.value.replace(/\D/g, '').slice(0, 4) })} /></Field>
+              <Field label="CSOSN / CST"><input className="input" inputMode="numeric" placeholder="ex.: 102" value={f.taxCode} onChange={(e) => setF({ ...f, taxCode: e.target.value.replace(/\D/g, '').slice(0, 3) })} /></Field>
+              <Field label="CEST (se houver ST)"><input className="input" inputMode="numeric" placeholder="7 dígitos" value={f.cest} onChange={(e) => setF({ ...f, cest: e.target.value.replace(/\D/g, '').slice(0, 7) })} /></Field>
+              <Field label="Origem">
+                <select className="input" value={f.taxOrigin} onChange={(e) => setF({ ...f, taxOrigin: e.target.value })}>
+                  <option value="">—</option><option value="0">0 — Nacional</option><option value="1">1 — Estrangeira (importação direta)</option><option value="2">2 — Estrangeira (mercado interno)</option>
+                  {[3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </Field>
+            </div>
+          </div>
+        )}
       </div>
       <div className="flex flex-wrap gap-6 text-sm">
         <label className="flex items-center gap-2"><input type="checkbox" checked={f.tracksExpiry} onChange={(e) => setF({ ...f, tracksExpiry: e.target.checked })} /> Controla validade (lote/vencimento)</label>

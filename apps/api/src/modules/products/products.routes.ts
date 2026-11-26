@@ -8,6 +8,9 @@ import * as svc from './products.service.js';
 
 const text = (max: number) => z.string().trim().max(max).nullable().optional();
 
+const digits = (n: number, msg: string) => z.string().transform((v) => v.replace(/\D/g, ''))
+  .refine((v) => v === '' || v.length === n, msg).transform((v) => v || null).nullable().optional();
+
 const productSchema = z.object({
   internalCode: z.string().trim().min(1).max(40),
   barcode: z
@@ -31,6 +34,12 @@ const productSchema = z.object({
   alertPercent: optionalDecimal(2).refine((v) => v == null || (Number(v) > 0 && Number(v) <= 100), 'Percentual de alerta entre 0 e 100.'),
   tracksExpiry: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  // dados fiscais (NFC-e): só dígitos; vazio = sem informação
+  ncm: digits(8, 'NCM deve ter 8 dígitos.'),
+  cest: digits(7, 'CEST deve ter 7 dígitos.'),
+  cfop: z.string().transform((v) => v.replace(/\D/g, '')).refine((v) => v === '' || /^[1-7]\d{3}$/.test(v), 'CFOP deve ter 4 dígitos (ex.: 5102).').transform((v) => v || null).nullable().optional(),
+  taxCode: z.string().transform((v) => v.replace(/\D/g, '')).refine((v) => v === '' || /^\d{2,3}$/.test(v), 'CSOSN/CST: 2 ou 3 dígitos (ex.: 102, 500).').transform((v) => v || null).nullable().optional(),
+  taxOrigin: z.number().int().min(0).max(8).nullable().optional(),
 });
 
 export async function productsRoutes(app: FastifyInstance) {

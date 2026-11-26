@@ -516,3 +516,11 @@ com impacto e estratégia de preservação de dados.
   `timeclock.adjustment_voided`. Marcações feitas pelo empregado no app não podem ser anuladas.
 - **Duplicidade:** pedido/aprovação de ajuste é recusado se já existir a mesma marcação (mesmo tipo, até 5 min de
   diferença) não anulada, ou um pedido igual pendente.
+
+## 0037_fiscal_base — NFC-e fase 1: configuração e dados fiscais (2026-11-26)
+- **Provedor:** Focus NFe (certificado A1 e CSC ficam no painel do provedor).
+- **Produtos:** colunas `ncm`, `cest`, `cfop`, `tax_code` (CSOSN/CST) e `tax_origin`, validadas; seção "Dados fiscais" no
+  cadastro. NCM do fornecedor (NF-e de entrada) aproveitado como sugestão — inclusive nos produtos já importados.
+- **Configuração (Configurações › Nota fiscal, só Proprietário):** ambiente (homologação/produção), série, regime e
+  checklist do que falta. Tokens da Focus NFe em `fiscal_secrets`, **cifrados** (AES-256-GCM); a tela só mostra os
+  4 últimos caracteres; auditoria registra a troca, nunca o valor. Emissão continua desligada (fase 2).

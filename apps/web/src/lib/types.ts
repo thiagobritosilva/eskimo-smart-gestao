@@ -104,6 +104,11 @@ export interface Product {
   is_active: boolean;
   margin_percent?: string | null;
   stock_qty: string;
+  ncm?: string | null;
+  cest?: string | null;
+  cfop?: string | null;
+  tax_code?: string | null;
+  tax_origin?: number | null;
 }
 
 export interface LocationSummary {
