@@ -47,7 +47,7 @@ describe('auditoria imutável', () => {
 
   it('bloqueia exclusão de usuários', async () => {
     const u = await createUserDirect('FUNCIONARIO');
-    await expect(getPool().query('DELETE FROM users WHERE id = $1', [u.id])).rejects.toThrow(/imutável/);
+    await expect(getPool().query('DELETE FROM users WHERE id = $1', [u.id])).rejects.toThrow(/não pode ser apagado diretamente/);
   });
 });
 
