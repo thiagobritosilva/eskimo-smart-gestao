@@ -37,19 +37,21 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 }
 
 export function Modal({
-  open, title, onClose, children, footer, size = 'md',
+  open, title, onClose, children, footer, size = 'md', dismissible = true,
 }: {
   open: boolean; title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; size?: 'md' | 'lg' | 'xl';
+  /** false: não fecha ao clicar fora nem com Esc (só pelo X ou pelos botões) — evita perder o que foi digitado */
+  dismissible?: boolean;
 }) {
   useEffect(() => {
-    if (!open) return;
+    if (!open || !dismissible) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, onClose, dismissible]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-900/50 p-0 sm:items-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-900/50 p-0 sm:items-center sm:p-4" onClick={dismissible ? onClose : undefined}>
       <div
         role="dialog"
         aria-modal="true"

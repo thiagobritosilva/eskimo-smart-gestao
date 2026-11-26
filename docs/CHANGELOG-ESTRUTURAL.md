@@ -497,3 +497,14 @@ com impacto e estratégia de preservação de dados.
 - O DELETE no banco continua bloqueado, exceto pela operação auditada (`user.deleted`). Usuário excluído não pode ser
   editado/reativado; some da lista e da pesquisa ("Mostrar excluídos" para o Proprietário). O espelho de ponto
   continua acessível para ex-funcionários (inativos/excluídos) em Ponto › Espelho.
+
+## Caixa: cadastro pelo operador e fechamento em 3 passos (sem migration) (2026-11-26)
+- **Cadastro de caixa:** quem opera caixa (Funcionário, Estoquista) cadastra um caixa novo com o padrão (código/nome
+  automáticos, estoque geral, gaveta vazia) e já entra nele para abrir. Opções avançadas continuam com gerente/Proprietário.
+- **Fechamento em 3 passos:** (1) vendas no outro sistema (lista simples por forma, com total), (2) dinheiro na gaveta
+  (total em um campo; contagem por cédula opcional), (3) conferir e "Confirmar e fechar o caixa". Enter só avança de
+  campo/passo; o caixa só fecha no botão final.
+- **Correções do "caixa fechou sozinho":** (a) Enter em qualquer campo enviava o formulário e fechava o caixa;
+  (b) a janela de fechamento fechava ao clicar fora/Esc (agora não, `Modal dismissible={false}`); (c) a atualização
+  automática (30 s) trocava a tela e sumia com o resultado — agora o resultado fica até o operador tocar em OK/Sair;
+  (d) o leitor de código "roubava" o cursor dos campos de janelas abertas por clique — corrigido para todas as janelas.

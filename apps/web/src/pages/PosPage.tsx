@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Banknote, Bike, CreditCard, LogOut, Minus, Plus, Printer, QrCode, Receipt, ScanBarcode, Search, Settings2, Tag, Trash2, UserRound, X } from 'lucide-react';
@@ -175,6 +175,11 @@ function TerminalPicker({ onPick }: { onPick: (id: string) => void }) {
   const [removing, setRemoving] = useState<Terminal | null>(null);
   const list = useQuery({ queryKey: ['pos', 'terminals'], queryFn: () => api.get<Terminal[]>('/pos/terminals') });
   const [setup, setSetup] = useState(false);
+  // operador (funcionário/estoquista) cadastra um caixa novo com o padrão e já entra nele para abrir
+  const quick = useMutation({
+    mutationFn: () => api.post<{ id: string; name: string }>('/pos/terminals', {}),
+    onSuccess: (t) => { void qc.invalidateQueries({ queryKey: ['pos'] }); onPick(t.id); },
+  });
   return (
     <div className="mx-auto max-w-2xl p-6">
       <div className="mb-6 flex items-center justify-between"><Logo /><Link to="/" className="btn-ghost"><ArrowLeft className="h-4 w-4" /> Voltar ao sistema</Link></div>
@@ -193,8 +198,18 @@ function TerminalPicker({ onPick }: { onPick: (id: string) => void }) {
           </div>
         ))}
       </div>
-      {list.data && !list.data.length && <Alert kind="info">Nenhum caixa cadastrado ainda.{can('pos.manage') ? ' Cadastre os caixas da loja abaixo.' : ' Peça ao gerente ou proprietário para cadastrar.'}</Alert>}
-      {can('pos.manage') && <button className="btn-secondary mt-5" onClick={() => setSetup(true)}><Settings2 className="h-4 w-4" /> Cadastrar caixa</button>}
+      {list.data && !list.data.length && <Alert kind="info">Nenhum caixa cadastrado ainda. Cadastre o caixa deste computador abaixo.</Alert>}
+      {quick.error && <div className="mt-4"><Alert>{errorMessage(quick.error)}</Alert></div>}
+      {can('pos.manage')
+        ? <button className="btn-secondary mt-5" onClick={() => setSetup(true)}><Settings2 className="h-4 w-4" /> Cadastrar caixa</button>
+        : can('pos.operate') && (
+          <div className="mt-5">
+            <button className="btn-secondary" disabled={quick.isPending} onClick={() => { if (window.confirm('Cadastrar um novo caixa para este computador? O código e o nome são criados automaticamente.')) quick.mutate(); }}>
+              <Plus className="h-4 w-4" /> Cadastrar novo caixa
+            </button>
+            <p className="mt-1 text-xs text-slate-500">Use só se este computador ainda não tiver caixa na lista acima.</p>
+          </div>
+        )}
       {removing && (
         <ReasonAction title={`Excluir ${removing.name}`} confirm="Excluir caixa" onClose={() => setRemoving(null)}
           text={removing.open_session
@@ -305,12 +320,23 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
   const [discount, setDiscount] = useState<{ value: string; reason: string } | null>(null);
   const [dialog, setDialog] = useState<null | 'pay' | 'search' | 'discount' | 'close' | 'sales' | 'receipt' | 'customer' | 'price' | 'cancelOpening' | 'ifood'>(null);
   const [customer, setCustomer] = useState<{ name: string; document: string } | null>(null);
+  // resultado do fechamento: fica na tela mesmo depois que a atualização automática perceber o caixa fechado
+  const [closed, setClosed] = useState<{ result: CloseResult; other?: boolean } | null>(null);
   const [autoPrint, setAutoPrint] = useState(readAutoPrint);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [saleKey, setSaleKey] = useState(() => crypto.randomUUID());
   const inputRef = useRef<HTMLInputElement>(null);
-  const focus = useCallback(() => { if (!dialog) setTimeout(() => inputRef.current?.focus(), 0); }, [dialog]);
-  useEffect(focus, [focus, cart]);
+  // devolve o cursor ao leitor de código só quando NÃO há janela aberta (conferido na hora de focar: um clique que abre
+  // uma janela não pode deixar o leitor "roubar" o cursor dos campos dela)
+  const dialogRef = useRef(dialog);
+  dialogRef.current = dialog;
+  const focus = useCallback(() => {
+    setTimeout(() => {
+      if (dialogRef.current || document.querySelector('[role=dialog]')) return;
+      inputRef.current?.focus();
+    }, 0);
+  }, []);
+  useEffect(focus, [focus, cart, dialog]);
 
   const gross = cart.reduce((s, l) => s + Math.round(l.qty * cents(l.product.sale_price ?? 0)), 0);
   const disc = discount ? cents(toDecimal(discount.value) || '0') : 0;
@@ -358,7 +384,7 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
   // atalhos
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { if (dialog && dialog !== 'receipt') { e.preventDefault(); setDialog(null); } else if (dialog === 'receipt') { setDialog(null); } return; }
+      if (e.key === 'Escape') { if (dialog === 'close') return; if (dialog && dialog !== 'receipt') { e.preventDefault(); setDialog(null); } else if (dialog === 'receipt') { setDialog(null); } return; }
       if (dialog) return;
       if (e.key === 'F2') { e.preventDefault(); setDialog('search'); }
       if (e.key === 'F3') { e.preventDefault(); setDialog('price'); }
@@ -374,8 +400,9 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
   if (state.error) return <div className="p-6"><Alert>{errorMessage(state.error)}</Alert><button className="btn-secondary mt-3" onClick={onChangeTerminal}>Trocar de caixa</button></div>;
   const st = state.data!;
 
+  if (closed) return <ClosedScreen result={closed.result} terminalName={st.terminal.name} other={closed.other} onOk={() => { setClosed(null); setDialog(null); void state.refetch(); }} />;
   if (!st.session) return <OpenRegister state={st} onChangeTerminal={onChangeTerminal} />;
-  if (user && st.session.opened_by !== user.id) return <BusyRegister state={st} onChangeTerminal={onChangeTerminal} />;
+  if (user && st.session.opened_by !== user.id) return <BusyRegister state={st} onChangeTerminal={onChangeTerminal} onClosed={(r) => setClosed({ result: r, other: true })} />;
 
   return (
     <div className="flex h-screen flex-col bg-slate-100">
@@ -492,8 +519,8 @@ function Register({ terminalId, onChangeTerminal }: { terminalId: string; onChan
           run={(reason) => api.post(`/pos/terminals/${terminalId}/cancel-opening`, { reason })}
           onDone={() => void state.refetch()} />
       )}
-      <Modal open={dialog === 'close'} title={`Fechar ${st.terminal.name}`} onClose={() => setDialog(null)}>
-        {dialog === 'close' && <CloseRegister terminalId={terminalId} sessionId={st.session.id} hasCart={cart.length > 0} onDone={() => { setDialog(null); void state.refetch(); }} />}
+      <Modal open={dialog === 'close'} dismissible={false} title={`Fechar ${st.terminal.name}`} onClose={() => setDialog(null)}>
+        {dialog === 'close' && <CloseRegister terminalId={terminalId} hasCart={cart.length > 0} onClosed={(r) => { setDialog(null); setClosed({ result: r }); }} />}
       </Modal>
     </div>
   );
@@ -510,7 +537,7 @@ function IfoodOrderInPos({ onDone }: { onDone: () => void }) {
   );
 }
 
-function BusyRegister({ state, onChangeTerminal }: { state: State; onChangeTerminal: () => void }) {
+function BusyRegister({ state, onChangeTerminal, onClosed }: { state: State; onChangeTerminal: () => void; onClosed: (r: CloseResult) => void }) {
   const { can, logout } = useAuth();
   const owner = useIsOwner();
   const [closing, setClosing] = useState(false);
@@ -535,8 +562,8 @@ function BusyRegister({ state, onChangeTerminal }: { state: State; onChangeTermi
           run={(reason) => api.post(`/pos/terminals/${state.terminal.id}/cancel-opening`, { reason })}
           onDone={() => void qc.invalidateQueries({ queryKey: ['pos'] })} />
       )}
-      <Modal open={closing} title={`Fechar caixa aberto por ${who}`} onClose={() => setClosing(false)}>
-        {closing && <CloseRegister terminalId={state.terminal.id} sessionId={state.session!.id} hasCart={false} otherName={who} onDone={() => { setClosing(false); void qc.invalidateQueries({ queryKey: ['pos'] }); }} />}
+      <Modal open={closing} dismissible={false} title={`Fechar caixa aberto por ${who}`} onClose={() => setClosing(false)}>
+        {closing && <CloseRegister terminalId={state.terminal.id} hasCart={false} otherName={who} onClosed={(r) => { setClosing(false); onClosed(r); }} />}
       </Modal>
     </div>
   );
@@ -721,109 +748,171 @@ function SessionSales({ terminalId, owner }: { terminalId: string; owner: boolea
 }
 
 const DENOMS = ['200', '100', '50', '20', '10', '5', '2', '1', '0.50', '0.25', '0.10', '0.05'];
-interface CloseResult { expected: string; counted: string; difference: string; sessionNumber: string; kept: string; cashFund: string; handover: { amount: string } | null }
+export interface CloseResult { expected: string; counted: string; difference: string; sessionNumber: string; sessionId: string; kept: string; cashFund: string; handover: { amount: string } | null; external?: { total: string } | null }
+type ExtKey = 'cash' | 'debit' | 'credit' | 'pix' | 'other';
+/** Enter vai para o próximo campo do formulário; no último, executa `last` (avançar de passo). Nunca fecha o caixa. */
+const enterToNext = (last: () => void) => (e: ReactKeyboardEvent<HTMLInputElement>) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const inputs = [...(e.currentTarget.form?.querySelectorAll('input') ?? [])];
+  const i = inputs.indexOf(e.currentTarget);
+  if (i >= 0 && i < inputs.length - 1) inputs[i + 1]!.focus(); else last();
+};
+const EXT_FIELDS: [ExtKey, string][] = [['cash', 'Dinheiro'], ['debit', 'Cartão de débito'], ['credit', 'Cartão de crédito'], ['pix', 'Pix'], ['other', 'Outros']];
 
-function CloseRegister({ terminalId, sessionId, hasCart, onDone, otherName }: { terminalId: string; sessionId: string; hasCart: boolean; onDone: () => void; otherName?: string }) {
-  const { logout } = useAuth();
-  const [byNote, setByNote] = useState(true);
+/**
+ * Fechamento em 3 passos: (1) vendas feitas no outro sistema, (2) dinheiro na gaveta, (3) conferir e confirmar.
+ * Enter só avança de passo; o caixa só fecha no botão "Confirmar e fechar o caixa".
+ */
+function CloseRegister({ terminalId, hasCart, onClosed, otherName }: { terminalId: string; hasCart: boolean; onClosed: (r: CloseResult) => void; otherName?: string }) {
+  const owner = useIsOwner();
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [ext, setExt] = useState<Record<ExtKey, string>>({ cash: '', debit: '', credit: '', pix: '', other: '' });
+  const [byNote, setByNote] = useState(false);
   const [qty, setQty] = useState<Record<string, string>>({});
   const [counted, setCounted] = useState('');
   const [notes, setNotes] = useState('');
-  const [result, setResult] = useState<CloseResult | null>(null);
   const [review, setReview] = useState(false);
-  const owner = useIsOwner();
-  // fase de implantação: vendas feitas no outro sistema durante o turno
-  const [ext, setExt] = useState({ cash: '', debit: '', credit: '', pix: '', other: '', count: '', notes: '' });
-  const extC = (k: 'cash' | 'debit' | 'credit' | 'pix' | 'other') => cents(toDecimal(ext[k]) || '0');
-  const extTotal = extC('cash') + extC('debit') + extC('credit') + extC('pix') + extC('other');
-  const report = useQuery({ queryKey: ['cash-report', sessionId], queryFn: () => api.get<CashReport>(`/pos/sessions/${sessionId}/report`), enabled: !!result });
-  // contagem por cédula/moeda: soma em centavos
+  const extC = (k: ExtKey) => cents(toDecimal(ext[k]) || '0');
+  const extTotal = EXT_FIELDS.reduce((t, [k]) => t + extC(k), 0);
   const noteTotal = DENOMS.reduce((t, d) => t + Math.round(Number(d) * 100) * (parseInt(qty[d] || '0', 10) || 0), 0);
   const total = byNote ? noteTotal : cents(toDecimal(counted) || '0');
+  const countedFilled = byNote ? Object.values(qty).some((v) => v !== '') : counted.trim() !== '';
   const m = useMutation({
     mutationFn: () => api.post<CloseResult>(`/pos/terminals/${terminalId}/close`, {
       counted: (total / 100).toFixed(2), notes: notes.trim() || null,
       denominations: byNote ? DENOMS.filter((d) => parseInt(qty[d] || '0', 10) > 0).map((d) => ({ value: d, qty: parseInt(qty[d]!, 10) })) : null,
-      external: extTotal > 0 ? {
-        cash: (extC('cash') / 100).toFixed(2), debit: (extC('debit') / 100).toFixed(2), credit: (extC('credit') / 100).toFixed(2),
-        pix: (extC('pix') / 100).toFixed(2), other: (extC('other') / 100).toFixed(2),
-        salesCount: ext.count ? parseInt(ext.count, 10) : null, notes: ext.notes.trim() || null,
-      } : null,
+      external: extTotal > 0 ? Object.fromEntries(EXT_FIELDS.map(([k]) => [k, (extC(k) / 100).toFixed(2)])) : null,
     }),
-    onSuccess: setResult,
+    onSuccess: onClosed,
   });
-  if (result) {
-    const diff = Number(result.difference);
-    return (
-      <div className="space-y-3">
-        <div className={clsx('rounded-xl p-4 text-center text-white', diff === 0 ? 'bg-emerald-600' : diff > 0 ? 'bg-amber-500' : 'bg-red-600')}>
-          <div className="text-sm opacity-90">Sessão nº {result.sessionNumber} fechada · esperado {formatMoney(result.expected)} · contado {formatMoney(result.counted)}</div>
-          <div className="text-2xl font-bold">{diff === 0 ? 'CAIXA OK' : diff > 0 ? `SOBRA DE ${formatMoney(result.difference)}` : `FALTA DE ${formatMoney(String(-diff))}`}</div>
+  const money = (c: number) => formatMoney((c / 100).toFixed(2));
+  const Steps = () => (
+    <div className="mb-4 flex items-center gap-2 text-xs">
+      {(['Outro sistema', 'Dinheiro na gaveta', 'Conferir'] as const).map((l, i) => (
+        <div key={l} className="flex flex-1 items-center gap-1.5">
+          <span className={clsx('flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-bold', step === i + 1 ? 'bg-brand-600 text-white' : step > i + 1 ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500')}>{step > i + 1 ? '✓' : i + 1}</span>
+          <span className={clsx('truncate', step === i + 1 ? 'font-semibold text-ink-900' : 'text-slate-500')}>{l}</span>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (step === 1) return (
+    <form onSubmit={(e) => { e.preventDefault(); setStep(2); }}>
+      <Steps />
+      <h3 className="text-base font-semibold text-ink-900">Vendas feitas no outro sistema</h3>
+      <p className="mb-3 text-sm text-slate-500">Copie os totais do relatório do outro sistema / maquininha. Deixe em branco o que não houve.</p>
+      <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+        {EXT_FIELDS.map(([k, l], i) => (
+          <label key={k} className="flex items-center justify-between gap-3 px-3 py-2">
+            <span className="text-sm text-slate-700">{l}</span>
+            <input autoFocus={i === 0} className="input w-36 py-1.5 text-right text-base" inputMode="decimal" placeholder="0,00" value={ext[k]} onChange={(e) => setExt({ ...ext, [k]: e.target.value })} onKeyDown={enterToNext(() => setStep(2))} />
+          </label>
+        ))}
+        <div className="flex items-center justify-between bg-slate-50 px-3 py-2 font-semibold"><span>Total</span><span className="tabular-nums">{money(extTotal)}</span></div>
+      </div>
+      <div className="mt-4 flex justify-between gap-2">
+        <button type="button" className="btn-ghost text-sm" onClick={() => { setExt({ cash: '', debit: '', credit: '', pix: '', other: '' }); setStep(2); }}>Não vendi no outro sistema</button>
+        <button className="btn-primary">Próximo</button>
+      </div>
+    </form>
+  );
+
+  if (step === 2) return (
+    <form onSubmit={(e) => { e.preventDefault(); if (countedFilled) setStep(3); }}>
+      <Steps />
+      <h3 className="text-base font-semibold text-ink-900">Quanto dinheiro tem na gaveta?</h3>
+      <p className="mb-3 text-sm text-slate-500">Conte <b>todo</b> o dinheiro, inclusive o troco.</p>
+      {!byNote ? (
+        <input autoFocus className="input h-14 text-center text-2xl font-bold" inputMode="decimal" placeholder="R$ 0,00" value={counted} onChange={(e) => setCounted(e.target.value)} />
+      ) : (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {DENOMS.map((d, i) => (
+            <label key={d} className="rounded-lg border border-slate-200 p-1.5 text-xs">
+              <span className="text-slate-500">{formatMoney(d)}</span>
+              <input autoFocus={i === 0} className="input mt-0.5 py-1 text-right" inputMode="numeric" value={qty[d] ?? ''} onChange={(e) => setQty({ ...qty, [d]: e.target.value.replace(/\D/g, '') })} placeholder="qtd" onKeyDown={enterToNext(() => { if (countedFilled) setStep(3); })} />
+            </label>
+          ))}
+        </div>
+      )}
+      {byNote && <div className="mt-2 flex justify-between rounded-lg bg-slate-50 px-3 py-2 font-bold"><span>Total contado</span><span className="tabular-nums">{money(noteTotal)}</span></div>}
+      <button type="button" className="mt-2 text-sm text-brand-700 underline" onClick={() => setByNote(!byNote)}>{byNote ? 'Prefiro informar só o total' : 'Prefiro contar nota por nota'}</button>
+      <div className="mt-4 flex justify-between gap-2">
+        <button type="button" className="btn-secondary" onClick={() => setStep(1)}>Voltar</button>
+        <button className="btn-primary" disabled={!countedFilled}>Próximo</button>
+      </div>
+    </form>
+  );
+
+  return (
+    <div>
+      <Steps />
+      <h3 className="mb-3 text-base font-semibold text-ink-900">Confira antes de fechar</h3>
+      {hasCart && <div className="mb-3"><Alert kind="warning">Há uma venda em andamento na tela. Finalize ou limpe antes de fechar.</Alert></div>}
+      <div className="space-y-3 text-sm">
+        <div className="rounded-xl border border-slate-200 p-3">
+          <div className="mb-1 flex items-center justify-between"><span className="font-semibold">Outro sistema</span><button className="text-xs text-brand-700 underline" onClick={() => setStep(1)}>alterar</button></div>
+          {extTotal === 0 ? <div className="text-slate-500">Nenhuma venda informada.</div> : <>
+            {EXT_FIELDS.filter(([k]) => extC(k) > 0).map(([k, l]) => <div key={k} className="flex justify-between"><span>{l}</span><span className="tabular-nums">{money(extC(k))}</span></div>)}
+            <div className="mt-1 flex justify-between border-t border-slate-100 pt-1 font-semibold"><span>Total</span><span className="tabular-nums">{money(extTotal)}</span></div>
+          </>}
+        </div>
+        <div className="rounded-xl border-2 border-brand-600 p-3">
+          <div className="flex items-center justify-between"><span className="font-semibold">Dinheiro contado na gaveta</span><button className="text-xs text-brand-700 underline" onClick={() => setStep(2)}>alterar</button></div>
+          <div className="text-2xl font-bold tabular-nums">{money(total)}</div>
+        </div>
+        <Field label={otherName ? `Motivo (caixa de ${otherName}) *` : 'Observação (opcional)'}>
+          <input className="input" maxLength={300} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={otherName ? 'Ex.: operador esqueceu de fechar' : ''} />
+        </Field>
+        <div className="rounded-lg border border-slate-200 px-2 py-1">
+          <button type="button" className="btn-ghost w-full justify-start px-1 py-1 text-xs" onClick={() => setReview(!review)}>{review ? '▾' : '▸'} Vendas registradas neste caixa (comentar Pix/cartão errado)</button>
+          {review && <div className="mt-2"><SessionSales terminalId={terminalId} owner={owner} /></div>}
+        </div>
+      </div>
+      {m.error && <div className="mt-3"><Alert>{errorMessage(m.error)}</Alert></div>}
+      <div className="mt-4 flex justify-between gap-2">
+        <button type="button" className="btn-secondary" onClick={() => setStep(2)}>Voltar</button>
+        <button type="button" className="btn-primary" disabled={m.isPending || hasCart || (!!otherName && notes.trim().length < 3)} onClick={() => m.mutate()}>
+          {m.isPending ? 'Fechando…' : 'Confirmar e fechar o caixa'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Resultado do fechamento: fica na tela até o operador tocar em OK/Sair (não some com a atualização automática). */
+function ClosedScreen({ result, terminalName, onOk, other }: { result: CloseResult; terminalName: string; onOk: () => void; other?: boolean }) {
+  const { logout } = useAuth();
+  const [details, setDetails] = useState(false);
+  const report = useQuery({ queryKey: ['cash-report', result.sessionId], queryFn: () => api.get<CashReport>(`/pos/sessions/${result.sessionId}/report`) });
+  const diff = Number(result.difference);
+  return (
+    <div className="min-h-screen bg-slate-100 p-4">
+      <div className="mx-auto max-w-lg space-y-3">
+        <div className="flex items-center justify-between"><Logo /><span className="text-sm text-slate-500">{terminalName} · sessão nº {result.sessionNumber}</span></div>
+        <div className={clsx('rounded-2xl p-5 text-center text-white', diff === 0 ? 'bg-emerald-600' : diff > 0 ? 'bg-amber-500' : 'bg-red-600')}>
+          <div className="text-sm opacity-90">Caixa fechado</div>
+          <div className="text-3xl font-bold">{diff === 0 ? 'CAIXA OK' : diff > 0 ? `SOBRA DE ${formatMoney(result.difference)}` : `FALTA DE ${formatMoney(String(-diff))}`}</div>
+          <div className="mt-1 text-sm opacity-90">esperado {formatMoney(result.expected)} · contado {formatMoney(result.counted)}</div>
         </div>
         <div className="grid grid-cols-2 gap-3 text-center">
-          <div className="rounded-xl border border-slate-200 p-3"><div className="text-xs text-slate-500">Fica no caixa (troco)</div><div className="text-xl font-bold">{formatMoney(result.kept)}</div></div>
-          <div className="rounded-xl border-2 border-brand-600 p-3"><div className="text-xs text-slate-500">Colocar no envelope p/ o financeiro</div><div className="text-2xl font-bold text-brand-700">{formatMoney(result.handover?.amount ?? '0')}</div></div>
+          <div className="card p-4"><div className="text-xs text-slate-500">Deixar na gaveta (troco)</div><div className="text-2xl font-bold">{formatMoney(result.kept)}</div></div>
+          <div className="card border-2 border-brand-600 p-4"><div className="text-xs text-slate-500">Colocar no envelope</div><div className="text-2xl font-bold text-brand-700">{formatMoney(result.handover?.amount ?? '0')}</div></div>
         </div>
-        <Alert kind="info">Imprima o comprovante, assine, junte com o dinheiro do envelope e entregue ao financeiro.</Alert>
-        {report.data && <button className="btn-primary w-full" onClick={() => printCashReport(report.data!)}><Printer className="h-4 w-4" /> Imprimir comprovante de fechamento</button>}
-        <CashReportView sessionId={sessionId} />
-        {otherName
-          ? <div className="flex justify-end"><button className="btn-primary" onClick={onDone}>OK</button></div>
-          : <div className="flex justify-end gap-2">
-              <button className="btn-secondary" onClick={onDone}>Abrir novo caixa</button>
-              <button className="btn-primary" onClick={() => void logout()}><LogOut className="h-4 w-4" /> Sair (próximo operador)</button>
+        <button className="btn-primary w-full py-3" disabled={!report.data} onClick={() => report.data && printCashReport(report.data)}><Printer className="h-5 w-5" /> Imprimir comprovante</button>
+        <p className="text-center text-xs text-slate-500">Assine o comprovante, junte com o dinheiro do envelope e entregue ao financeiro.</p>
+        <div className="card p-2">
+          <button className="btn-ghost w-full justify-start px-2 py-1 text-sm" onClick={() => setDetails(!details)}>{details ? '▾' : '▸'} Ver relatório completo do turno</button>
+          {details && <div className="p-2"><CashReportView sessionId={result.sessionId} /></div>}
+        </div>
+        {other
+          ? <button className="btn-secondary w-full" onClick={onOk}>OK</button>
+          : <div className="grid grid-cols-2 gap-2">
+              <button className="btn-secondary" onClick={onOk}>Abrir novo caixa</button>
+              <button className="btn-primary" onClick={() => void logout()}><LogOut className="h-4 w-4" /> Sair</button>
             </div>}
       </div>
-    );
-  }
-  return (
-    <div className="space-y-3">
-      <div className="rounded-lg border border-slate-200 p-2 text-sm">
-        <button type="button" className="btn-ghost px-2 py-1 text-sm" onClick={() => setReview(!review)}>{review ? '▾' : '▸'} Revisar as vendas do turno e comentar (Pix/cartão)</button>
-        <p className="px-2 text-xs text-slate-500">Você confere só o dinheiro. Se alguma venda foi registrada com a forma errada (ex.: débito × crédito), deixe um comentário para o financeiro.</p>
-        {review && <div className="mt-2"><SessionSales terminalId={terminalId} owner={owner} /></div>}
-      </div>
-    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
-      {hasCart && <Alert kind="warning">Há uma venda em andamento na tela. Finalize ou limpe antes de fechar.</Alert>}
-      <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-        <div className="text-sm font-semibold text-amber-900">Vendas feitas no outro sistema neste turno</div>
-        <p className="text-xs text-amber-900/80">Enquanto as vendas passam no sistema antigo, informe aqui os totais do turno (veja no relatório do outro sistema / maquininha). Preencha primeiro; deixe em branco o que não houve.</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          {([['cash', 'Dinheiro'], ['debit', 'Débito'], ['credit', 'Crédito'], ['pix', 'Pix'], ['other', 'Outros']] as const).map(([k, l]) => (
-            <label key={k} className="text-xs text-slate-600">{l}
-              <input className="input mt-0.5 py-1.5 text-right" inputMode="decimal" placeholder="0,00" value={ext[k]} onChange={(e) => setExt({ ...ext, [k]: e.target.value })} />
-            </label>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-xs text-slate-600">Nº de vendas (opcional)<input className="input mt-0.5 py-1.5" inputMode="numeric" value={ext.count} onChange={(e) => setExt({ ...ext, count: e.target.value.replace(/\D/g, '') })} /></label>
-          <label className="text-xs text-slate-600">Observação<input className="input mt-0.5 py-1.5" maxLength={300} value={ext.notes} onChange={(e) => setExt({ ...ext, notes: e.target.value })} /></label>
-        </div>
-        {extTotal > 0 && <div className="flex justify-between text-sm font-semibold text-amber-900"><span>Total vendido no outro sistema</span><span className="tabular-nums">{formatMoney((extTotal / 100).toFixed(2))}</span></div>}
-        <p className="text-xs text-amber-900/80">O <b>dinheiro</b> informado deve estar na gaveta e entra na conferência abaixo. Cartão e Pix ficam registrados para o financeiro conferir.</p>
-      </div>
-      <p className="text-sm text-slate-600">Conte <strong>todo</strong> o dinheiro da gaveta (inclusive o troco). O sistema compara com o esperado, mostra se o caixa está OK, com falta ou com sobra, e calcula o que vai para o financeiro.</p>
-      {m.error && <Alert>{errorMessage(m.error)}</Alert>}
-      <div className="flex gap-2 text-sm">
-        <button type="button" className={clsx('rounded-lg border px-3 py-1.5', byNote ? 'border-brand-600 bg-brand-50 font-medium text-brand-700' : 'border-slate-200')} onClick={() => setByNote(true)}>Contar por cédula/moeda</button>
-        <button type="button" className={clsx('rounded-lg border px-3 py-1.5', !byNote ? 'border-brand-600 bg-brand-50 font-medium text-brand-700' : 'border-slate-200')} onClick={() => setByNote(false)}>Informar só o total</button>
-      </div>
-      {byNote ? (
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-          {DENOMS.map((d) => (
-            <label key={d} className="rounded-lg border border-slate-200 p-2 text-xs">
-              <span className="text-slate-500">{Number(d) >= 2 ? 'Nota' : 'Moeda'} {formatMoney(d)}</span>
-              <input className="input mt-1 py-1 text-right" inputMode="numeric" value={qty[d] ?? ''} onChange={(e) => setQty({ ...qty, [d]: e.target.value.replace(/\D/g, '') })} placeholder="0" />
-            </label>
-          ))}
-        </div>
-      ) : (
-        <Field label="Dinheiro contado (R$) *"><input autoFocus className="input text-xl" inputMode="decimal" required value={counted} onChange={(e) => setCounted(e.target.value)} /></Field>
-      )}
-      <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-lg font-bold"><span>Total contado</span><span className="tabular-nums">{formatMoney((total / 100).toFixed(2))}</span></div>
-      <Field label={otherName ? `Motivo (caixa de ${otherName}) *` : 'Observação'}><input className="input" required={!!otherName} minLength={otherName ? 3 : undefined} maxLength={300} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={otherName ? 'Ex.: operador esqueceu de fechar' : ''} /></Field>
-      <div className="flex justify-end"><button className="btn-primary" disabled={m.isPending || hasCart}>Fechar caixa</button></div>
-    </form>
     </div>
   );
 }

@@ -53,9 +53,20 @@ afterAll(async () => {
 });
 
 describe('frente de caixa', () => {
-  it('Proprietário cadastra o caixa com fundo de troco; operador não configura', async () => {
-    const no = await call(operador.cookie, { method: 'POST', url: '/api/pos/terminals', payload: { code: `C${tag}`, name: 'Caixa teste', locationIds: [central], openingCash: '100.00' } });
-    expect(no.statusCode).toBe(403);
+  it('Proprietário cadastra o caixa com fundo de troco; operador cadastra só com o padrão; vendedor externo não cadastra', async () => {
+    const vend = await asRole(app, 'VENDEDOR_EXTERNO');
+    expect((await call(vend.cookie, { method: 'POST', url: '/api/pos/terminals', payload: {} })).statusCode).toBe(403);
+    // operador (funcionário) cadastra: opções personalizadas são ignoradas (código/nome automáticos, estoque geral, gaveta vazia)
+    const op = await call(operador.cookie, { method: 'POST', url: '/api/pos/terminals', payload: { code: `C${tag}`, name: 'Caixa teste', locationIds: [central], openingCash: '100.00' } });
+    expect(op.statusCode, op.body).toBe(201);
+    expect(op.json().code).toMatch(/^CX\d{2,}$/);
+    expect(op.json().name).toMatch(/^Caixa \d+$/);
+    const opAcc = (await getPool().query('SELECT t.location_ids, b.balance::text FROM pos_terminals t JOIN financial_account_balances b ON b.account_id = t.cash_account_id WHERE t.id = $1', [op.json().id])).rows[0];
+    expect(opAcc).toEqual({ location_ids: [central], balance: '0.00' });
+    const est = await asRole(app, 'ESTOQUISTA');
+    const e2 = await call(est.cookie, { method: 'POST', url: '/api/pos/terminals', payload: {} });
+    expect(e2.statusCode, e2.body).toBe(201);
+    for (const id of [op.json().id, e2.json().id]) await call(owner.cookie, { method: 'PATCH', url: `/api/pos/terminals/${id}`, payload: { isActive: false } });
     const r = await call(owner.cookie, { method: 'POST', url: '/api/pos/terminals', payload: { code: `c${tag}`, name: `Caixa ${tag}`, locationIds: [central], openingCash: '100.00' } });
     expect(r.statusCode, r.body).toBe(201);
     terminalId = r.json().id;

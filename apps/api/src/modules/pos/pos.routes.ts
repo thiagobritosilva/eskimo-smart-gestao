@@ -15,7 +15,7 @@ export async function posRoutes(app: FastifyInstance) {
   const manage = requirePermission('pos.manage');
 
   app.get('/pos/terminals', { preHandler: operate }, async () => svc.listTerminals());
-  app.post('/pos/terminals', { preHandler: manage }, async (req, reply) => {
+  app.post('/pos/terminals', { preHandler: operate }, async (req, reply) => { // operador cadastra com o padrão (ver serviço)
     const b = parse(z.object({
       code: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{2,12}$/, 'Código do caixa: 2 a 12 letras/números (ex.: CX01).').nullable().optional(),
       name: z.string().trim().min(2).max(60).nullable().optional(),

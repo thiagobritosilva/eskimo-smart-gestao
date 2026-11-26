@@ -54,8 +54,11 @@ export async function listTerminals() {
 
 export interface TerminalInput { code?: string | null; name?: string | null; locationIds?: string[] | null; cashAccountId?: string | null; openingCash?: string | null }
 
-export async function createTerminal(actor: Actor, input: TerminalInput) {
-  need(actor, 'pos.manage');
+export async function createTerminal(actor: Actor, rawInput: TerminalInput) {
+  need(actor, 'pos.operate');
+  // quem só opera caixa (funcionário, estoquista) cadastra com o padrão: código/nome automáticos, estoque geral,
+  // gaveta nova vazia. Opções avançadas (nome, código, estoque, conta) só gerente/proprietário.
+  const input: TerminalInput = actor.permissions.includes('pos.manage') ? rawInput : {};
   // código e nome automáticos: CX01/Caixa 1, CX02/Caixa 2… (o próximo número livre)
   const used = (await getPool().query<{ code: string; name: string }>('SELECT code, name FROM pos_terminals')).rows;
   let n = 1;
