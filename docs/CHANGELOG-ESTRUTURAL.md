@@ -487,3 +487,13 @@ com impacto e estratégia de preservação de dados.
   Proprietário informa o horário confirmado e o motivo e pode **lançar e aprovar no mesmo passo** (`approveNow`,
   só Proprietário). No espelho, dia com marcação incompleta mostra o botão "Corrigir".
 - **Notificações:** cada linha com link agora é clicável; datas dos avisos de cadastro/ajuste corrigidas.
+
+## 0035_excluir_usuario — excluir usuário (2026-11-26)
+- **Somente o Proprietário** (perfil), com motivo; não exclui a si mesmo nem o último Proprietário ativo.
+- **Dois modos automáticos:** sem nenhum registro em nenhuma tabela (checagem por todas as chaves estrangeiras que
+  apontam para `users`, exceto sessões e permissões individuais do próprio usuário) → **apagado** de verdade;
+  com histórico → **exclusão lógica**: `deleted_at/by/reason`, desativado, sessões encerradas, e-mail original em
+  `deleted_email` e o e-mail liberado para novo cadastro; o nome permanece nos registros (guarda legal).
+- O DELETE no banco continua bloqueado, exceto pela operação auditada (`user.deleted`). Usuário excluído não pode ser
+  editado/reativado; some da lista e da pesquisa ("Mostrar excluídos" para o Proprietário). O espelho de ponto
+  continua acessível para ex-funcionários (inativos/excluídos) em Ponto › Espelho.

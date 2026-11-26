@@ -479,11 +479,12 @@ function AdjustForOther({ onDone, initial }: { onDone: () => void; initial?: { u
 }
 
 function TimesheetPicker() {
-  const users = useQuery({ queryKey: ['timeclock', 'today'], queryFn: () => api.get<BoardUser[]>('/timeclock/today') });
+  // inclui ex-funcionários (desativados/excluídos): o espelho deles precisa continuar acessível (guarda legal)
+  const users = useQuery({ queryKey: ['users', 'all-for-timesheet'], queryFn: () => api.get<{ id: string; name: string; isActive: boolean; deletedAt?: string | null; roleCode: string }[]>('/users?includeDeleted=1') });
   const [userId, setUserId] = useState('');
   return (
     <div className="space-y-3">
-      <Field label="Empregado"><select className="input max-w-sm" value={userId} onChange={(e) => setUserId(e.target.value)}><option value="">Selecione…</option>{users.data?.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>
+      <Field label="Empregado"><select className="input max-w-sm" value={userId} onChange={(e) => setUserId(e.target.value)}><option value="">Selecione…</option>{users.data?.filter((u) => u.roleCode !== 'IA').map((u) => <option key={u.id} value={u.id}>{u.name}{u.deletedAt ? ' (excluído)' : !u.isActive ? ' (inativo)' : ''}</option>)}</select></Field>
       {userId ? <Timesheet key={userId} userId={userId} /> : <div className="card flex items-center gap-2 p-4 text-sm text-slate-500"><Clock className="h-4 w-4" /> Escolha o empregado para ver e imprimir o espelho do mês.</div>}
     </div>
   );

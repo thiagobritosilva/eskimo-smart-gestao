@@ -19,10 +19,11 @@ export interface UserDTO {
   lastLoginAt: string | null;
   createdAt: string;
   activeSessions: number;
+  deletedAt: string | null;
 }
 
 const SELECT_USER = `
-  SELECT u.id, u.name, u.email, u.phone, r.code AS role_code, r.name AS role_name, u.is_active,
+  SELECT u.id, u.name, coalesce(u.deleted_email, u.email) AS email, u.phone, r.code AS role_code, r.name AS role_name, u.is_active, u.deleted_at,
          u.must_change_password, (u.locked_until IS NOT NULL AND u.locked_until > now()) AS is_locked,
          u.last_login_at, u.created_at,
          (SELECT count(*)::int FROM sessions s
@@ -43,11 +44,12 @@ function toDTO(r: Record<string, any>): UserDTO {
     lastLoginAt: r.last_login_at?.toISOString() ?? null,
     createdAt: r.created_at.toISOString(),
     activeSessions: r.active_sessions,
+    deletedAt: r.deleted_at?.toISOString() ?? null,
   };
 }
 
-export async function listUsers(): Promise<UserDTO[]> {
-  const { rows } = await getPool().query(`${SELECT_USER} ORDER BY u.is_active DESC, u.name`);
+export async function listUsers(includeDeleted = false): Promise<UserDTO[]> {
+  const { rows } = await getPool().query(`${SELECT_USER} ${includeDeleted ? '' : 'WHERE u.deleted_at IS NULL'} ORDER BY u.is_active DESC, u.name`);
   return rows.map(toDTO);
 }
 
@@ -84,6 +86,7 @@ async function resolveRole(db: pg.PoolClient, roleCode: string, actor: AuthUser)
 }
 
 function assertCanManageTarget(actor: AuthUser, target: UserDTO) {
+  if (target.deletedAt) throw Errors.conflict('Este usuário foi excluído. Os registros dele ficam só como histórico.');
   if (target.roleCode === OWNER_ROLE && actor.roleCode !== OWNER_ROLE) {
     throw Errors.forbidden('Somente o Proprietário pode alterar outro Proprietário.');
   }
@@ -309,4 +312,59 @@ export async function listPermissions() {
     'SELECT code, module, description FROM permissions ORDER BY module, code',
   );
   return rows;
+}
+
+// ------------------------------------------------------------------ exclusão (somente Proprietário)
+/** Tabelas que não impedem a exclusão física: dados do próprio acesso, apagados junto. */
+const OWN_ACCESS = new Set(['sessions.user_id', 'user_permission_overrides.user_id']);
+
+/** Conta os registros que dependem do usuário (todas as chaves estrangeiras que apontam para users). */
+async function userReferences(db: pg.PoolClient, id: string) {
+  const fks = (await db.query<{ tbl: string; col: string }>(
+    `SELECT c.conrelid::regclass::text AS tbl, a.attname AS col
+     FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+     WHERE c.contype = 'f' AND c.confrelid = 'users'::regclass`,
+  )).rows;
+  let total = 0;
+  const where: string[] = [];
+  for (const f of fks) {
+    if (OWN_ACCESS.has(`${f.tbl}.${f.col}`)) continue;
+    const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${f.tbl} WHERE ${f.col} = $1${f.tbl === 'users' ? ' AND id <> $1' : ''}`, [id])).rows[0]!.n;
+    if (n) { total += n; where.push(f.tbl); }
+  }
+  return { total, tables: [...new Set(where)] };
+}
+
+export async function deleteUser(actor: AuthUser, id: string, reason: string, ctx: AuditContext) {
+  if (actor.roleCode !== OWNER_ROLE) throw Errors.forbidden('Somente o Proprietário pode excluir usuários.');
+  if (actor.id === id) throw Errors.businessRule('Você não pode excluir o seu próprio usuário.');
+  return withTransaction(async (db) => {
+    const u = (await db.query<{ id: string; deleted_at: string | null }>('SELECT id, deleted_at FROM users WHERE id = $1 FOR UPDATE', [id])).rows[0];
+    if (!u) throw Errors.notFound('Usuário não encontrado.');
+    if (u.deleted_at) throw Errors.conflict('Usuário já excluído.');
+    const before = await getUser(id, db);
+    if (before.roleCode === OWNER_ROLE && before.isActive && (await countOtherActiveOwners(db, id)) === 0) {
+      throw Errors.businessRule('Não é possível excluir o último Proprietário ativo.');
+    }
+    const refs = await userReferences(db, id);
+    if (refs.total === 0) {
+      // nunca usado: apaga de verdade (com o acesso dele)
+      await db.query('DELETE FROM sessions WHERE user_id = $1', [id]);
+      await db.query('DELETE FROM user_permission_overrides WHERE user_id = $1', [id]);
+      await db.query(`SELECT set_config('eskimo.user_hard_delete', 'on', true)`);
+      await db.query('DELETE FROM users WHERE id = $1', [id]);
+      await db.query(`SELECT set_config('eskimo.user_hard_delete', 'off', true)`);
+      await writeAudit(db, ctx, { action: 'user.deleted', entity: 'user', entityId: id, before, metadata: { mode: 'apagado', reason } });
+      return { mode: 'apagado' as const, references: 0 };
+    }
+    // com histórico: exclusão lógica — sai da lista, perde o acesso e libera o e-mail
+    await db.query(
+      `UPDATE users SET is_active = false, deleted_at = now(), deleted_by = $2, deleted_reason = $3,
+              deleted_email = email, email = 'excluido.' || replace(id::text, '-', '') || '@usuario-excluido.invalid'
+       WHERE id = $1`, [id, actor.id, reason],
+    );
+    await db.query(`UPDATE sessions SET revoked_at = now(), revoked_reason = 'user_deleted' WHERE user_id = $1 AND revoked_at IS NULL`, [id]);
+    await writeAudit(db, ctx, { action: 'user.deleted', entity: 'user', entityId: id, before, metadata: { mode: 'excluido', reason, references: refs.total, tables: refs.tables } });
+    return { mode: 'excluido' as const, references: refs.total };
+  });
 }

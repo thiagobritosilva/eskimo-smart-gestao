@@ -21,6 +21,7 @@ export interface User {
   lastLoginAt: string | null;
   createdAt: string;
   activeSessions: number;
+  deletedAt?: string | null;
 }
 
 export interface Role {

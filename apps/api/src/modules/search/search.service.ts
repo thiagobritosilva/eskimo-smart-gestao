@@ -77,7 +77,7 @@ export async function globalSearch(actor: Actor, q: string, limit = 8): Promise<
 
   if (can('users.view')) {
     const { rows } = await db.query<{ id: string; name: string; email: string; is_active: boolean }>(
-      `SELECT id, name, email, is_active FROM users WHERE ${NORM('name')} LIKE $1 OR lower(email) LIKE $1 ORDER BY is_active DESC, name LIMIT $2`, [like, limit],
+      `SELECT id, name, email, is_active FROM users WHERE deleted_at IS NULL AND (${NORM('name')} LIKE $1 OR lower(email) LIKE $1) ORDER BY is_active DESC, name LIMIT $2`, [like, limit],
     );
     for (const r of rows) hits.push({ type: 'Usuário', id: r.id, title: r.name, subtitle: `${r.email}${r.is_active ? '' : ' · inativo'}`, to: '/usuarios' });
   }

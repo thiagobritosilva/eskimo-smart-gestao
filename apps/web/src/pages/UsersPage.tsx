@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, LogOut, Pencil, Plus, Power, ShieldPlus } from 'lucide-react';
+import { KeyRound, LogOut, Pencil, Plus, Power, ShieldPlus, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -129,7 +129,35 @@ function PermissionsForm({ user, roles, onClose }: { user: User; roles: Role[]; 
   );
 }
 
-type Dialog = { kind: 'create' } | { kind: 'edit' | 'reset' | 'perms'; user: User } | null;
+type Dialog = { kind: 'create' } | { kind: 'edit' | 'reset' | 'perms' | 'delete'; user: User } | null;
+
+function DeleteUserForm({ user, onClose, onDeleted }: { user: User; onClose: () => void; onDeleted: (msg: string) => void }) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState('');
+  const m = useMutation({
+    mutationFn: () => api.post<{ mode: 'apagado' | 'excluido'; references: number }>(`/users/${user.id}/delete`, { reason }),
+    onSuccess: (r) => {
+      onDeleted(r.mode === 'apagado'
+        ? `${user.name} foi apagado (não tinha nenhum registro no sistema).`
+        : `${user.name} foi excluído: não aparece mais na lista e não consegue entrar. O histórico (vendas, caixa, ponto) foi mantido e o e-mail ficou livre para novo cadastro.`);
+      void qc.invalidateQueries({ queryKey: ['users'] });
+      onClose();
+    },
+  });
+  return (
+    <form className="space-y-3" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>
+      {m.error && <Alert>{errorMessage(m.error)}</Alert>}
+      <div className="rounded-lg bg-slate-50 p-3 text-sm"><div className="font-semibold">{user.name}</div><div className="text-slate-500">{user.email} · {user.roleName}</div></div>
+      <ul className="list-disc space-y-1 pl-5 text-xs text-slate-600">
+        <li>Se o usuário <b>nunca foi usado</b>, ele é apagado de verdade.</li>
+        <li>Se já tem <b>histórico</b> (entrou no sistema, vendeu, bateu ponto…), ele sai da lista e perde o acesso na hora, mas o nome continua nos registros antigos — a lei exige guardar ponto, caixa e documentos fiscais. O e-mail fica livre para um novo cadastro.</li>
+        <li>Não dá para desfazer. Se for só um afastamento, prefira <b>Desativar</b>.</li>
+      </ul>
+      <Field label="Motivo *"><input autoFocus className="input" required minLength={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex.: saiu da empresa; cadastrado por engano" /></Field>
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Voltar</button><button className="btn-danger" disabled={m.isPending}><Trash2 className="h-4 w-4" /> Excluir usuário</button></div>
+    </form>
+  );
+}
 
 export function UsersPage() {
   const { can, user: me } = useAuth();
@@ -139,8 +167,10 @@ export function UsersPage() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [search, setSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [deletedMsg, setDeletedMsg] = useState('');
   const [actionError, setActionError] = useState('');
-  const users = useQuery({ queryKey: ['users'], queryFn: () => api.get<User[]>('/users') });
+  const users = useQuery({ queryKey: ['users', showDeleted], queryFn: () => api.get<User[]>(`/users${showDeleted ? '?includeDeleted=1' : ''}`) });
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get<Role[]>('/roles') });
   const [params, setParams] = useSearchParams();
   const tab = isOwner && params.get('aba') === 'cadastros' ? 'cadastros' : 'usuarios';
@@ -153,7 +183,7 @@ export function UsersPage() {
   });
 
   const filtered = (users.data ?? []).filter(
-    (u) => (showInactive || u.isActive) && `${u.name} ${u.email} ${u.roleName}`.toLowerCase().includes(search.toLowerCase()),
+    (u) => (showInactive || u.isActive || (showDeleted && u.deletedAt)) && `${u.name} ${u.email} ${u.roleName}`.toLowerCase().includes(search.toLowerCase()),
   );
   const close = () => setDialog(null);
 
@@ -161,7 +191,7 @@ export function UsersPage() {
     <>
       <PageHeader
         title="Usuários"
-        subtitle="Logins individuais. Usuários não são excluídos — apenas desativados, preservando a auditoria."
+        subtitle="Logins individuais. Afastamento: desative. Saiu da empresa ou foi cadastrado por engano: exclua (o histórico de vendas, caixa e ponto é mantido)."
         actions={manage && tab === 'usuarios' && <button className="btn-primary" onClick={() => setDialog({ kind: 'create' })}><Plus className="h-4 w-4" /> Novo usuário</button>}
       />
       {isOwner && (
@@ -177,8 +207,10 @@ export function UsersPage() {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <input className="input sm:max-w-xs" placeholder="Buscar por nome, e-mail ou perfil" value={search} onChange={(e) => setSearch(e.target.value)} />
         <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> Mostrar inativos</label>
+        {isOwner && <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Mostrar excluídos</label>}
       </div>
       {actionError && <div className="mb-4"><Alert>{actionError}</Alert></div>}
+      {deletedMsg && <div className="mb-4"><Alert kind="success">{deletedMsg}</Alert></div>}
       {users.isLoading ? <Spinner /> : (
         <div className="card overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200">
@@ -189,14 +221,14 @@ export function UsersPage() {
                   <td className="td"><div className="font-medium text-ink-900">{u.name}</div><div className="text-xs text-slate-500">{u.email}</div></td>
                   <td className="td"><span className={clsx('badge', u.roleCode === 'PROPRIETARIO' ? 'bg-brand-100 text-brand-800' : 'bg-slate-100 text-slate-700')}>{u.roleName}</span></td>
                   <td className="td space-x-1">
-                    {u.isActive ? <span className="badge bg-emerald-100 text-emerald-800">Ativo</span> : <span className="badge bg-slate-200 text-slate-600">Inativo</span>}
+                    {u.deletedAt ? <span className="badge bg-red-100 text-red-700">Excluído em {formatDateTime(u.deletedAt)}</span> : u.isActive ? <span className="badge bg-emerald-100 text-emerald-800">Ativo</span> : <span className="badge bg-slate-200 text-slate-600">Inativo</span>}
                     {u.isLocked && <span className="badge bg-red-100 text-red-700">Bloqueado</span>}
                     {u.mustChangePassword && u.isActive && <span className="badge bg-amber-100 text-amber-800">Troca de senha pendente</span>}
                   </td>
                   <td className="td whitespace-nowrap text-slate-600">{formatDateTime(u.lastLoginAt)}<div className="text-xs text-slate-400">{u.activeSessions} sessão(ões) ativa(s)</div></td>
                   {manage && (
                     <td className="td">
-                      <div className="flex justify-end gap-1">
+                      {u.deletedAt ? <div className="text-right text-xs text-slate-400">só histórico</div> : <div className="flex justify-end gap-1">
                         <button className="btn-ghost p-2" title="Editar" onClick={() => setDialog({ kind: 'edit', user: u })}><Pencil className="h-4 w-4" /></button>
                         {isOwner && u.roleCode !== 'PROPRIETARIO' && <button className="btn-ghost p-2" title="Permissões individuais" onClick={() => setDialog({ kind: 'perms', user: u })}><ShieldPlus className="h-4 w-4" /></button>}
                         {u.id !== me?.id && <button className="btn-ghost p-2" title="Redefinir senha" onClick={() => setDialog({ kind: 'reset', user: u })}><KeyRound className="h-4 w-4" /></button>}
@@ -208,7 +240,8 @@ export function UsersPage() {
                             onClick={() => (u.isActive ? confirm(`Desativar ${u.name}? As sessões serão encerradas.`) : true) && action.mutate({ id: u.id, op: u.isActive ? 'deactivate' : 'activate' })}
                           ><Power className="h-4 w-4" /></button>
                         )}
-                      </div>
+                        {isOwner && u.id !== me?.id && <button className="btn-ghost p-2 text-red-700" title="Excluir usuário" onClick={() => setDialog({ kind: 'delete', user: u })}><Trash2 className="h-4 w-4" /></button>}
+                      </div>}
                     </td>
                   )}
                 </tr>
@@ -221,6 +254,9 @@ export function UsersPage() {
       </>}
       <Modal open={dialog?.kind === 'create' || dialog?.kind === 'edit'} title={dialog?.kind === 'edit' ? 'Editar usuário' : 'Novo usuário'} onClose={close}>
         {roles.data && (dialog?.kind === 'create' || dialog?.kind === 'edit') && <UserForm key={dialog.kind === 'edit' ? dialog.user.id : 'new'} user={dialog.kind === 'edit' ? dialog.user : undefined} roles={roles.data} onClose={close} />}
+      </Modal>
+      <Modal open={dialog?.kind === 'delete'} title="Excluir usuário" onClose={close}>
+        {dialog?.kind === 'delete' && <DeleteUserForm user={dialog.user} onClose={close} onDeleted={setDeletedMsg} />}
       </Modal>
       <Modal open={dialog?.kind === 'reset'} title="Redefinir senha" onClose={close}>
         {dialog?.kind === 'reset' && <ResetPasswordForm user={dialog.user} onClose={close} />}

@@ -12,7 +12,14 @@ export async function usersRoutes(app: FastifyInstance) {
   app.get('/roles', { preHandler: requirePermission('users.view') }, async () => svc.listRoles());
   app.get('/permissions', { preHandler: requirePermission('users.view') }, async () => svc.listPermissions());
 
-  app.get('/users', { preHandler: requirePermission('users.view') }, async () => svc.listUsers());
+  app.get('/users', { preHandler: requirePermission('users.view') }, async (req) =>
+    svc.listUsers(parse(z.object({ includeDeleted: z.enum(['0', '1']).optional() }), req.query).includeDeleted === '1'));
+  // excluir (somente Proprietário — verificado no serviço): apaga se nunca usado; com histórico, exclusão lógica
+  app.post('/users/:id/delete', { preHandler: requirePermission('users.manage') }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const b = parse(z.object({ reason: z.string().trim().min(3, 'Informe o motivo.').max(300) }), req.body);
+    return svc.deleteUser(req.auth!, id, b.reason, auditCtx(req));
+  });
 
   app.get('/users/:id', { preHandler: requirePermission('users.view') }, async (req) => {
     const { id } = parse(idParams, req.params);
