@@ -51,7 +51,7 @@ async function insertPunch(db: Queryable, p: { userId: string; kind: PunchKind; 
 
 async function dayPunches(db: Queryable, userId: string, date: string) {
   return (await db.query<{ id: string; nsr: string; kind: PunchKind; punched_at: string; origin: string; latitude: number | null; longitude: number | null; accuracy: number | null }>(
-    `SELECT id, nsr::text, kind, punched_at, origin, latitude::float8 AS latitude, longitude::float8 AS longitude, accuracy_m::float8 AS accuracy FROM time_punches WHERE user_id = $1 AND work_date = $2::date ORDER BY punched_at, nsr`, [userId, date],
+    `SELECT id, nsr::text, kind, punched_at, origin, latitude::float8 AS latitude, longitude::float8 AS longitude, accuracy_m::float8 AS accuracy FROM time_punches p WHERE user_id = $1 AND work_date = $2::date AND NOT EXISTS (SELECT 1 FROM time_punch_voids v WHERE v.punch_id = p.id) ORDER BY punched_at, nsr`, [userId, date],
   )).rows;
 }
 const todaySPSql = `(now() AT TIME ZONE ${TZ})::date::text`;
@@ -74,7 +74,8 @@ export async function myToday(actor: Actor) {
   const { rows: [t] } = await db.query<{ today: string; now: string }>(`SELECT ${todaySPSql} AS today, now() AS now`);
   const punches = await dayPunches(db, actor.userId, t!.today);
   const pending = (await db.query(
-    `SELECT id, number::text, kind, requested_at, reason, status, created_at FROM time_punch_adjustments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`, [actor.userId],
+    `SELECT a.id, a.number::text, a.kind, a.requested_at, a.reason, CASE WHEN v.id IS NOT NULL THEN 'anulado' ELSE a.status END AS status, a.created_at
+     FROM time_punch_adjustments a LEFT JOIN time_punch_voids v ON v.punch_id = a.punch_id WHERE a.user_id = $1 ORDER BY a.created_at DESC LIMIT 20`, [actor.userId],
   )).rows;
   return { date: t!.today, serverTime: t!.now, punches, next: nextKind(punches.map((p) => p.kind)), adjustments: pending };
 }
@@ -145,6 +146,17 @@ export async function requestAdjustment(actor: Actor, input: { userId?: string |
     if (future) throw Errors.businessRule('O horário do ajuste não pode estar no futuro.');
     const u = (await db.query('SELECT 1 FROM users WHERE id = $1', [userId])).rowCount;
     if (!u) throw Errors.notFound('Usuário não encontrado.');
+    const dup = (await db.query<{ t: string }>(
+      `SELECT to_char(p.punched_at AT TIME ZONE ${TZ}, 'DD/MM/YYYY HH24:MI') AS t FROM time_punches p
+       WHERE p.user_id = $1 AND p.kind = $2 AND abs(extract(epoch FROM p.punched_at - $3::timestamptz)) <= 300
+         AND NOT EXISTS (SELECT 1 FROM time_punch_voids v WHERE v.punch_id = p.id) LIMIT 1`, [userId, input.kind, input.at],
+    )).rows[0];
+    if (dup) throw Errors.conflict(`Já existe a marcação "${KIND_LABEL[input.kind]}" em ${dup.t}. Não é preciso lançar de novo.`);
+    const pendingDup = (await db.query(
+      `SELECT 1 FROM time_punch_adjustments WHERE user_id = $1 AND kind = $2 AND status = 'pendente' AND abs(extract(epoch FROM requested_at - $3::timestamptz)) <= 300`,
+      [userId, input.kind, input.at],
+    )).rowCount;
+    if (pendingDup) throw Errors.conflict('Já existe um pedido de ajuste igual aguardando decisão.');
     const r = (await db.query<{ id: string; number: string }>(
       `INSERT INTO time_punch_adjustments (user_id, kind, requested_at, reason, requested_by) VALUES ($1, $2, $3, $4, $5) RETURNING id, number::text`,
       [userId, input.kind, input.at, input.reason, actor.userId],
@@ -164,6 +176,15 @@ export async function decideAdjustment(actor: Actor, id: string, approve: boolea
     if (a.status !== 'pendente') throw Errors.conflict('Pedido já decidido.');
     if (!approve && !reason?.trim()) throw Errors.businessRule('Informe o motivo da recusa.');
     let punchId: string | null = null;
+    if (approve) {
+      // evita lançar a mesma marcação duas vezes (mesmo tipo, mesmo dia, até 5 minutos de diferença)
+      const dup = (await db.query<{ t: string }>(
+        `SELECT to_char(p.punched_at AT TIME ZONE ${TZ}, 'DD/MM/YYYY HH24:MI') AS t FROM time_punches p
+         WHERE p.user_id = $1 AND p.kind = $2 AND abs(extract(epoch FROM p.punched_at - $3::timestamptz)) <= 300
+           AND NOT EXISTS (SELECT 1 FROM time_punch_voids v WHERE v.punch_id = p.id) LIMIT 1`, [a.user_id, a.kind, a.requested_at],
+      )).rows[0];
+      if (dup) throw Errors.conflict(`Já existe a marcação "${KIND_LABEL[a.kind]}" em ${dup.t} para este empregado. Recuse este pedido (duplicado).`);
+    }
     if (approve) punchId = (await insertPunch(db, { userId: a.user_id, kind: a.kind, at: a.requested_at, origin: 'ajuste', adjustmentId: id })).id;
     await db.query(
       `UPDATE time_punch_adjustments SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4, punch_id = $5 WHERE id = $1`,
@@ -178,8 +199,10 @@ export async function listAdjustments(actor: Actor, status: 'pendente' | 'todos'
   needOwner(actor);
   const { rows } = await getPool().query(
     `SELECT a.id, a.number::text, a.kind, a.requested_at, a.reason, a.status, a.created_at, a.decided_at, a.decision_reason,
-            a.user_id, u.name AS user_name, rb.name AS requested_by_name, db.name AS decided_by_name
+            a.user_id, u.name AS user_name, rb.name AS requested_by_name, db.name AS decided_by_name,
+            v.created_at AS voided_at, v.reason AS void_reason, vu.name AS voided_by_name
      FROM time_punch_adjustments a JOIN users u ON u.id = a.user_id JOIN users rb ON rb.id = a.requested_by LEFT JOIN users db ON db.id = a.decided_by
+     LEFT JOIN time_punch_voids v ON v.punch_id = a.punch_id LEFT JOIN users vu ON vu.id = v.created_by
      WHERE ($1 = 'todos' OR a.status = 'pendente') ORDER BY a.created_at DESC LIMIT 300`, [status],
   );
   return rows;
@@ -240,8 +263,8 @@ export async function timesheet(actor: Actor, userId: string, month: string) {
   const from = `${month}-01`;
   const params = await getTimeclockParams(db);
   const punches = (await db.query<PunchRow & { work_date: string }>(
-    `SELECT id, nsr::text, kind, punched_at, origin, work_date::text, latitude::float8 AS latitude, longitude::float8 AS longitude, accuracy_m::float8 AS accuracy FROM time_punches
-     WHERE user_id = $1 AND work_date BETWEEN ($2::date - 1) AND (($2::date + interval '1 month')::date - 1) ORDER BY punched_at, nsr`, [userId, from],
+    `SELECT id, nsr::text, kind, punched_at, origin, work_date::text, latitude::float8 AS latitude, longitude::float8 AS longitude, accuracy_m::float8 AS accuracy FROM time_punches p
+     WHERE NOT EXISTS (SELECT 1 FROM time_punch_voids v WHERE v.punch_id = p.id) AND user_id = $1 AND work_date BETWEEN ($2::date - 1) AND (($2::date + interval '1 month')::date - 1) ORDER BY punched_at, nsr`, [userId, from],
   )).rows;
   const byDay = new Map<string, DayRow['punches']>();
   for (const p of punches) {
@@ -260,8 +283,10 @@ export async function timesheet(actor: Actor, userId: string, month: string) {
     if (date >= from && date.slice(0, 7) === month) days.push(row);
   }
   const adjustments = (await db.query(
-    `SELECT a.number::text, a.kind, a.requested_at, a.reason, a.status, a.decision_reason, d.name AS decided_by_name
-     FROM time_punch_adjustments a LEFT JOIN users d ON d.id = a.decided_by
+    `SELECT a.number::text, a.kind, a.requested_at, a.reason,
+            CASE WHEN v.id IS NOT NULL THEN 'anulado' ELSE a.status END AS status,
+            coalesce('Anulado: ' || v.reason, a.decision_reason) AS decision_reason, d.name AS decided_by_name
+     FROM time_punch_adjustments a LEFT JOIN users d ON d.id = a.decided_by LEFT JOIN time_punch_voids v ON v.punch_id = a.punch_id
      WHERE a.user_id = $1 AND (a.requested_at AT TIME ZONE ${TZ})::date BETWEEN $2::date AND (($2::date + interval '1 month')::date - 1) ORDER BY a.requested_at`, [userId, from],
   )).rows;
   return {
@@ -279,7 +304,7 @@ export async function todayBoard(actor: Actor) {
   const { rows } = await db.query<{ id: string; name: string; role_name: string; punches: { kind: PunchKind; at: string; origin: string; latitude: number | null; longitude: number | null; distance?: number | null; outside?: boolean }[] }>(
     `SELECT u.id, u.name, r.name AS role_name,
             coalesce((SELECT json_agg(json_build_object('id', p.id, 'kind', p.kind, 'at', p.punched_at, 'origin', p.origin, 'latitude', p.latitude::float8, 'longitude', p.longitude::float8, 'accuracy', p.accuracy_m::float8) ORDER BY p.punched_at, p.nsr)
-                      FROM time_punches p WHERE p.user_id = u.id AND p.work_date = ${todaySPSql}::date), '[]') AS punches
+                      FROM time_punches p WHERE p.user_id = u.id AND p.work_date = ${todaySPSql}::date AND NOT EXISTS (SELECT 1 FROM time_punch_voids v WHERE v.punch_id = p.id)), '[]') AS punches
      FROM users u JOIN roles r ON r.id = u.role_id
      WHERE u.is_active AND r.code <> 'IA' AND EXISTS (
        SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id WHERE rp.role_id = u.role_id AND p.code = 'timeclock.punch')
@@ -346,3 +371,22 @@ export function insideStore(p: TimeclockParams, g: GeoPoint, dist = distanceToSt
   return dist - tol <= p.radiusMeters!;
 }
 const fmtDist = (d: number) => (d < 1000 ? `${Math.round(d)} m` : `${(d / 1000).toFixed(1).replace('.', ',')} km`);
+
+/** Anula um ajuste aprovado (ex.: lançado em duplicidade): a marcação incluída fica desconsiderada, não apagada. */
+export async function voidAdjustment(actor: Actor, adjustmentId: string, reason: string) {
+  needOwner(actor);
+  return withTransaction(async (db) => {
+    const a = (await db.query<{ status: string; punch_id: string | null; user_id: string; kind: PunchKind; requested_at: string }>(
+      'SELECT status, punch_id, user_id, kind, requested_at FROM time_punch_adjustments WHERE id = $1 FOR UPDATE', [adjustmentId],
+    )).rows[0];
+    if (!a) throw Errors.notFound('Ajuste não encontrado.');
+    if (a.status !== 'aprovado' || !a.punch_id) throw Errors.businessRule('Só é possível anular ajuste aprovado. Pedido pendente: recuse-o.');
+    const origin = (await db.query<{ origin: string }>('SELECT origin FROM time_punches WHERE id = $1', [a.punch_id])).rows[0];
+    if (origin?.origin !== 'ajuste') throw Errors.businessRule('Marcações feitas pelo empregado no app não podem ser anuladas.');
+    if ((await db.query('SELECT 1 FROM time_punch_voids WHERE punch_id = $1', [a.punch_id])).rowCount) throw Errors.conflict('Este ajuste já foi anulado.');
+    await db.query('INSERT INTO time_punch_voids (punch_id, reason, created_by) VALUES ($1, $2, $3)', [a.punch_id, reason, actor.userId]);
+    await writeAudit(db, actor.audit, { action: 'timeclock.adjustment_voided', entity: 'time_punch_adjustment', entityId: adjustmentId,
+      metadata: { userId: a.user_id, kind: a.kind, at: a.requested_at, punchId: a.punch_id, reason } });
+    return { voided: true };
+  });
+}

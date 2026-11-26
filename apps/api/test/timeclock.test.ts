@@ -218,6 +218,38 @@ describe('ponto', () => {
     expect(t.days.find((d: { date: string }) => d.date === yesterday)).toMatchObject({ workedMinutes: 480 });
   });
 
+  it('ajuste em duplicidade é barrado; Proprietário anula ajuste aprovado (desconsiderado, não apagado)', async () => {
+    const u = await asRole(app, 'FUNCIONARIO');
+    const day = '2026-10-20';
+    for (const [kind, hm] of [['entrada', '08:00'], ['saida', '17:20']] as const) {
+      expect((await call(owner.cookie, 'POST', '/timeclock/adjustments', { userId: u.id, kind, at: `${day}T${hm}:00-03:00`, reason: 'teste', approveNow: true })).statusCode).toBe(201);
+    }
+    // lançar a mesma saída de novo (até 5 min de diferença): recusado
+    const dup = await call(owner.cookie, 'POST', '/timeclock/adjustments', { userId: u.id, kind: 'saida', at: `${day}T17:22:00-03:00`, reason: 'duplicado', approveNow: true });
+    expect(dup.statusCode).toBe(409);
+    expect(dup.json().error.message).toMatch(/Já existe a marcação "Saída"/);
+    // simula duplicidade antiga (antes da trava): outra saída 1h depois, aprovada
+    const extra = (await call(owner.cookie, 'POST', '/timeclock/adjustments', { userId: u.id, kind: 'saida', at: `${day}T18:20:00-03:00`, reason: 'lançado por engano', approveNow: true })).json();
+    let t = (await call(owner.cookie, 'GET', `/timeclock/timesheet?userId=${u.id}&month=2026-10`)).json();
+    expect(t.days.find((d: { date: string }) => d.date === day).alerts.join(' ')).toMatch(/Saída sem entrada/);
+    // gerente e funcionário não anulam; sem motivo não anula
+    expect((await call(gerente.cookie, 'POST', `/timeclock/adjustments/${extra.id}/void`, { reason: 'teste' })).statusCode).toBe(403);
+    expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${extra.id}/void`, { reason: '' })).statusCode).toBe(400);
+    expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${extra.id}/void`, { reason: 'Lançado em duplicidade' })).statusCode).toBe(200);
+    expect((await call(owner.cookie, 'POST', `/timeclock/adjustments/${extra.id}/void`, { reason: 'de novo' })).statusCode).toBe(409);
+    t = (await call(owner.cookie, 'GET', `/timeclock/timesheet?userId=${u.id}&month=2026-10`)).json();
+    const d = t.days.find((x: { date: string }) => x.date === day);
+    expect(d.punches).toHaveLength(2);
+    expect(d.workedMinutes).toBe(560);
+    expect(d.alerts.join(' ')).not.toMatch(/Saída sem entrada/);
+    expect(t.adjustments.find((a: { reason: string }) => a.reason === 'lançado por engano')).toMatchObject({ status: 'anulado', decision_reason: 'Anulado: Lançado em duplicidade' });
+    // a marcação continua no banco (não apagada) e a corrente de hashes segue íntegra
+    expect((await getPool().query(`SELECT count(*)::int AS n FROM time_punches WHERE user_id = $1 AND work_date = $2`, [u.id, day])).rows[0].n).toBe(3);
+    expect((await call(owner.cookie, 'GET', '/timeclock/verify')).json().ok).toBe(true);
+    const list = (await call(owner.cookie, 'GET', '/timeclock/adjustments?status=todos')).json().find((a: { id: string }) => a.id === extra.id);
+    expect(list).toMatchObject({ void_reason: 'Lançado em duplicidade' });
+  });
+
   it('alertas legais do espelho: intervalo < 1h, > 2h, sem intervalo, > 10h, descanso < 11h', () => {
     const p = (kind: string, iso: string) => ({ id: iso, nsr: '1', kind: kind as 'entrada', punched_at: iso, origin: 'app' });
     const curto = computeDay('2026-10-01', [p('entrada', '2026-10-01T11:00:00Z'), p('saida_almoco', '2026-10-01T15:00:00Z'), p('volta_almoco', '2026-10-01T15:30:00Z'), p('saida', '2026-10-01T20:00:00Z')], null);

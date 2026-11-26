@@ -236,6 +236,7 @@ async function timePunchesIncomplete(db: Queryable): Promise<AlertGroup[]> {
     `SELECT DISTINCT ON (p.user_id, p.work_date) p.user_id, u.name, p.work_date::text, p.kind AS last_kind, p.punched_at AS last_at
      FROM time_punches p JOIN users u ON u.id = p.user_id
      WHERE p.work_date < (now() AT TIME ZONE 'America/Sao_Paulo')::date AND p.work_date >= (now() AT TIME ZONE 'America/Sao_Paulo')::date - 30
+       AND NOT EXISTS (SELECT 1 FROM time_punch_voids v WHERE v.punch_id = p.id)
      ORDER BY p.user_id, p.work_date, p.punched_at DESC, p.nsr DESC`,
   );
   const missing: Record<string, string> = { entrada: 'saida', volta_almoco: 'saida', entrada_extra: 'saida_extra', saida_almoco: 'volta_almoco' };

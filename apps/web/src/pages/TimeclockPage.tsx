@@ -71,7 +71,7 @@ function MapLegend() {
     </div>
   );
 }
-interface Adjustment { id: string; number: string; kind: Kind; requested_at: string; reason: string; status: string; created_at: string; decision_reason: string | null; user_id: string; user_name: string; requested_by_name: string; decided_by_name: string | null }
+interface Adjustment { id: string; number: string; kind: Kind; requested_at: string; reason: string; status: string; created_at: string; decision_reason: string | null; user_id: string; user_name: string; requested_by_name: string; decided_by_name: string | null; voided_at?: string | null; void_reason?: string | null; voided_by_name?: string | null }
 
 const hm = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
 const hms = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
@@ -230,7 +230,7 @@ function MyPunch() {
             {d.adjustments.map((a) => (
               <div key={a.id} className="flex justify-between border-t border-slate-100 py-1.5 first:border-0">
                 <span>{KIND[a.kind]} · {formatDateTime(a.requested_at)} <span className="text-xs text-slate-500">— {a.reason}</span></span>
-                <span className={clsx('rounded px-1.5 text-xs', a.status === 'aprovado' ? 'bg-emerald-100 text-emerald-800' : a.status === 'recusado' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-900')}>{a.status}</span>
+                <span className={clsx('rounded px-1.5 text-xs', a.status === 'aprovado' ? 'bg-emerald-100 text-emerald-800' : a.status === 'recusado' ? 'bg-red-100 text-red-700' : a.status === 'anulado' ? 'bg-slate-200 text-slate-700' : 'bg-amber-100 text-amber-900')}>{a.status}</span>
               </div>
             ))}
           </div>
@@ -418,6 +418,12 @@ function Adjustments() {
   const [params, setParams] = useSearchParams();
   const fromAlert = params.get('corrigir') ? { userId: params.get('corrigir')!, date: params.get('data') ?? undefined, kind: (params.get('tipo') as Kind | null) ?? undefined } : null;
   const [newFor, setNewFor] = useState(!!fromAlert);
+  const [voiding, setVoiding] = useState<Adjustment | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const voidM = useMutation({
+    mutationFn: () => api.post(`/timeclock/adjustments/${voiding!.id}/void`, { reason: voidReason }),
+    onSuccess: () => { setVoiding(null); setVoidReason(''); void qc.invalidateQueries({ queryKey: ['timeclock'] }); },
+  });
   const [initial] = useState(fromAlert);
   const closeNew = () => { setNewFor(false); if (params.get('corrigir')) setParams({ aba: 'ajustes' }); };
   const q = useQuery({ queryKey: ['timeclock', 'adjustments', status], queryFn: () => api.get<Adjustment[]>(`/timeclock/adjustments?status=${status}`) });
@@ -439,11 +445,14 @@ function Adjustments() {
               <tr key={a.id}>
                 <td className="td">{a.number}</td><td className="td">{a.user_name}{a.requested_by_name !== a.user_name && <div className="text-xs text-slate-500">lançado por {a.requested_by_name}</div>}</td>
                 <td className="td">{KIND[a.kind]}</td><td className="td whitespace-nowrap">{formatDateTime(a.requested_at)}</td><td className="td">{a.reason}</td>
-                <td className="td">{a.status}{a.decided_by_name && <div className="text-xs text-slate-500">{a.decided_by_name}{a.decision_reason ? ` — ${a.decision_reason}` : ''}</div>}</td>
+                <td className="td">{a.voided_at
+                  ? <><span className="rounded bg-slate-200 px-1.5 text-xs text-slate-700">anulado</span><div className="text-xs text-slate-500">{a.voided_by_name} — {a.void_reason}</div></>
+                  : <>{a.status}{a.decided_by_name && <div className="text-xs text-slate-500">{a.decided_by_name}{a.decision_reason ? ` — ${a.decision_reason}` : ''}</div>}</>}</td>
                 <td className="td whitespace-nowrap text-right">
                   {a.status === 'pendente' && <>
                     <button className="btn-primary px-2 py-1 text-xs" onClick={() => setDeciding({ a, approve: true })}>Aprovar</button>{' '}
                     <button className="btn-secondary px-2 py-1 text-xs text-red-700" onClick={() => setDeciding({ a, approve: false })}>Recusar</button></>}
+                  {a.status === 'aprovado' && !a.voided_at && <button className="btn-ghost px-2 py-1 text-xs text-red-700" title="Anular este ajuste (ex.: lançado em duplicidade)" onClick={() => setVoiding(a)}>Anular</button>}
                 </td>
               </tr>
             ))}
@@ -459,6 +468,17 @@ function Adjustments() {
             <Field label={deciding.approve ? 'Observação' : 'Motivo da recusa *'}><input className="input" required={!deciding.approve} minLength={deciding.approve ? undefined : 3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
             {deciding.approve && <p className="text-xs text-slate-500">A marcação entra no espelho identificada como ajuste. Nada é apagado.</p>}
             <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setDeciding(null)}>Voltar</button><button className={deciding.approve ? 'btn-primary' : 'btn-danger'} disabled={m.isPending}>{deciding.approve ? 'Aprovar' : 'Recusar'}</button></div>
+          </form>
+        )}
+      </Modal>
+      <Modal open={!!voiding} title="Anular ajuste de ponto" onClose={() => setVoiding(null)}>
+        {voiding && (
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); voidM.mutate(); }}>
+            {voidM.error && <Alert>{errorMessage(voidM.error)}</Alert>}
+            <div className="text-sm">{voiding.user_name}: <b>{KIND[voiding.kind]}</b> em {formatDateTime(voiding.requested_at)} — “{voiding.reason}”</div>
+            <Field label="Motivo da anulação *"><input autoFocus className="input" required minLength={3} maxLength={300} value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="Ex.: lançado em duplicidade" /></Field>
+            <p className="text-xs text-slate-500">A marcação incluída por este ajuste deixa de contar no espelho e nas horas. Ela não é apagada: fica registrada como anulada, com o motivo, quem anulou e quando.</p>
+            <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setVoiding(null)}>Voltar</button><button className="btn-danger" disabled={voidM.isPending}>Anular ajuste</button></div>
           </form>
         )}
       </Modal>

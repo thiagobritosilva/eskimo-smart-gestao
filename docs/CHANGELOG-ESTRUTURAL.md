@@ -508,3 +508,11 @@ com impacto e estratégia de preservação de dados.
   (b) a janela de fechamento fechava ao clicar fora/Esc (agora não, `Modal dismissible={false}`); (c) a atualização
   automática (30 s) trocava a tela e sumia com o resultado — agora o resultado fica até o operador tocar em OK/Sair;
   (d) o leitor de código "roubava" o cursor dos campos de janelas abertas por clique — corrigido para todas as janelas.
+
+## 0036_anular_ajuste_ponto — anular ajuste de ponto e trava de duplicidade (2026-11-26)
+- **Anular:** o Proprietário anula um ajuste aprovado, com motivo (`time_punch_voids`, imutável). A marcação incluída
+  pelo ajuste passa a ser desconsiderada (espelho, horas, quadro do dia, avisos), mas não é apagada; aparece como
+  "anulado" com motivo, quem e quando (lista de ajustes, espelho impresso e "Meus pedidos"). Auditoria
+  `timeclock.adjustment_voided`. Marcações feitas pelo empregado no app não podem ser anuladas.
+- **Duplicidade:** pedido/aprovação de ajuste é recusado se já existir a mesma marcação (mesmo tipo, até 5 min de
+  diferença) não anulada, ou um pedido igual pendente.

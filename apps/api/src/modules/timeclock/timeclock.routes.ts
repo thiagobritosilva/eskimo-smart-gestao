@@ -56,6 +56,11 @@ export async function timeclockRoutes(app: FastifyInstance) {
     const b = parse(z.object({ approve: z.boolean(), reason: z.string().trim().max(300).nullable().optional() }), req.body);
     return svc.decideAdjustment(actorOf(req), id, b.approve, b.reason ?? null);
   });
+  app.post('/timeclock/adjustments/:id/void', { preHandler: manage }, async (req) => {
+    const { id } = parse(idParams, req.params);
+    const b = parse(z.object({ reason: z.string().trim().min(3, 'Informe o motivo.').max(300) }), req.body);
+    return svc.voidAdjustment(actorOf(req), id, b.reason);
+  });
   app.get('/timeclock/today', { preHandler: manage }, async (req) => svc.todayBoard(actorOf(req)));
   app.get('/timeclock/params', { preHandler: manage }, async () => svc.getTimeclockParams());
   app.put('/timeclock/params', { preHandler: manage }, async (req) => {
