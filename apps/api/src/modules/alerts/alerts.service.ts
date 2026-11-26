@@ -260,6 +260,25 @@ async function timePunchesIncomplete(db: Queryable): Promise<AlertGroup[]> {
   }];
 }
 
+/** NFC-e com problema: rejeitadas (corrigir e reenviar) e pendentes há mais de 15 minutos (sem comunicação). */
+async function fiscalIssues(db: Queryable): Promise<AlertGroup[]> {
+  const { rows } = await db.query<{ id: string; status: string; sale_number: string; net: string; msg: string | null; sold_at: string }>(
+    `SELECT d.id, d.status, s.document_number AS sale_number, s.net_amount::text AS net, coalesce(d.sefaz_message, d.last_error) AS msg,
+            (s.sold_at AT TIME ZONE 'America/Sao_Paulo')::date::text AS sold_at
+     FROM fiscal_documents d JOIN sales s ON s.id = d.sale_id
+     WHERE d.status = 'rejeitada' OR (d.status = 'pendente' AND d.created_at < now() - interval '15 minutes')
+     ORDER BY d.created_at`,
+  );
+  if (!rows.length) return [];
+  const rej = rows.some((r) => r.status === 'rejeitada');
+  return [{
+    key: 'fiscal_issues', title: 'Notas fiscais (NFC-e) com problema', severity: rej ? 'critico' : 'atencao',
+    description: 'Rejeitadas: corrija o motivo (ex.: dado fiscal do produto) e reenvie. Pendentes: sem comunicação com a SEFAZ/Focus — o sistema reenvia sozinho.',
+    count: rows.length, link: '/configuracoes',
+    rows: rows.slice(0, LIMIT).map((r) => ({ id: r.id, label: `Venda nº ${r.sale_number} · ${r.status === 'rejeitada' ? 'rejeitada' : 'pendente'}`, detail: r.msg ?? '', value: r.net, date: r.sold_at, link: '/configuracoes', severity: (r.status === 'rejeitada' ? 'critico' : 'atencao') as Severity })),
+  }];
+}
+
 /** Pedidos de ajuste de ponto pendentes (somente o Proprietário decide). */
 async function timeAdjustmentsPending(db: Queryable): Promise<AlertGroup[]> {
   const { rows } = await db.query<{ id: string; name: string; kind: string; requested_at: string }>(
@@ -339,7 +358,7 @@ export async function listAlerts(db: Queryable, permissions: string[], isOwner =
   }
   if (can('stock.view')) groups.push(...(await stockAlerts(db, params)), ...(await cartsLate(db)));
   if (can('products.view')) groups.push(...(await productsNeedGtin(db)));
-  if (isOwner) groups.push(...(await signupsPending(db)), ...(await timeAdjustmentsPending(db)), ...(await timePunchesIncomplete(db)));
+  if (isOwner) groups.push(...(await signupsPending(db)), ...(await timeAdjustmentsPending(db)), ...(await timePunchesIncomplete(db)), ...(await fiscalIssues(db)));
   if (can('sales.view')) groups.push(...(await pdvIssues(db)));
   groups.sort((a, b) => ORDER[a.severity] - ORDER[b.severity]);
   const actionable = groups.filter((g) => g.severity !== 'info');

@@ -11,7 +11,12 @@ const call = (cookie: string, method: 'GET' | 'PUT' | 'POST' | 'DELETE' | 'PATCH
   app.inject({ method, url: `/api${url}`, payload: payload as Record<string, unknown>, headers: { cookie } });
 
 beforeAll(async () => { app = await setupApp(); owner = await asRole(app, 'PROPRIETARIO'); });
-afterAll(async () => { await app.close(); await closePool(); });
+afterAll(async () => {
+  // não deixa configuração fiscal para os outros arquivos de teste
+  await getPool().query(`UPDATE app_settings SET value = '{"provider":"focusnfe","environment":"homologacao","enabled":false,"series":null,"regime":null}' WHERE key = 'fiscal.config'`);
+  await getPool().query(`DELETE FROM fiscal_secrets`);
+  await app.close(); await closePool();
+});
 
 describe('nota fiscal — fase 1 (configuração)', () => {
   it('só o Proprietário configura; token fica cifrado e nunca volta inteiro', async () => {

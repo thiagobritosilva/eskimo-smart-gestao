@@ -11,6 +11,7 @@ import { Alert, Field, Logo, Modal, Spinner } from '../components/ui';
 import { CashReportView, printCashReport, type CashReport } from '../components/cash-report';
 import { OrderForm } from './IfoodPage';
 import { SaleNoteForm, type SaleNote } from '../components/sale-notes';
+import { printNfce, type FiscalDoc } from '../components/nfce-danfe';
 
 // ------------------------------------------------------------------ tipos
 interface Terminal { id: string; code: string; name: string; is_active: boolean; location_codes: string[] | null; open_session: { id: string; number: string; opened_at: string; opened_by: string } | null }
@@ -28,6 +29,7 @@ interface ReceiptData {
     name: string | null; tradeName: string | null; document: string | null; stateRegistration: string | null; municipalRegistration: string | null;
     address: string | null; phone: string | null; city: string | null; receiptMessage: string | null;
   };
+  fiscal?: FiscalDoc | null;
 }
 
 const METHODS: { code: string; label: string; icon: typeof Banknote; key: string }[] = [
@@ -59,6 +61,8 @@ export const saveAutoPrint = (v: boolean) => { try { localStorage.setItem(AUTO_P
  * NÃO é documento fiscal: não traz chave de acesso, QR Code da SEFAZ, protocolo nem a palavra "DANFE".
  */
 export function printReceipt(r: ReceiptData, copy = false) {
+  // com NFC-e autorizada (ou cancelada) imprime o DANFE NFC-e com QR Code; sem nota, o recibo simples
+  if (r.fiscal && (r.fiscal.status === 'autorizada' || r.fiscal.status === 'cancelada')) { void printNfce({ ...r, fiscal: r.fiscal }, copy); return; }
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
   const c = r.company;
   const qtyItems = r.items.reduce((s, i) => s + Number(i.quantity), 0);
@@ -690,8 +694,11 @@ function ReceiptView({ r, onClose }: { r: ReceiptData; onClose: () => void }) {
       <div className="text-4xl font-extrabold">{formatMoney(r.net_amount)}</div>
       {change > 0 && <div className="rounded-lg bg-emerald-50 p-3 text-2xl font-bold text-emerald-700">Troco: {brl(change)}</div>}
       {r.stock_status === 'pendente' && <Alert kind="warning">Estoque não baixado automaticamente: {r.stock_pending_reason} (aparece nas Notificações).</Alert>}
+      {r.fiscal?.status === 'autorizada' && <Alert kind="success">NFC-e nº {r.fiscal.number} autorizada{r.fiscal.environment === 'homologacao' ? ' (homologação — sem valor fiscal)' : ''}.</Alert>}
+      {r.fiscal?.status === 'pendente' && <Alert kind="warning">NFC-e pendente: sem comunicação com a SEFAZ agora. O sistema reenvia sozinho; a venda já está registrada.</Alert>}
+      {r.fiscal?.status === 'rejeitada' && <Alert>NFC-e rejeitada: {r.fiscal.sefaz_message ?? r.fiscal.last_error}. Avise o responsável (aparece nas Notificações).</Alert>}
       <div className="flex justify-center gap-2 pt-2">
-        <button className="btn-secondary" onClick={() => printReceipt(r)}><Printer className="h-4 w-4" /> Imprimir recibo</button>
+        <button className="btn-secondary" onClick={() => printReceipt(r)}><Printer className="h-4 w-4" /> {r.fiscal?.status === 'autorizada' ? 'Imprimir NFC-e' : 'Imprimir recibo'}</button>
         <button className="btn-primary" autoFocus onClick={onClose}>Nova venda (Enter)</button>
       </div>
     </div>

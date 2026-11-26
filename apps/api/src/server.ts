@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { migrate } from './db/migrate.js';
 import { closePool, getPool } from './db/pool.js';
 import { runScheduledGeneration } from './modules/finance/recurring.service.js';
+import { retryPending } from './modules/fiscal/nfce.service.js';
 
 const e = env();
 const app = await buildApp();
@@ -26,5 +27,11 @@ const generate = () =>
 await generate();
 const recurringTimer = setInterval(generate, 60 * 60 * 1000);
 recurringTimer.unref();
+
+// NFC-e: reenvia automaticamente as notas pendentes (falha de internet/SEFAZ) a cada 3 minutos.
+const fiscalTimer = setInterval(() => {
+  retryPending().catch((err) => app.log.error({ err }, 'Falha ao reenviar NFC-e pendentes'));
+}, 3 * 60 * 1000);
+fiscalTimer.unref();
 
 await app.listen({ port: e.PORT, host: e.HOST });

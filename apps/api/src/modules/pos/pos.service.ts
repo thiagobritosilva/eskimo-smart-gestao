@@ -9,6 +9,7 @@ import {
   cancelCashSessionInDb, cancelTitleInDb, cashHandoverInDb, closeCashSessionInDb, externalCashInDb, type Denomination, createAccount, createTitleInDb, openCashSession, retireCashAccountInDb, reverseTransactionInDb,
 } from '../finance/finance.service.js';
 import { allocateSale } from '../pdv/pdv.service.js';
+import { cancelDocumentInDb, documentForSale, emitForSale } from '../fiscal/nfce.service.js';
 import { reverseMovement, type Actor } from '../stock/stock.service.js';
 
 /**
@@ -500,6 +501,9 @@ export async function createSale(actor: Actor, input: SaleInput) {
     });
     return { saleId, duplicate: false };
   });
+  // NFC-e (quando a emissão estiver ligada): emitida logo após gravar a venda. Falha de comunicação não desfaz a venda:
+  // a nota fica pendente e é reenviada automaticamente.
+  if (!result.duplicate) await emitForSale(result.saleId, { userId: actor.userId }).catch(() => null);
   return { ...(await getSaleReceipt(result.saleId)), duplicate: result.duplicate };
 }
 
@@ -524,7 +528,7 @@ export async function getSaleReceipt(saleId: string) {
     `SELECT value FROM app_settings WHERE key = 'company.profile'`,
   )).rows[0]?.value ?? {};
   return {
-    ...s, items, payments,
+    ...s, items, payments, fiscal: await documentForSale(saleId),
     company: {
       name: c.legalName || c.tradeName || null, tradeName: c.tradeName ?? null, document: c.document ?? null,
       stateRegistration: c.stateRegistration ?? null, municipalRegistration: c.municipalRegistration ?? null,
@@ -587,7 +591,9 @@ export async function cancelSale(actor: Actor, saleId: string, reason: string) {
       `UPDATE sales SET status = 'cancelada', cancelled_at = now(), cancel_reason = $2, cancelled_by = $3 WHERE id = $1`,
       [saleId, reason, actor.userId],
     );
-    await writeAudit(db, actor.audit, { action: 'pos.sale_cancelled', entity: 'sale', entityId: saleId, metadata: { number: s.document_number, total: s.net_amount, reason } });
+    // NFC-e autorizada: cancela também na SEFAZ (por último, para não desfazer a venda se a SEFAZ recusar)
+    const fiscal = await cancelDocumentInDb(db, saleId, reason, actor.userId);
+    await writeAudit(db, actor.audit, { action: 'pos.sale_cancelled', entity: 'sale', entityId: saleId, metadata: { number: s.document_number, total: s.net_amount, reason, fiscal } });
     return { cancelled: true };
   });
 }

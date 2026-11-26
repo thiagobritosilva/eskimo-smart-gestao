@@ -524,3 +524,20 @@ com impacto e estratégia de preservação de dados.
 - **Configuração (Configurações › Nota fiscal, só Proprietário):** ambiente (homologação/produção), série, regime e
   checklist do que falta. Tokens da Focus NFe em `fiscal_secrets`, **cifrados** (AES-256-GCM); a tela só mostra os
   4 últimos caracteres; auditoria registra a troca, nunca o valor. Emissão continua desligada (fase 2).
+
+## 0038_nfce_emissao — NFC-e fase 2: emissão pela Focus NFe (2026-11-26)
+- **Tabelas:** `fiscal_documents` (uma NFC-e por venda do caixa; referência fixa na Focus = reenvio idempotente;
+  situação pendente/autorizada/rejeitada/cancelada; número, série, chave, protocolo, QR Code, JSON enviado e resposta;
+  sem exclusão) e `fiscal_events` (histórico imutável: envio, autorização, rejeição, falha, consulta, cancelamento).
+- **Emissão:** com a emissão ligada (Configurações › Nota fiscal; exige CNPJ, regime e token do ambiente), cada venda do
+  caixa emite NFC-e logo após ser gravada. Itens com NCM/CFOP/CSOSN-CST/CEST/origem do produto; pagamentos 01/03/04/17
+  (cartão com maquininha não integrada), valor entregue + troco; CPF/CNPJ do cliente. Em homologação, a descrição do
+  1º item segue a regra "SEM VALOR FISCAL". Produto sem dado fiscal → rejeitada localmente (não envia).
+- **Falhas:** sem comunicação → pendente; reenvio automático a cada 3 min (servidor) e manual (Proprietário); o reenvio
+  consulta antes de emitir (resposta perdida não duplica a nota). Rejeição da SEFAZ → motivo registrado; alerta para o
+  Proprietário em Notificações.
+- **Cancelamento:** cancelar a venda com NFC-e autorizada cancela a nota na SEFAZ (motivo ≥ 15 caracteres); se a SEFAZ
+  recusar, a venda não é cancelada.
+- **Impressão:** DANFE NFC-e 80 mm com chave, protocolo e QR Code; XML baixado pelo servidor (o token nunca vai ao navegador).
+- **Testes:** API da Focus simulada (o ambiente de desenvolvimento não acessa a Focus). `FOCUS_HOMOLOGACAO_URL` existe só
+  para apontar a um simulador local; não é usada em produção.

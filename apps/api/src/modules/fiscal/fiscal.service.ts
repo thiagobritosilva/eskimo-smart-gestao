@@ -45,10 +45,19 @@ export async function fiscalOverview() {
   return { config, tokens: { homologacao: tokens.homologacao ?? { configured: false }, producao: tokens.producao ?? { configured: false } }, products, checklist };
 }
 
-export async function setFiscalConfig(input: Partial<Omit<FiscalConfig, 'provider' | 'enabled'>>, userId: string, ctx: AuditContext) {
+export async function setFiscalConfig(input: Partial<Omit<FiscalConfig, 'provider'>>, userId: string, ctx: AuditContext) {
   return withTransaction(async (db) => {
     const before = await getFiscalConfig();
-    const after: FiscalConfig = { ...before, ...input, provider: 'focusnfe', enabled: false }; // emissão ainda não implantada (fase 2)
+    const after: FiscalConfig = { ...before, ...input, provider: 'focusnfe' };
+    if (after.enabled) {
+      // ligar a emissão exige o mínimo para a SEFAZ aceitar: CNPJ, regime e token do ambiente escolhido
+      const company = (await db.query<{ value: Record<string, string | null> }>(`SELECT value FROM app_settings WHERE key = 'company.profile'`)).rows[0]?.value ?? {};
+      const falta: string[] = [];
+      if ((company.document ?? '').replace(/\D/g, '').length !== 14) falta.push('CNPJ da empresa');
+      if (!after.regime) falta.push('regime tributário');
+      if (!(await db.query('SELECT 1 FROM fiscal_secrets WHERE key = $1', [KEY(after.environment)])).rowCount) falta.push(`token de ${after.environment === 'producao' ? 'produção' : 'homologação'}`);
+      if (falta.length) throw Errors.businessRule(`Para ligar a emissão falta: ${falta.join(', ')}.`);
+    }
     await db.query(`INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ('fiscal.config', $1, $2, now())
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`, [JSON.stringify(after), userId]);
     await writeAudit(db, ctx, { action: 'settings.updated', entity: 'setting', entityId: 'fiscal.config', before, after });
