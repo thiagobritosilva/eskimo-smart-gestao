@@ -541,3 +541,28 @@ com impacto e estratégia de preservação de dados.
 - **Impressão:** DANFE NFC-e 80 mm com chave, protocolo e QR Code; XML baixado pelo servidor (o token nunca vai ao navegador).
 - **Testes:** API da Focus simulada (o ambiente de desenvolvimento não acessa a Focus). `FOCUS_HOMOLOGACAO_URL` existe só
   para apontar a um simulador local; não é usada em produção.
+
+## 0039_vendas_clientes_nfe — Vendas a clientes (freezer/carrinho) com NF-e modelo 55 (2026-11-27)
+- **Motivo:** clientes de freezer (comodato) e carrinho compram fora do caixa — inclusive a reposição dos freezers, que
+  passa a ser do cliente (venda, transfere a propriedade). O escritório/Proprietário lança a venda e emite NF-e.
+- **Permissão:** `wholesale.manage` (Proprietário e Gerente). Cancelamento: somente o Proprietário (pelo perfil).
+- **Clientes:** o mesmo cadastro dos pontos de venda (`ext_clients`), com colunas fiscais novas: tipo (PJ/PF), CNPJ/CPF
+  (só dígitos, único), razão social, IE e indicador (1 contribuinte, 2 isento, 9 não contribuinte), endereço
+  (logradouro, número, complemento, bairro, município, UF, CEP, código IBGE — DF preenche Brasília/5300108), e-mail.
+  Colunas novas e opcionais: nenhum dado existente é alterado.
+- **Venda:** tabela `sales` comum, canal interno "Vendas a clientes (NF-e)" (`pdv_connectors` modo `atacado`, ativado na
+  primeira venda), `document_model = 'NFE'`, numeração própria (`wholesale_sale_number_seq`). Colunas novas em `sales`:
+  `client_id`, `stock_location_id` (de onde sai o estoque — a regra de baixa usa este local primeiro) e `delivered`.
+  Preço por item editável (preço combinado com o revendedor), desconto rateado. Idempotente pela chave do envio.
+- **Financeiro:** conta a receber criada na hora (categoria de receita de vendas, origem `pdv`): à vista → já quitada
+  na conta escolhida; a prazo → parcelas com vencimento (soma deve fechar o total; vencimento depois de hoje). A venda
+  fica marcada como consolidada, para a consolidação diária não lançar o recebível de novo. A conciliação de canais
+  rotula "Vendas a clientes (NF-e)" e não a mistura com "Outro sistema".
+- **NF-e (Focus NFe, `/v2/nfe`):** `fiscal_documents.model = '55'`. Processamento assíncrono (consulta até autorizar;
+  o reenvio automático de 3 em 3 min continua as pendentes). Destinatário com CNPJ/CPF, IE/indicador e endereço;
+  `consumidor_final` = 1 para não contribuinte; presença 5 / frete por conta do emitente quando a loja entrega;
+  a prazo → fatura e duplicatas. Cadastro incompleto → rejeitada localmente (não envia), corrige e reenvia.
+  DANFE (PDF) e XML baixados pelo servidor (o token nunca vai ao navegador).
+- **Cancelamento:** devolve o estoque, estorna recebimentos e cancela o título, cancela a NF-e na SEFAZ por último
+  (motivo ≥ 15 caracteres; se a SEFAZ recusar, nada é desfeito). Fora do prazo legal: nota de devolução (não automatizada).
+- **Tela:** Operação › Vendas a clientes (vendas, nova venda, clientes com dados fiscais).

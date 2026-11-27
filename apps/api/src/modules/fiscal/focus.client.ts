@@ -10,7 +10,7 @@ export const FOCUS_BASE: Record<FiscalEnv, string> = {
   producao: 'https://api.focusnfe.com.br',
 };
 export interface FocusResponse { status: number; body: Record<string, unknown> | null; raw: string }
-type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; text(): Promise<string> }>;
+type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer> }>;
 
 let transport: Fetch = (url, init) => fetch(url, init);
 /** Somente testes. */
@@ -33,4 +33,11 @@ export async function focusRequest(env: FiscalEnv, token: string, method: 'GET' 
   } finally {
     clearTimeout(t);
   }
+}
+
+/** Baixa arquivo binário (ex.: DANFE em PDF da NF-e). */
+export async function focusDownload(env: FiscalEnv, token: string, path: string): Promise<{ status: number; data: Buffer }> {
+  const res = await transport(`${FOCUS_BASE[env]}${path}`, { method: 'GET', headers: { Authorization: `Basic ${Buffer.from(`${token}:`).toString('base64')}` } });
+  const data = res.arrayBuffer ? Buffer.from(await res.arrayBuffer()) : Buffer.from(await res.text());
+  return { status: res.status, data };
 }

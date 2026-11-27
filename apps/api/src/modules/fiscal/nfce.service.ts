@@ -192,7 +192,7 @@ export async function retryPending(limit = 20) {
   const config = await getFiscalConfig();
   if (!config.enabled) return { processed: 0 };
   const { rows } = await getPool().query<{ sale_id: string }>(
-    `SELECT sale_id FROM fiscal_documents WHERE status = 'pendente' AND (last_attempt_at IS NULL OR last_attempt_at < now() - interval '2 minutes')
+    `SELECT sale_id FROM fiscal_documents WHERE status = 'pendente' AND model = '65' AND (last_attempt_at IS NULL OR last_attempt_at < now() - interval '2 minutes')
      ORDER BY created_at LIMIT $1`, [limit],
   );
   for (const r of rows) await emitForSale(r.sale_id);
@@ -202,7 +202,7 @@ export async function retryPending(limit = 20) {
 export async function getDocument(id: string) {
   const r = (await getPool().query(
     `SELECT d.id, d.sale_id, d.ref, d.environment, d.status, d.number, d.series, d.access_key, d.protocol, d.qrcode_url, d.consult_url,
-            d.sefaz_status, d.sefaz_message, d.last_error, d.attempts, d.authorized_at, d.cancelled_at, d.cancel_reason, d.created_at,
+            d.sefaz_status, d.sefaz_message, d.last_error, d.attempts, d.authorized_at, d.cancelled_at, d.cancel_reason, d.created_at, d.model,
             s.document_number AS sale_number, s.net_amount::text, s.sold_at, s.status AS sale_status
      FROM fiscal_documents d JOIN sales s ON s.id = d.sale_id WHERE d.id = $1`, [id],
   )).rows[0];
@@ -217,8 +217,8 @@ export async function documentForSale(saleId: string) {
 
 export async function listDocuments(status: string | null, from: string | null, to: string | null) {
   const { rows } = await getPool().query(
-    `SELECT d.id, d.sale_id, d.environment, d.status, d.number, d.series, d.access_key, d.sefaz_message, d.last_error, d.attempts,
-            d.authorized_at, d.cancelled_at, d.created_at, s.document_number AS sale_number, s.net_amount::text, s.sold_at, s.operator_name
+    `SELECT d.id, d.sale_id, d.model, d.environment, d.status, d.number, d.series, d.access_key, d.sefaz_message, d.last_error, d.attempts,
+            d.authorized_at, d.cancelled_at, d.created_at, s.document_number AS sale_number, s.net_amount::text, s.sold_at, s.operator_name, s.customer_name
      FROM fiscal_documents d JOIN sales s ON s.id = d.sale_id
      WHERE ($1::text IS NULL OR d.status = $1) AND ($2::date IS NULL OR (s.sold_at AT TIME ZONE '${TZ}')::date >= $2::date)
        AND ($3::date IS NULL OR (s.sold_at AT TIME ZONE '${TZ}')::date <= $3::date)
@@ -267,13 +267,13 @@ export async function cancelDocumentInDb(db: Queryable, saleId: string, reason: 
 
 /** Baixa o XML autorizado (proxy autenticado — o token nunca vai para o navegador). */
 export async function downloadXml(id: string) {
-  const d = (await getPool().query<{ xml_path: string | null; environment: FiscalEnv; access_key: string | null }>('SELECT xml_path, environment, access_key FROM fiscal_documents WHERE id = $1', [id])).rows[0];
+  const d = (await getPool().query<{ xml_path: string | null; environment: FiscalEnv; access_key: string | null; model: string }>('SELECT xml_path, environment, access_key, model FROM fiscal_documents WHERE id = $1', [id])).rows[0];
   if (!d?.xml_path) throw Errors.notFound('XML ainda não disponível para esta nota.');
   const token = await readFiscalToken(d.environment);
   if (!token) throw Errors.businessRule('Token da Focus NFe não cadastrado.');
   const res = await focusRequest(d.environment, token, 'GET', d.xml_path);
   if (res.status !== 200) throw Errors.businessRule(`Focus NFe respondeu ${res.status} ao baixar o XML.`);
-  return { filename: `NFCe-${d.access_key ?? id}.xml`, xml: res.raw };
+  return { filename: `${d.model === '55' ? 'NFe' : 'NFCe'}-${d.access_key ?? id}.xml`, xml: res.raw };
 }
 
 export async function auditFiscal(ctx: AuditContext, action: string, entityId: string, metadata: unknown) {

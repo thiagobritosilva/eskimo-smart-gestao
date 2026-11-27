@@ -4,6 +4,7 @@ import { auditCtx, requireOwner } from '../../lib/http.js';
 import { parse } from '../../lib/validation.js';
 import * as svc from './fiscal.service.js';
 import * as nfce from './nfce.service.js';
+import * as nfe from './nfe.service.js';
 import { requirePermission } from '../../lib/http.js';
 import { uuidSchema } from '../../lib/validation.js';
 
@@ -43,6 +44,7 @@ export async function fiscalRoutes(app: FastifyInstance) {
     const d = await nfce.getDocument(id);
     if (d.status === 'autorizada' || d.status === 'cancelada') return d;
     await nfce.auditFiscal(auditCtx(req), 'fiscal.retry', id, { sale: d.sale_number });
+    if (d.model === '55') return nfe.emitNfeForSale(d.sale_id, { userId: req.auth!.id, force: true });
     return nfce.emitForSale(d.sale_id, { userId: req.auth!.id, force: true });
   });
   app.get('/fiscal/documents/:id/xml', { preHandler: owner }, async (req, reply) => {
@@ -50,5 +52,11 @@ export async function fiscalRoutes(app: FastifyInstance) {
     const x = await nfce.downloadXml(id);
     reply.header('Content-Type', 'application/xml; charset=utf-8').header('Content-Disposition', `attachment; filename="${x.filename}"`);
     return x.xml;
+  });
+  app.get('/fiscal/documents/:id/danfe', { preHandler: view }, async (req, reply) => {
+    const { id } = parse(z.object({ id: uuidSchema }), req.params);
+    const x = await nfe.downloadDanfe(id);
+    reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `inline; filename="${x.filename}"`);
+    return x.pdf;
   });
 }

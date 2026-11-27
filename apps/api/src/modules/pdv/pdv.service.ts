@@ -220,7 +220,7 @@ async function setPending(db: Db, saleId: string, reason: string) {
 export async function allocateSale(db: Db, actor: Actor, saleId: string): Promise<'alocada' | 'pendente' | 'nao_aplicavel'> {
   const sale = (await db.query(
     `SELECT s.id, s.connector_id, s.status, s.stock_status, s.sold_at, s.document_number, s.document_series, s.document_model, c.stock_mode, c.provider,
-            t.location_ids AS terminal_locations
+            t.location_ids AS terminal_locations, s.stock_location_id
      FROM sales s JOIN pdv_connectors c ON c.id = s.connector_id LEFT JOIN pos_terminals t ON t.id = s.pos_terminal_id
      WHERE s.id = $1 FOR UPDATE OF s`,
     [saleId],
@@ -256,13 +256,16 @@ export async function allocateSale(db: Db, actor: Actor, saleId: string): Promis
     const central = (await db.query<{ id: string }>(`SELECT id FROM locations WHERE kind = 'central' ORDER BY sort_order LIMIT 1`)).rows[0];
     if (central) ifoodFallback = { scope: 'ifood', category_id: null, product_id: null, location_ids: [central.id] };
   }
+  // venda a cliente (fora do caixa): sai do local escolhido na própria venda
+  const saleLocation = sale.stock_location_id ? { scope: 'venda', category_id: null, product_id: null, location_ids: [sale.stock_location_id as string] } : undefined;
   const ruleFor = (i: ItemRow) =>
+    saleLocation ??
     rules.find((r) => r.scope === 'produto' && r.product_id === i.product_id) ??
     rules.find((r) => r.scope === 'categoria' && i.category_id && r.category_id === i.category_id) ??
     terminalRule ??
     rules.find((r) => r.scope === 'padrao') ??
     ifoodFallback;
-  const docLabel = sale.document_model === 'CAIXA' ? `Venda do caixa nº ${sale.document_number}` : sale.document_model === 'IFOOD' ? `Pedido iFood ${sale.document_number}` : `Venda NFC-e ${sale.document_number}`;
+  const docLabel = sale.document_model === 'NFE' ? `Venda a cliente nº ${sale.document_number}` : sale.document_model === 'CAIXA' ? `Venda do caixa nº ${sale.document_number}` : sale.document_model === 'IFOOD' ? `Pedido iFood ${sale.document_number}` : `Venda NFC-e ${sale.document_number}`;
 
   // Agrega quantidades por produto (a mesma venda pode ter o produto em várias linhas)
   const needByProduct = new Map<string, { qty: number; name: string; locations: string[] }>();

@@ -41,7 +41,7 @@ export async function conciliation(db: Queryable, from: string, to: string) {
 
   // ---------------- 1) vendas por canal
   const channels = (await db.query<{ canal: string; vendas: number; canceladas: number; bruto: string; desconto: string; liquido: string }>(
-    `SELECT CASE WHEN s.document_model = 'CAIXA' THEN 'Caixa da loja' WHEN s.document_model = 'IFOOD' THEN 'iFood' ELSE 'PDV (NFC-e)' END AS canal,
+    `SELECT CASE WHEN s.document_model = 'CAIXA' THEN 'Caixa da loja' WHEN s.document_model = 'IFOOD' THEN 'iFood' WHEN s.document_model = 'NFE' THEN 'Vendas a clientes (NF-e)' ELSE 'PDV (NFC-e)' END AS canal,
             count(*) FILTER (WHERE s.status = 'concluida')::int AS vendas, count(*) FILTER (WHERE s.status = 'cancelada')::int AS canceladas,
             coalesce(sum(s.gross_amount) FILTER (WHERE s.status = 'concluida'), 0)::text AS bruto,
             coalesce(sum(s.discount_amount) FILTER (WHERE s.status = 'concluida'), 0)::text AS desconto,
@@ -80,7 +80,7 @@ export async function conciliation(db: Queryable, from: string, to: string) {
   if (decl.n) {
     const imported = (await db.query<{ method_code: string; v: string }>(
       `SELECT p.method_code, sum(p.amount)::text AS v FROM sales s JOIN sale_payments p ON p.sale_id = s.id
-       WHERE s.status = 'concluida' AND s.document_model NOT IN ('CAIXA', 'IFOOD') AND ${day('s.sold_at')} BETWEEN $1::date AND $2::date GROUP BY 1`, [from, to],
+       WHERE s.status = 'concluida' AND s.document_model NOT IN ('CAIXA', 'IFOOD', 'NFE') AND ${day('s.sold_at')} BETWEEN $1::date AND $2::date GROUP BY 1`, [from, to],
     )).rows;
     const imp = (codes: string[]) => imported.filter((r) => codes.includes(r.method_code)).reduce((t, r) => t + c(r.v), 0);
     const hasImport = imported.length > 0;
